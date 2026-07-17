@@ -3,7 +3,6 @@ from tkinter import ttk
 import threading
 import queue
 import socket
-import time
 
 
 class MixerWorker(threading.Thread):
@@ -81,12 +80,16 @@ class MainWindow:
 
         self.build_ui()
 
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
         self.root.after(100, self.process_messages)
 
     def build_ui(self):
 
         frame = ttk.Frame(self.root, padding=15)
         frame.pack(fill="both", expand=True)
+
+        port_vcmd = (self.root.register(self._validate_port_input), "%P")
 
         ttk.Label(frame, text="Mixer IP Address").grid(
             row=0, column=0, sticky="w"
@@ -100,7 +103,12 @@ class MainWindow:
             row=1, column=0, sticky="w"
         )
 
-        self.send_port_entry = ttk.Entry(frame, width=15)
+        self.send_port_entry = ttk.Entry(
+            frame,
+            width=15,
+            validate="key",
+            validatecommand=port_vcmd
+        )
         self.send_port_entry.insert(0, "10023")
         self.send_port_entry.grid(row=1, column=1, padx=5, pady=5)
 
@@ -178,14 +186,23 @@ class MainWindow:
             pady=10
         )
 
+    def _validate_port_input(self, proposed):
+        return proposed == "" or proposed.isdigit()
+
     def connect(self):
 
         if self.worker and self.worker.is_alive():
             return
 
+        send_port = self.send_port_entry.get()
+
+        if len(send_port) < 3:
+            self.status_label.config(text="Invalid send port")
+            return
+
         self.worker = MixerWorker(
             self.ip_entry.get(),
-            int(self.send_port_entry.get()),
+            int(send_port),
             int(self.recv_port_entry.get()),
             self.command_queue,
             self.message_queue
@@ -236,6 +253,10 @@ class MainWindow:
 
     def run(self):
         self.root.mainloop()
+
+    def on_close(self):
+        self.disconnect()
+        self.root.destroy()
 
 
 if __name__ == "__main__":
