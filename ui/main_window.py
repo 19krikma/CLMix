@@ -7,6 +7,9 @@ class MainWindow:
         self.root.title("My Desktop Application")
         self.root.geometry("600x400")
 
+        style = ttk.Style()
+        style.theme_use("breeze-dark")
+
         self.create_widgets()
 
     def create_widgets(self):
