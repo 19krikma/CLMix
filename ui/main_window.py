@@ -11,6 +11,8 @@ from pathlib import Path
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
+from services.remote_server import RemoteServer
+
 SETTINGS_PATH = Path.home() / ".digico_monitor_mix.json"
 
 
@@ -23,9 +25,17 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/Channel_Input/name$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_level$"),
     re.compile(r"^/Input_Channels/\d+/mute$"),
-    re.compile(r"^/Snapshots/Current_Snapshot$"),
-    re.compile(r"^/Snapshots/name$"),
 ]
+
+RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
+
+# The console broadcasts these immediately when a snapshot is recalled
+# (from the surface or the recall list), with the new snapshot number
+# embedded in the address itself rather than as an argument - and they
+# arrive faster than the console re-broadcasting /Snapshots/Current_Snapshot.
+SNAPSHOT_CHANGED_PATTERN = re.compile(
+    r"^/Snapshots/(?:Change_Surface_Snapshot|Recall_Snapshot)/(\d+)$"
+)
 
 
 class MixerWorker(threading.Thread):
@@ -47,6 +57,9 @@ class MixerWorker(threading.Thread):
         self.cache = {}
         self.banks = {}
         self.loaded = False
+
+        self.snapshot_name = None
+        self._snapshot_name_requested = False
 
     def run(self):
         try:
@@ -114,13 +127,56 @@ class MixerWorker(threading.Thread):
             ("message", f"Received: {address} {args}")
         )
 
+        snapshot_changed = SNAPSHOT_CHANGED_PATTERN.match(address)
+
         if address == "/Layout/Layout/Banks":
             self._store_bank(args)
+        elif address == "/Snapshots/Current_Snapshot":
+            self._handle_current_snapshot(args)
+        elif snapshot_changed:
+            self._handle_current_snapshot([int(snapshot_changed.group(1))])
+        elif address == "/Snapshots/name":
+            self._handle_snapshot_name(args)
+        elif RENAME_SNAPSHOT_PATTERN.match(address):
+            self._handle_snapshot_renamed(address, args)
         elif any(pattern.match(address) for pattern in CACHEABLE_ADDRESSES):
             self.cache[address] = args
 
         if not self.loaded:
             self.request_next_parameter()
+
+    def _handle_current_snapshot(self, args):
+        changed = self.cache.get("/Snapshots/Current_Snapshot") != args
+        self.cache["/Snapshots/Current_Snapshot"] = args
+
+        if changed:
+            self.snapshot_name = None
+            self._snapshot_name_requested = False
+            self._request_snapshot_name()
+
+    def _handle_snapshot_name(self, args):
+        current = self.cache.get("/Snapshots/Current_Snapshot")
+
+        if not args or current is None or args[0] != current[0]:
+            return
+
+        self.snapshot_name = args[-1]
+        self.message_queue.put(("snapshot", self.snapshot_name))
+
+    def _handle_snapshot_renamed(self, address, args):
+        current = self.cache.get("/Snapshots/Current_Snapshot")
+        match = RENAME_SNAPSHOT_PATTERN.match(address)
+
+        if not args or current is None or int(match.group(1)) != current[0]:
+            return
+
+        self.snapshot_name = args[0]
+        self.message_queue.put(("snapshot", self.snapshot_name))
+
+    def _request_snapshot_name(self):
+        if not self._snapshot_name_requested:
+            self.send_osc("/Snapshots/names/?", [])
+            self._snapshot_name_requested = True
 
     def _store_bank(self, args):
         if len(args) < 6:
@@ -164,6 +220,10 @@ class MixerWorker(threading.Thread):
 
         if "/Snapshots/Current_Snapshot" not in self.cache:
             self.send_osc("/Snapshots/Current_Snapshot/?", [])
+            return
+
+        if self.snapshot_name is None:
+            self._request_snapshot_name()
             return
 
         self.loaded = True
@@ -562,10 +622,11 @@ class MainWindow:
 
         self.root = tk.Tk()
         self.root.title("Mixer Controller")
-        self.root.geometry("550x250")
+        self.root.geometry("550x300")
 
         self.worker = None
         self.test_window = None
+        self.remote_server = None
 
         self.command_queue = queue.Queue()
         self.message_queue = queue.Queue()
@@ -579,6 +640,47 @@ class MainWindow:
         self.root.after(100, self.process_messages)
 
     def build_ui(self):
+
+        top_bar = ttk.Frame(self.root, padding=(15, 10))
+        top_bar.pack(fill="x")
+
+        self.connect_btn = ttk.Button(
+            top_bar,
+            text="Connect",
+            command=self.on_connect_button
+        )
+        self.connect_btn.pack(side="left")
+
+        ttk.Separator(top_bar, orient="vertical").pack(
+            side="left", fill="y", padx=15
+        )
+
+        self.indicator = tk.Canvas(
+            top_bar, width=16, height=16, highlightthickness=0
+        )
+        self.indicator.pack(side="left")
+        self.light = self.indicator.create_oval(2, 2, 14, 14, fill="red")
+
+        self.status_label = ttk.Label(
+            top_bar, text="Disconnected", font=("TkDefaultFont", 10, "bold")
+        )
+        self.status_label.pack(side="left", padx=(6, 24))
+
+        self.server_indicator = tk.Canvas(
+            top_bar, width=16, height=16, highlightthickness=0
+        )
+        self.server_indicator.pack(side="left")
+        self.server_light = self.server_indicator.create_oval(
+            2, 2, 14, 14, fill="red"
+        )
+
+        self.server_status_label = ttk.Label(top_bar, text="Server: Stopped")
+        self.server_status_label.pack(side="left", padx=6)
+
+        self.snapshot_label = ttk.Label(top_bar, text="Snapshot: --")
+        self.snapshot_label.pack(side="right")
+
+        ttk.Separator(self.root, orient="horizontal").pack(fill="x")
 
         frame = ttk.Frame(self.root, padding=15)
         frame.pack(fill="both", expand=True)
@@ -614,58 +716,18 @@ class MainWindow:
         self.recv_port_entry.insert(0, self.settings["recv_port"])
         self.recv_port_entry.grid(row=2, column=1, padx=5, pady=5)
 
-        self.connect_btn = ttk.Button(
+        ttk.Label(frame, text="Remote Port").grid(
+            row=3, column=0, sticky="w"
+        )
+
+        self.remote_port_entry = ttk.Entry(
             frame,
-            text="Connect",
-            command=self.connect
+            width=15,
+            validate="key",
+            validatecommand=port_vcmd
         )
-
-        self.connect_btn.grid(
-            row=3,
-            column=0,
-            pady=15
-        )
-
-        self.cancel_btn = ttk.Button(
-            frame,
-            text="Cancel",
-            command=self.disconnect
-        )
-
-        self.cancel_btn.grid(
-            row=3,
-            column=1,
-            sticky="w"
-        )
-
-        self.indicator = tk.Canvas(
-            frame,
-            width=20,
-            height=20,
-            highlightthickness=0
-        )
-
-        self.indicator.grid(
-            row=3,
-            column=2,
-            padx=10
-        )
-
-        self.light = self.indicator.create_oval(
-            2, 2, 18, 18,
-            fill="red"
-        )
-
-        self.status_label = ttk.Label(
-            frame,
-            text="Disconnected"
-        )
-
-        self.status_label.grid(
-            row=3,
-            column=3,
-            sticky="w"
-        )
+        self.remote_port_entry.insert(0, self.settings["remote_port"])
+        self.remote_port_entry.grid(row=3, column=1, padx=5, pady=5)
 
         self.test_btn = ttk.Button(
             frame,
@@ -677,7 +739,7 @@ class MainWindow:
             row=4,
             column=0,
             columnspan=2,
-            pady=10
+            pady=15
         )
 
     def _validate_port_input(self, proposed):
@@ -689,6 +751,7 @@ class MainWindow:
             "mixer_ip": "192.168.1.100",
             "send_port": "10023",
             "recv_port": "10024",
+            "remote_port": "8765",
         }
 
         try:
@@ -699,16 +762,23 @@ class MainWindow:
 
         return defaults
 
-    def save_settings(self, mixer_ip, send_port, recv_port):
+    def save_settings(self, mixer_ip, send_port, recv_port, remote_port):
         try:
             with open(SETTINGS_PATH, "w") as f:
                 json.dump({
                     "mixer_ip": mixer_ip,
                     "send_port": send_port,
                     "recv_port": recv_port,
+                    "remote_port": remote_port,
                 }, f)
         except OSError as ex:
             print(f"[settings] Failed to save settings: {ex!r}")
+
+    def on_connect_button(self):
+        if self.worker and self.worker.is_alive():
+            self.disconnect()
+        else:
+            self.connect()
 
     def connect(self):
         print("[connect] Connect button pressed")
@@ -724,11 +794,21 @@ class MainWindow:
             self.status_label.config(text="Invalid send port")
             return
 
+        remote_port = self.remote_port_entry.get()
+
+        if len(remote_port) < 2:
+            print(f"[connect] Invalid remote port: {remote_port!r}")
+            self.status_label.config(text="Invalid remote port")
+            return
+
         mixer_ip = self.ip_entry.get()
         recv_port = self.recv_port_entry.get()
-        print(f"[connect] mixer_ip={mixer_ip!r} send_port={send_port!r} recv_port={recv_port!r}")
+        print(f"[connect] mixer_ip={mixer_ip!r} send_port={send_port!r} "
+              f"recv_port={recv_port!r} remote_port={remote_port!r}")
 
-        self.save_settings(mixer_ip, send_port, recv_port)
+        self.save_settings(mixer_ip, send_port, recv_port, remote_port)
+
+        self.connect_btn.config(text="Disconnect")
 
         self.worker = MixerWorker(
             mixer_ip,
@@ -741,12 +821,24 @@ class MainWindow:
         self.worker.start()
         print("[connect] Worker thread started")
 
+        self.remote_server = RemoteServer(
+            lambda: self.worker, self.command_queue, int(remote_port),
+            self.message_queue
+        )
+        self.remote_server.start()
+
     def disconnect(self):
+
+        self.connect_btn.config(text="Connect")
 
         if self.worker:
 
             self.command_queue.put("STOP")
             self.worker.stop()
+
+        if self.remote_server:
+            self.remote_server.stop()
+            self.remote_server = None
 
     def open_test_window(self):
 
@@ -769,24 +861,42 @@ class MainWindow:
             msg_type, value = self.message_queue.get()
 
             if msg_type == "status":
+                self._apply_mixer_status(value)
 
-                self.status_label.config(text=value)
+            elif msg_type == "server_status":
+                self._apply_server_status(value)
 
-                if value in ("Connected", "Loaded"):
-                    self.indicator.itemconfig(
-                        self.light,
-                        fill="green"
-                    )
-                else:
-                    self.indicator.itemconfig(
-                        self.light,
-                        fill="red"
-                    )
+            elif msg_type == "snapshot":
+                self.snapshot_label.config(text=f"Snapshot: {value}")
 
             elif msg_type == "message":
                 print(value)
 
         self.root.after(100, self.process_messages)
+
+    def _apply_mixer_status(self, value):
+        if value in ("Connecting", "Connected"):
+            text, color = "Loading", "orange"
+        elif value == "Loaded":
+            text, color = "Connected", "green"
+        elif value == "Disconnected":
+            text, color = "Disconnected", "red"
+        else:
+            text, color = value, "red"
+
+        self.status_label.config(text=text)
+        self.indicator.itemconfig(self.light, fill=color)
+
+        if value == "Disconnected" or value.startswith("Error"):
+            self.connect_btn.config(text="Connect")
+            self.snapshot_label.config(text="Snapshot: --")
+        else:
+            self.connect_btn.config(text="Disconnect")
+
+    def _apply_server_status(self, value):
+        color = "green" if value == "Ready" else "red"
+        self.server_status_label.config(text=f"Server: {value}")
+        self.server_indicator.itemconfig(self.server_light, fill=color)
 
     def run(self):
         self.root.mainloop()
