@@ -14,6 +14,7 @@ interface MixerClientListener {
     fun onConnected() {}
     fun onDisconnected() {}
     fun onError(message: String) {}
+    fun onLoginResult(ok: Boolean, message: String?) {}
     fun onAuxes(auxes: List<AuxBus>) {}
     fun onBanks(banks: List<String>) {}
     fun onLevels(aux: Int, channels: List<ChannelState>) {}
@@ -22,8 +23,12 @@ interface MixerClientListener {
 /**
  * Talks to the DigicoMonitorMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
- * protocol: list_auxes/list_banks/select_aux/select_bank/set_level/
- * set_mute out, auxes/banks/levels/error in.
+ * protocol: login/list_auxes/list_banks/select_aux/select_bank/set_level/
+ * set_mute out, login_result/auxes/banks/levels/error in.
+ *
+ * The server rejects every action until a successful "login" - callers
+ * must send credentials via login() and wait for onLoginResult(true)
+ * before calling requestAuxes() or anything else.
  */
 object MixerClient {
     private val httpClient = OkHttpClient.Builder()
@@ -73,6 +78,13 @@ object MixerClient {
         isConnected = false
     }
 
+    fun login(username: String, password: String) = send(
+        JSONObject()
+            .put("action", "login")
+            .put("username", username)
+            .put("password", password)
+    )
+
     fun requestAuxes() = send(JSONObject().put("action", "list_auxes"))
 
     fun requestBanks() = send(JSONObject().put("action", "list_banks"))
@@ -108,6 +120,12 @@ object MixerClient {
         val json = JSONObject(text)
 
         when (json.optString("type")) {
+            "login_result" -> {
+                val ok = json.optBoolean("ok", false)
+                val message = json.optString("message").takeIf { it.isNotEmpty() }
+                onMain { listener?.onLoginResult(ok, message) }
+            }
+
             "auxes" -> {
                 val arr = json.getJSONArray("auxes")
                 val list = (0 until arr.length()).map {

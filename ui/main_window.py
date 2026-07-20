@@ -8,10 +8,13 @@ import json
 import time
 from pathlib import Path
 
+import sv_ttk
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
 from services.remote_server import RemoteServer
+from services.user_store import UserStore
+from ui.access_window import AccessWindow
 
 SETTINGS_PATH = Path.home() / ".digico_monitor_mix.json"
 
@@ -60,6 +63,7 @@ class MixerWorker(threading.Thread):
 
         self.snapshot_name = None
         self._snapshot_name_requested = False
+        self.snapshot_names = {}
 
     def run(self):
         try:
@@ -155,19 +159,33 @@ class MixerWorker(threading.Thread):
             self._request_snapshot_name()
 
     def _handle_snapshot_name(self, args):
+        if not args:
+            return
+
+        # The console broadcasts one of these per snapshot in response to
+        # a single "/Snapshots/names/?" query, so this also builds up the
+        # full index -> name catalog used for name-based access control.
+        self.snapshot_names[int(args[0])] = args[-1]
+
         current = self.cache.get("/Snapshots/Current_Snapshot")
 
-        if not args or current is None or args[0] != current[0]:
+        if current is None or args[0] != current[0]:
             return
 
         self.snapshot_name = args[-1]
         self.message_queue.put(("snapshot", self.snapshot_name))
 
     def _handle_snapshot_renamed(self, address, args):
-        current = self.cache.get("/Snapshots/Current_Snapshot")
         match = RENAME_SNAPSHOT_PATTERN.match(address)
 
-        if not args or current is None or int(match.group(1)) != current[0]:
+        if not args:
+            return
+
+        self.snapshot_names[int(match.group(1))] = args[0]
+
+        current = self.cache.get("/Snapshots/Current_Snapshot")
+
+        if current is None or int(match.group(1)) != current[0]:
             return
 
         self.snapshot_name = args[0]
@@ -265,7 +283,30 @@ class MixerWorker(threading.Thread):
         self.running = False
 
 
-class AuxLevelTestWindow:
+def build_aux_list(worker):
+    aux_modes = worker.cache.get("/Console/Aux_Outputs/modes", [])
+    aux_list = []
+
+    for i in range(1, len(aux_modes) + 1):
+        name_key = f"/Aux_Outputs/{i}/Buss_Trim/name"
+        name = worker.cache[name_key][0] \
+            if name_key in worker.cache else f"Aux {i}"
+        aux_list.append((i, name))
+
+    return aux_list
+
+
+def panel_bg(widget):
+    # sv_ttk themes ttk widgets automatically, but plain tk widgets
+    # (Canvas, Scale) need their background matched by hand so they
+    # don't show up as a mismatched gray/white square against the theme.
+    # sv_ttk exposes its palette only as Tcl array variables, not
+    # through the standard ttk::style lookup mechanism.
+    name = "sv_dark" if sv_ttk.get_theme(widget.winfo_toplevel()) == "dark" else "sv_light"
+    return widget.tk.eval(f"set ttk::theme::{name}::colors(-bg)")
+
+
+class AuxLevelsPanel:
     REFRESH_MS = 150
     LEVEL_EPSILON = 0.005
 
@@ -302,56 +343,34 @@ class AuxLevelTestWindow:
         t = (db - cls.BOTTOM_DB) / (cls.MID_DB - cls.BOTTOM_DB)
         return max(0.0, t * cls.FRACTION_MID)
 
-    def __init__(self, master, worker, command_queue):
-        self.worker = worker
+    def __init__(self, master, command_queue):
+        self.master = master
         self.command_queue = command_queue
 
-        channel_count = int(worker.cache["/Console/Input_Channels"][0])
-        self.all_channels = list(range(1, channel_count + 1))
-        self.channels = self.all_channels
-        self.aux_list = self._build_aux_list()
+        self.worker = None
+        self.all_channels = []
+        self.channels = []
+        self.aux_list = []
 
         self.sliders = {}
         self.mute_buttons = {}
+        self.mute_btn_default_bg = None
         self.suppress_send = False
-        self.refresh_job = None
         self.dragging = set()
         self.drag_released_at = {}
         self.bank_names_shown = None
 
-        self.window = tk.Toplevel(master)
-        self.window.title("Aux Send Levels")
-        self.window.geometry("600x400")
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-
         self.build_ui()
-        self.request_mute_states()
 
-        self.refresh_job = self.window.after(self.REFRESH_MS, self.refresh_levels)
-
-    def _build_aux_list(self):
-        aux_modes = self.worker.cache.get("/Console/Aux_Outputs/modes", [])
-        aux_list = []
-
-        for i in range(1, len(aux_modes) + 1):
-            name_key = f"/Aux_Outputs/{i}/Buss_Trim/name"
-            name = self.worker.cache[name_key][0] \
-                if name_key in self.worker.cache else f"Aux {i}"
-            aux_list.append((i, name))
-
-        return aux_list
+        self.master.after(self.REFRESH_MS, self.refresh_levels)
 
     def build_ui(self):
-        self.top_bar = ttk.Frame(self.window, padding=10)
+        self.top_bar = ttk.Frame(self.master, padding=10)
         self.top_bar.pack(fill="x")
 
         ttk.Label(self.top_bar, text="Aux Bus").pack(side="left")
 
-        self.aux_combo = ttk.Combobox(
-            self.top_bar,
-            values=[name for _, name in self.aux_list],
-            state="readonly"
-        )
+        self.aux_combo = ttk.Combobox(self.top_bar, values=[], state="readonly")
         self.aux_combo.pack(side="left", padx=10)
         self.aux_combo.bind("<<ComboboxSelected>>", self.on_aux_selected)
 
@@ -364,10 +383,12 @@ class AuxLevelTestWindow:
         self.banks_frame = ttk.Frame(self.top_bar)
         self.banks_frame.pack(side="left", padx=10)
 
-        canvas_container = ttk.Frame(self.window)
+        canvas_container = ttk.Frame(self.master)
         canvas_container.pack(fill="both", expand=True)
 
-        self.canvas = tk.Canvas(canvas_container, highlightthickness=0)
+        self.canvas = tk.Canvas(
+            canvas_container, highlightthickness=0, bg=panel_bg(self.master)
+        )
         h_scroll = ttk.Scrollbar(
             canvas_container, orient="horizontal", command=self.canvas.xview
         )
@@ -387,13 +408,48 @@ class AuxLevelTestWindow:
             )
         )
 
+    def apply_theme(self):
+        self.canvas.configure(bg=panel_bg(self.master))
+
+    def on_mixer_loaded(self, worker):
+        self.worker = worker
+
+        channel_count = int(worker.cache["/Console/Input_Channels"][0])
+        self.all_channels = list(range(1, channel_count + 1))
+        self.channels = self.all_channels
+        self.aux_list = build_aux_list(worker)
+        self.bank_names_shown = None
+
+        self.aux_combo.configure(values=[name for _, name in self.aux_list])
+
         self.build_bank_buttons()
         self.build_channel_widgets()
-        self._fit_window_size()
+        self.request_mute_states()
 
         if self.aux_list:
             self.aux_combo.current(0)
             self.on_aux_selected()
+
+    def on_mixer_disconnected(self):
+        self.worker = None
+        self.all_channels = []
+        self.channels = []
+        self.aux_list = []
+        self.bank_names_shown = None
+
+        self.aux_combo.configure(values=[])
+        self.aux_combo.set("")
+
+        for child in self.channels_frame.winfo_children():
+            child.destroy()
+
+        for child in self.banks_frame.winfo_children():
+            child.destroy()
+
+        self.sliders = {}
+        self.mute_buttons = {}
+        self.dragging = set()
+        self.drag_released_at = {}
 
     def build_bank_buttons(self):
         bank_names = tuple(self.worker.banks.keys())
@@ -445,27 +501,8 @@ class AuxLevelTestWindow:
         self.drag_released_at = {}
 
         self.build_channel_widgets()
-        self._fit_window_size()
         self.on_aux_selected()
         self.request_mute_states()
-
-    def _fit_window_size(self):
-        self.window.update_idletasks()
-
-        content_width = self.channels_frame.winfo_reqwidth() + 40
-        content_height = (
-            self.top_bar.winfo_reqheight()
-            + self.channels_frame.winfo_reqheight()
-            + 60
-        )
-
-        max_width = self.window.winfo_screenwidth() - 80
-        max_height = self.window.winfo_screenheight() - 120
-
-        width = max(400, min(content_width, max_width))
-        height = max(300, min(content_height, max_height))
-
-        self.window.geometry(f"{width}x{height}")
 
     def build_channel_widgets(self):
         for i in self.channels:
@@ -478,14 +515,12 @@ class AuxLevelTestWindow:
 
             ttk.Label(column, text=name).pack()
 
-            slider = tk.Scale(
+            slider = ttk.Scale(
                 column,
                 from_=1.0,
                 to=0.0,
-                resolution=0.001,
                 orient="vertical",
                 length=220,
-                showvalue=False,
                 command=lambda value, channel=i:
                     self.on_slider_change(channel, value)
             )
@@ -501,7 +536,7 @@ class AuxLevelTestWindow:
 
             self.sliders[i] = slider
 
-            mute_btn = tk.Button(
+            mute_btn = ttk.Button(
                 column,
                 text="Mute",
                 width=6,
@@ -510,7 +545,6 @@ class AuxLevelTestWindow:
             mute_btn.pack(pady=(4, 0))
 
             self.mute_buttons[i] = mute_btn
-            self.mute_btn_default_bg = mute_btn.cget("background")
 
     def current_aux(self):
         index = self.aux_combo.current()
@@ -523,7 +557,7 @@ class AuxLevelTestWindow:
     def on_aux_selected(self, event=None):
         aux = self.current_aux()
 
-        if aux is None or not self.worker.is_alive():
+        if aux is None or self.worker is None or not self.worker.is_alive():
             return
 
         for channel in self.channels:
@@ -537,7 +571,7 @@ class AuxLevelTestWindow:
 
         aux = self.current_aux()
 
-        if aux is None or not self.worker.is_alive():
+        if aux is None or self.worker is None or not self.worker.is_alive():
             return
 
         db = round(self._fraction_to_db(float(value)), 2)
@@ -551,14 +585,14 @@ class AuxLevelTestWindow:
         self.drag_released_at[channel] = time.monotonic()
 
     def request_mute_states(self):
-        if not self.worker.is_alive():
+        if self.worker is None or not self.worker.is_alive():
             return
 
         for channel in self.channels:
             self.command_queue.put(f"/Input_Channels/{channel}/mute/?")
 
     def on_mute_toggle(self, channel):
-        if not self.worker.is_alive():
+        if self.worker is None or not self.worker.is_alive():
             return
 
         key = f"/Input_Channels/{channel}/mute"
@@ -568,52 +602,47 @@ class AuxLevelTestWindow:
         self.command_queue.put(f"{key} {new_state}")
 
     def refresh_levels(self):
-        aux = self.current_aux()
+        if self.worker is not None:
+            aux = self.current_aux()
 
-        if aux is not None:
-            for channel, slider in self.sliders.items():
-                if channel in self.dragging:
-                    continue
+            if aux is not None:
+                for channel, slider in self.sliders.items():
+                    if channel in self.dragging:
+                        continue
 
-                released_at = self.drag_released_at.get(channel)
-                if released_at is not None and \
-                        time.monotonic() - released_at < self.DRAG_GRACE_SECONDS:
-                    continue
+                    released_at = self.drag_released_at.get(channel)
+                    if released_at is not None and \
+                            time.monotonic() - released_at < self.DRAG_GRACE_SECONDS:
+                        continue
 
-                key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level"
+                    key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level"
+
+                    if key not in self.worker.cache:
+                        continue
+
+                    level = round(self.worker.cache[key][0], 2)
+                    current_level = self._fraction_to_db(slider.get())
+
+                    if abs(current_level - level) > self.LEVEL_EPSILON:
+                        self.suppress_send = True
+                        slider.set(self._db_to_fraction(level))
+                        self.suppress_send = False
+
+            for channel, button in self.mute_buttons.items():
+                key = f"/Input_Channels/{channel}/mute"
 
                 if key not in self.worker.cache:
                     continue
 
-                level = round(self.worker.cache[key][0], 2)
-                current_level = self._fraction_to_db(slider.get())
+                muted = bool(self.worker.cache[key][0])
+                button.config(
+                    text="Muted" if muted else "Mute",
+                    style="Muted.TButton" if muted else "TButton"
+                )
 
-                if abs(current_level - level) > self.LEVEL_EPSILON:
-                    self.suppress_send = True
-                    slider.set(self._db_to_fraction(level))
-                    self.suppress_send = False
+            self.build_bank_buttons()
 
-        for channel, button in self.mute_buttons.items():
-            key = f"/Input_Channels/{channel}/mute"
-
-            if key not in self.worker.cache:
-                continue
-
-            muted = bool(self.worker.cache[key][0])
-            button.config(
-                text="Muted" if muted else "Mute",
-                bg="red" if muted else self.mute_btn_default_bg
-            )
-
-        self.build_bank_buttons()
-
-        self.refresh_job = self.window.after(self.REFRESH_MS, self.refresh_levels)
-
-    def close(self):
-        if self.refresh_job:
-            self.window.after_cancel(self.refresh_job)
-
-        self.window.destroy()
+        self.master.after(self.REFRESH_MS, self.refresh_levels)
 
 
 class MainWindow:
@@ -622,17 +651,19 @@ class MainWindow:
 
         self.root = tk.Tk()
         self.root.title("Mixer Controller")
-        self.root.geometry("550x300")
+        self.root.geometry("800x500")
 
         self.worker = None
-        self.test_window = None
+        self.access_window = None
         self.remote_server = None
 
         self.command_queue = queue.Queue()
         self.message_queue = queue.Queue()
 
         self.settings = self.load_settings()
+        self.user_store = UserStore()
 
+        self.apply_theme(self.settings["theme"], persist=False)
         self.build_ui()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -644,6 +675,8 @@ class MainWindow:
         top_bar = ttk.Frame(self.root, padding=(15, 10))
         top_bar.pack(fill="x")
 
+        ttk.Label(top_bar, text="Mixer").pack(side="left", padx=(0, 6))
+
         self.connect_btn = ttk.Button(
             top_bar,
             text="Connect",
@@ -651,12 +684,27 @@ class MainWindow:
         )
         self.connect_btn.pack(side="left")
 
+        self.setup_btn = ttk.Button(
+            top_bar,
+            text="Setup",
+            command=self.open_setup_window
+        )
+        self.setup_btn.pack(side="left", padx=(10, 0))
+
+        self.access_btn = ttk.Button(
+            top_bar,
+            text="Access",
+            command=self.open_access_window
+        )
+        self.access_btn.pack(side="left", padx=(10, 0))
+
         ttk.Separator(top_bar, orient="vertical").pack(
             side="left", fill="y", padx=15
         )
 
         self.indicator = tk.Canvas(
-            top_bar, width=16, height=16, highlightthickness=0
+            top_bar, width=16, height=16, highlightthickness=0,
+            bg=panel_bg(top_bar)
         )
         self.indicator.pack(side="left")
         self.light = self.indicator.create_oval(2, 2, 14, 14, fill="red")
@@ -667,7 +715,8 @@ class MainWindow:
         self.status_label.pack(side="left", padx=(6, 24))
 
         self.server_indicator = tk.Canvas(
-            top_bar, width=16, height=16, highlightthickness=0
+            top_bar, width=16, height=16, highlightthickness=0,
+            bg=panel_bg(top_bar)
         )
         self.server_indicator.pack(side="left")
         self.server_light = self.server_indicator.create_oval(
@@ -685,7 +734,19 @@ class MainWindow:
         frame = ttk.Frame(self.root, padding=15)
         frame.pack(fill="both", expand=True)
 
-        port_vcmd = (self.root.register(self._validate_port_input), "%P")
+        self.aux_panel = AuxLevelsPanel(frame, self.command_queue)
+
+        self.build_setup_window()
+
+    def build_setup_window(self):
+        self.setup_window = tk.Toplevel(self.root)
+        self.setup_window.title("Setup")
+        self.setup_window.protocol("WM_DELETE_WINDOW", self.close_setup_window)
+
+        frame = ttk.Frame(self.setup_window, padding=15)
+        frame.pack(fill="both", expand=True)
+
+        port_vcmd = (self.setup_window.register(self._validate_port_input), "%P")
 
         ttk.Label(frame, text="Mixer IP Address").grid(
             row=0, column=0, sticky="w"
@@ -729,18 +790,28 @@ class MainWindow:
         self.remote_port_entry.insert(0, self.settings["remote_port"])
         self.remote_port_entry.grid(row=3, column=1, padx=5, pady=5)
 
-        self.test_btn = ttk.Button(
-            frame,
-            text="Test Aux Levels",
-            command=self.open_test_window
+        ttk.Label(frame, text="Theme").grid(
+            row=4, column=0, sticky="w", pady=(10, 0)
         )
 
-        self.test_btn.grid(
-            row=4,
-            column=0,
-            columnspan=2,
-            pady=15
+        self.theme_combo = ttk.Combobox(
+            frame, width=13, state="readonly", values=["Light", "Dark"]
         )
+        self.theme_combo.set(self.settings["theme"].capitalize())
+        self.theme_combo.grid(row=4, column=1, padx=5, pady=(10, 5), sticky="w")
+        self.theme_combo.bind("<<ComboboxSelected>>", self.on_theme_selected)
+
+        self.setup_window.withdraw()
+
+    def on_theme_selected(self, event=None):
+        self.apply_theme(self.theme_combo.get().lower())
+
+    def open_setup_window(self):
+        self.setup_window.deiconify()
+        self.setup_window.lift()
+
+    def close_setup_window(self):
+        self.setup_window.withdraw()
 
     def _validate_port_input(self, proposed):
         return proposed == "" or proposed.isdigit()
@@ -752,6 +823,7 @@ class MainWindow:
             "send_port": "10023",
             "recv_port": "10024",
             "remote_port": "8765",
+            "theme": "dark",
         }
 
         try:
@@ -762,17 +834,37 @@ class MainWindow:
 
         return defaults
 
-    def save_settings(self, mixer_ip, send_port, recv_port, remote_port):
+    def save_settings(self):
         try:
             with open(SETTINGS_PATH, "w") as f:
-                json.dump({
-                    "mixer_ip": mixer_ip,
-                    "send_port": send_port,
-                    "recv_port": recv_port,
-                    "remote_port": remote_port,
-                }, f)
+                json.dump(self.settings, f)
         except OSError as ex:
             print(f"[settings] Failed to save settings: {ex!r}")
+
+    def apply_theme(self, theme, persist=True):
+        sv_ttk.set_theme(theme)
+
+        style = ttk.Style()
+        style.configure("Muted.TButton", background="#c0392b", foreground="white")
+        style.map(
+            "Muted.TButton",
+            background=[("active", "#e74c3c")],
+            foreground=[("active", "white")]
+        )
+
+        bg = panel_bg(self.root)
+        self.root.configure(bg=bg)
+
+        for canvas in (getattr(self, "indicator", None), getattr(self, "server_indicator", None)):
+            if canvas is not None:
+                canvas.configure(bg=bg)
+
+        if getattr(self, "aux_panel", None) is not None:
+            self.aux_panel.apply_theme()
+
+        if persist:
+            self.settings["theme"] = theme
+            self.save_settings()
 
     def on_connect_button(self):
         if self.worker and self.worker.is_alive():
@@ -806,7 +898,13 @@ class MainWindow:
         print(f"[connect] mixer_ip={mixer_ip!r} send_port={send_port!r} "
               f"recv_port={recv_port!r} remote_port={remote_port!r}")
 
-        self.save_settings(mixer_ip, send_port, recv_port, remote_port)
+        self.settings.update({
+            "mixer_ip": mixer_ip,
+            "send_port": send_port,
+            "recv_port": recv_port,
+            "remote_port": remote_port,
+        })
+        self.save_settings()
 
         self.connect_btn.config(text="Disconnect")
 
@@ -823,7 +921,7 @@ class MainWindow:
 
         self.remote_server = RemoteServer(
             lambda: self.worker, self.command_queue, int(remote_port),
-            self.message_queue
+            self.user_store, self.message_queue
         )
         self.remote_server.start()
 
@@ -840,18 +938,14 @@ class MainWindow:
             self.remote_server.stop()
             self.remote_server = None
 
-    def open_test_window(self):
+    def open_access_window(self):
 
-        if not (self.worker and self.worker.is_alive() and self.worker.loaded):
-            self.status_label.config(text="Wait for mixer to finish loading")
+        if self.access_window and self.access_window.window.winfo_exists():
+            self.access_window.window.lift()
             return
 
-        if self.test_window and self.test_window.window.winfo_exists():
-            self.test_window.window.lift()
-            return
-
-        self.test_window = AuxLevelTestWindow(
-            self.root, self.worker, self.command_queue
+        self.access_window = AccessWindow(
+            self.root, self.user_store, lambda: self.worker
         )
 
     def process_messages(self):
@@ -890,8 +984,12 @@ class MainWindow:
         if value == "Disconnected" or value.startswith("Error"):
             self.connect_btn.config(text="Connect")
             self.snapshot_label.config(text="Snapshot: --")
+            self.aux_panel.on_mixer_disconnected()
         else:
             self.connect_btn.config(text="Disconnect")
+
+        if value == "Loaded":
+            self.aux_panel.on_mixer_loaded(self.worker)
 
     def _apply_server_status(self, value):
         color = "green" if value == "Ready" else "red"

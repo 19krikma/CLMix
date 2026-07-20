@@ -4,23 +4,32 @@ import threading
 
 import websockets
 
+from services.user_store import ALL_AUX, ALL_SNAPSHOTS
+
 PUSH_INTERVAL_SECONDS = 0.15
 
 
 class RemoteServer:
     """WebSocket bridge letting phone apps read/control Aux Send Levels.
 
-    Each connected client picks an aux bus (and optionally a bank to
+    Clients must log in with a username/password (checked against
+    user_store) before any other action is honored. Each account is
+    scoped to one snapshot and one aux bus (or "all" of either) - the
+    server rejects actions that fall outside that scope for the mixer's
+    currently active snapshot.
+
+    Once logged in, a client picks an aux bus (and optionally a bank to
     narrow the channel list) and from then on receives periodic level/
     mute updates for that selection, and can push level/mute changes
     back - both translated to/from the same OSC commands the desktop
     UI uses via MixerWorker's cache and command_queue.
     """
 
-    def __init__(self, get_worker, command_queue, port, message_queue=None):
+    def __init__(self, get_worker, command_queue, port, user_store, message_queue=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
+        self.user_store = user_store
         self.message_queue = message_queue
 
         self._thread = None
@@ -62,7 +71,7 @@ class RemoteServer:
 
     async def _handle_client(self, websocket):
         print(f"[remote] Client connected: {websocket.remote_address}")
-        state = {"aux": None, "bank": None}
+        state = {"aux": None, "bank": None, "user": None, "permission": None}
 
         push_task = asyncio.create_task(self._push_loop(websocket, state))
 
@@ -82,6 +91,18 @@ class RemoteServer:
             await self._send(websocket, {"type": "error", "message": "invalid JSON"})
             return
 
+        action = msg.get("action")
+
+        if action == "login":
+            await self._handle_login(websocket, state, msg)
+            return
+
+        if state["user"] is None:
+            await self._send(
+                websocket, {"type": "error", "message": "Not authenticated"}
+            )
+            return
+
         worker = self.get_worker()
 
         if not worker or not worker.is_alive() or not worker.loaded:
@@ -90,11 +111,18 @@ class RemoteServer:
             )
             return
 
-        action = msg.get("action")
+        entry = state["permission"]
+
+        if not self._snapshot_allowed(worker, entry):
+            await self._send(
+                websocket,
+                {"type": "error", "message": "Not permitted for the current snapshot"}
+            )
+            return
 
         if action == "list_auxes":
             await self._send(
-                websocket, {"type": "auxes", "auxes": self._aux_list(worker)}
+                websocket, {"type": "auxes", "auxes": self._aux_list(worker, entry)}
             )
 
         elif action == "list_banks":
@@ -103,7 +131,15 @@ class RemoteServer:
             )
 
         elif action == "select_aux":
-            state["aux"] = msg.get("aux")
+            aux = msg.get("aux")
+
+            if not self._aux_allowed(worker, entry, aux):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for this aux"}
+                )
+                return
+
+            state["aux"] = aux
             self._request_levels(worker, state)
 
         elif action == "select_bank":
@@ -112,6 +148,12 @@ class RemoteServer:
             self._request_mutes(worker, state)
 
         elif action == "set_level":
+            if not self._aux_allowed(worker, entry, state.get("aux")):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for this aux"}
+                )
+                return
+
             self._set_level(state, msg.get("channel"), msg.get("level"))
 
         elif action == "set_mute":
@@ -122,14 +164,58 @@ class RemoteServer:
                 websocket, {"type": "error", "message": f"unknown action {action!r}"}
             )
 
+    async def _handle_login(self, websocket, state, msg):
+        username = msg.get("username")
+        password = msg.get("password")
+
+        entry = self.user_store.authenticate(username, password) \
+            if username and password else None
+
+        if entry is None:
+            await self._send(
+                websocket,
+                {"type": "login_result", "ok": False, "message": "Invalid username or password"}
+            )
+            return
+
+        state["user"] = username
+        state["permission"] = entry
+
+        await self._send(websocket, {
+            "type": "login_result",
+            "ok": True,
+            "snapshot": entry["snapshot"],
+            "aux": entry["aux"],
+        })
+
+    @staticmethod
+    def _snapshot_allowed(worker, entry):
+        return entry["snapshot"] == ALL_SNAPSHOTS or entry["snapshot"] == worker.snapshot_name
+
+    @classmethod
+    def _aux_allowed(cls, worker, entry, aux_index):
+        if entry["aux"] == ALL_AUX:
+            return True
+
+        return aux_index is not None and entry["aux"] == cls._aux_name(worker, aux_index)
+
+    @staticmethod
+    def _aux_name(worker, aux_index):
+        key = f"/Aux_Outputs/{aux_index}/Buss_Trim/name"
+        return worker.cache[key][0] if key in worker.cache else f"Aux {aux_index}"
+
     async def _push_loop(self, websocket, state):
         while True:
             await asyncio.sleep(PUSH_INTERVAL_SECONDS)
 
             worker = self.get_worker()
             aux = state.get("aux")
+            entry = state.get("permission")
 
-            if not worker or not worker.is_alive() or aux is None:
+            if not worker or not worker.is_alive() or aux is None or entry is None:
+                continue
+
+            if not self._snapshot_allowed(worker, entry):
                 continue
 
             channels = self._channels_for(worker, state.get("bank"))
@@ -179,7 +265,7 @@ class RemoteServer:
         )
 
     @staticmethod
-    def _aux_list(worker):
+    def _aux_list(worker, entry=None):
         aux_modes = worker.cache.get("/Console/Aux_Outputs/modes", [])
         auxes = []
 
@@ -187,6 +273,10 @@ class RemoteServer:
             name_key = f"/Aux_Outputs/{i}/Buss_Trim/name"
             name = worker.cache[name_key][0] \
                 if name_key in worker.cache else f"Aux {i}"
+
+            if entry and entry["aux"] != ALL_AUX and entry["aux"] != name:
+                continue
+
             auxes.append({"index": i, "name": name})
 
         return auxes
