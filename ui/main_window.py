@@ -675,8 +675,6 @@ class MainWindow:
         top_bar = ttk.Frame(self.root, padding=(15, 10))
         top_bar.pack(fill="x")
 
-        ttk.Label(top_bar, text="Mixer").pack(side="left", padx=(0, 6))
-
         self.connect_btn = ttk.Button(
             top_bar,
             text="Connect",
@@ -701,6 +699,8 @@ class MainWindow:
         ttk.Separator(top_bar, orient="vertical").pack(
             side="left", fill="y", padx=15
         )
+
+        ttk.Label(top_bar, text="Mixer:").pack(side="left", padx=(0, 6))
 
         self.indicator = tk.Canvas(
             top_bar, width=16, height=16, highlightthickness=0,
