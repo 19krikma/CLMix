@@ -4,6 +4,7 @@ import threading
 
 import websockets
 
+from services.log_store import log
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
 PUSH_INTERVAL_SECONDS = 0.15
@@ -52,25 +53,25 @@ class RemoteServer:
         try:
             self._loop.run_until_complete(self._serve())
         except Exception as ex:
-            print(f"[remote] Server error: {ex!r}")
+            log("error", f"Remote server error: {ex!r}")
         finally:
             self._loop.close()
             self._report_status("Stopped")
 
     async def _serve(self):
         async with websockets.serve(self._handle_client, "0.0.0.0", self.port):
-            print(f"[remote] Listening on port {self.port}")
+            log("info", f"Remote server listening on port {self.port}")
             self._report_status("Ready")
             await self._stop_event.wait()
 
-        print("[remote] Stopped")
+        log("info", "Remote server stopped")
 
     def _report_status(self, status):
         if self.message_queue:
             self.message_queue.put(("server_status", status))
 
     async def _handle_client(self, websocket):
-        print(f"[remote] Client connected: {websocket.remote_address}")
+        log("info", f"Client connected: {websocket.remote_address}")
         state = {"aux": None, "bank": None, "user": None, "permission": None}
 
         push_task = asyncio.create_task(self._push_loop(websocket, state))
@@ -82,7 +83,7 @@ class RemoteServer:
             pass
         finally:
             push_task.cancel()
-            print(f"[remote] Client disconnected: {websocket.remote_address}")
+            log("info", f"Client disconnected: {websocket.remote_address}")
 
     async def _handle_message(self, websocket, state, raw):
         try:
@@ -172,6 +173,7 @@ class RemoteServer:
             if username and password else None
 
         if entry is None:
+            log("info", f"Failed login attempt for user {username!r}")
             await self._send(
                 websocket,
                 {"type": "login_result", "ok": False, "message": "Invalid username or password"}
@@ -180,6 +182,9 @@ class RemoteServer:
 
         state["user"] = username
         state["permission"] = entry
+
+        log("info", f"User {username!r} logged in "
+            f"(snapshot={entry['snapshot']!r}, aux={entry['aux']!r})")
 
         await self._send(websocket, {
             "type": "login_result",

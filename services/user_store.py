@@ -3,6 +3,8 @@ import json
 import secrets
 from pathlib import Path
 
+from services.log_store import log
+
 USERS_PATH = Path.home() / ".digico_monitor_mix_users.json"
 
 ALL_SNAPSHOTS = "All Snapshots"
@@ -34,7 +36,7 @@ class UserStore:
             with open(self.path, "w") as f:
                 json.dump(self.users, f, indent=2)
         except OSError as ex:
-            print(f"[users] Failed to save users: {ex!r}")
+            log("error", f"Failed to save users: {ex!r}")
 
     def list_users(self):
         return sorted(self.users.items())

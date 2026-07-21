@@ -12,9 +12,11 @@ import sv_ttk
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
+from services.log_store import log
 from services.remote_server import RemoteServer
 from services.user_store import UserStore
 from ui.access_window import AccessWindow
+from ui.logs_window import LogsWindow
 
 SETTINGS_PATH = Path.home() / ".digico_monitor_mix.json"
 
@@ -67,20 +69,20 @@ class MixerWorker(threading.Thread):
 
     def run(self):
         try:
-            print(f"[worker] Connecting to {self.mixer_ip}:{self.send_port} "
-                  f"(recv on port {self.recv_port})")
+            log("info", f"Connecting to {self.mixer_ip}:{self.send_port} "
+                f"(recv on port {self.recv_port})")
             self.message_queue.put(("status", "Connecting"))
 
             self.send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            print("[worker] Send socket created")
+            log("debug", "Send socket created")
 
             self.recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.recv_sock.bind(("", self.recv_port))
             self.recv_sock.settimeout(0.1)
-            print(f"[worker] Recv socket bound on port {self.recv_port}")
+            log("debug", f"Recv socket bound on port {self.recv_port}")
 
             self.message_queue.put(("status", "Connected"))
-            print("[worker] Status: Connected")
+            log("info", "Connected to mixer, loading parameters...")
 
             self.request_next_parameter()
 
@@ -91,7 +93,7 @@ class MixerWorker(threading.Thread):
                     command = self.command_queue.get_nowait()
 
                     if command == "STOP":
-                        print("[worker] STOP command received")
+                        log("debug", "STOP command received")
                         break
 
                     self.send_command(command)
@@ -100,7 +102,7 @@ class MixerWorker(threading.Thread):
                     pass
 
         except Exception as ex:
-            print(f"[worker] Error: {ex!r}")
+            log("error", f"Worker error: {ex!r}")
             self.message_queue.put(("status", f"Error: {ex}"))
 
         finally:
@@ -110,7 +112,7 @@ class MixerWorker(threading.Thread):
             if self.recv_sock:
                 self.recv_sock.close()
 
-            print("[worker] Status: Disconnected")
+            log("info", "Disconnected from mixer")
             self.message_queue.put(("status", "Disconnected"))
 
     def receive_osc(self):
@@ -173,7 +175,7 @@ class MixerWorker(threading.Thread):
             return
 
         self.snapshot_name = args[-1]
-        self.message_queue.put(("snapshot", self.snapshot_name))
+        self.message_queue.put(("snapshot", (current[0], self.snapshot_name)))
 
     def _handle_snapshot_renamed(self, address, args):
         match = RENAME_SNAPSHOT_PATTERN.match(address)
@@ -189,7 +191,7 @@ class MixerWorker(threading.Thread):
             return
 
         self.snapshot_name = args[0]
-        self.message_queue.put(("snapshot", self.snapshot_name))
+        self.message_queue.put(("snapshot", (current[0], self.snapshot_name)))
 
     def _request_snapshot_name(self):
         if not self._snapshot_name_requested:
@@ -245,11 +247,12 @@ class MixerWorker(threading.Thread):
             return
 
         self.loaded = True
+        log("info", "Mixer fully loaded and ready")
         self.message_queue.put(("status", "Loaded"))
         self.send_osc("/Layout/Layout/Banks/?", [])
 
     def send_osc(self, address, args):
-        print(f"[worker] send_osc: {address} {args}")
+        log("debug", f"send_osc: {address} {args}")
 
         builder = OscMessageBuilder(address=address)
 
@@ -655,6 +658,7 @@ class MainWindow:
 
         self.worker = None
         self.access_window = None
+        self.logs_window = None
         self.remote_server = None
 
         self.command_queue = queue.Queue()
@@ -695,6 +699,13 @@ class MainWindow:
             command=self.open_access_window
         )
         self.access_btn.pack(side="left", padx=(10, 0))
+
+        self.logs_btn = ttk.Button(
+            top_bar,
+            text="Logs",
+            command=self.open_logs_window
+        )
+        self.logs_btn.pack(side="left", padx=(10, 0))
 
         ttk.Separator(top_bar, orient="vertical").pack(
             side="left", fill="y", padx=15
@@ -839,7 +850,7 @@ class MainWindow:
             with open(SETTINGS_PATH, "w") as f:
                 json.dump(self.settings, f)
         except OSError as ex:
-            print(f"[settings] Failed to save settings: {ex!r}")
+            log("error", f"Failed to save settings: {ex!r}")
 
     def apply_theme(self, theme, persist=True):
         sv_ttk.set_theme(theme)
@@ -873,30 +884,30 @@ class MainWindow:
             self.connect()
 
     def connect(self):
-        print("[connect] Connect button pressed")
+        log("debug", "Connect button pressed")
 
         if self.worker and self.worker.is_alive():
-            print("[connect] Worker already running, ignoring")
+            log("debug", "Worker already running, ignoring")
             return
 
         send_port = self.send_port_entry.get()
 
         if len(send_port) < 3:
-            print(f"[connect] Invalid send port: {send_port!r}")
+            log("error", f"Invalid send port: {send_port!r}")
             self.status_label.config(text="Invalid send port")
             return
 
         remote_port = self.remote_port_entry.get()
 
         if len(remote_port) < 2:
-            print(f"[connect] Invalid remote port: {remote_port!r}")
+            log("error", f"Invalid remote port: {remote_port!r}")
             self.status_label.config(text="Invalid remote port")
             return
 
         mixer_ip = self.ip_entry.get()
         recv_port = self.recv_port_entry.get()
-        print(f"[connect] mixer_ip={mixer_ip!r} send_port={send_port!r} "
-              f"recv_port={recv_port!r} remote_port={remote_port!r}")
+        log("debug", f"mixer_ip={mixer_ip!r} send_port={send_port!r} "
+            f"recv_port={recv_port!r} remote_port={remote_port!r}")
 
         self.settings.update({
             "mixer_ip": mixer_ip,
@@ -917,7 +928,7 @@ class MainWindow:
         )
 
         self.worker.start()
-        print("[connect] Worker thread started")
+        log("debug", "Worker thread started")
 
         self.remote_server = RemoteServer(
             lambda: self.worker, self.command_queue, int(remote_port),
@@ -948,6 +959,14 @@ class MainWindow:
             self.root, self.user_store, lambda: self.worker
         )
 
+    def open_logs_window(self):
+
+        if self.logs_window and self.logs_window.window.winfo_exists():
+            self.logs_window.window.lift()
+            return
+
+        self.logs_window = LogsWindow(self.root)
+
     def process_messages(self):
 
         while not self.message_queue.empty():
@@ -961,10 +980,11 @@ class MainWindow:
                 self._apply_server_status(value)
 
             elif msg_type == "snapshot":
-                self.snapshot_label.config(text=f"Snapshot: {value}")
+                number, name = value
+                self.snapshot_label.config(text=f"Snapshot: {name or f'#{number}'}")
 
             elif msg_type == "message":
-                print(value)
+                log("debug", value)
 
         self.root.after(100, self.process_messages)
 

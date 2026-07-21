@@ -2,20 +2,24 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:background="?android:attr/colorBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="12dp"
+        android:background="?attr/colorSurface"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
         android:gravity="center_vertical">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Bank"
-            android:layout_marginEnd="8dp" />
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:layout_marginEnd="10dp" />
 
         <Spinner
             android:id="@+id/bank_spinner"
@@ -28,6 +32,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
+            android:textColor="?attr/colorError"
             android:text="" />
 
     </LinearLayout>
@@ -39,6 +44,6 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:clipToPadding="false"
-        android:padding="8dp" />
+        android:padding="10dp" />
 
 </LinearLayout>

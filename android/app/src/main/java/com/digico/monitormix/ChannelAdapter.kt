@@ -1,5 +1,6 @@
 package com.digico.monitormix
 
+import android.content.res.ColorStateList
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.SeekBar
@@ -107,12 +108,17 @@ class ChannelAdapter(
         displayedMuted[channel.channel] = channel.muted
 
         holder.binding.muteButton.text = if (channel.muted) "Muted" else "Mute"
-        holder.binding.muteButton.setBackgroundColor(
-            if (channel.muted) {
-                ContextCompat.getColor(holder.binding.root.context, R.color.mute_active)
-            } else {
-                ContextCompat.getColor(holder.binding.root.context, android.R.color.darker_gray)
-            }
+        holder.binding.muteButton.backgroundTintList = ColorStateList.valueOf(
+            ContextCompat.getColor(
+                holder.binding.root.context,
+                if (channel.muted) R.color.mute_active else R.color.mute_inactive
+            )
+        )
+        holder.binding.muteButton.setTextColor(
+            ContextCompat.getColor(
+                holder.binding.root.context,
+                if (channel.muted) R.color.on_primary else R.color.on_mute_inactive
+            )
         )
     }
 

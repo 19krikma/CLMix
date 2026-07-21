@@ -1,0 +1,18 @@
+<resources>
+    <color name="primary">#6C93FF</color>
+    <color name="on_primary">#0B1530</color>
+    <color name="secondary">#3FCF8E</color>
+    <color name="on_secondary">#052A18</color>
+
+    <color name="background">#121317</color>
+    <color name="surface">#1B1D22</color>
+    <color name="surface_variant">#25272E</color>
+    <color name="on_surface">#ECEDF0</color>
+    <color name="on_surface_variant">#A9ACB4</color>
+
+    <color name="mute_active">#FF6B62</color>
+    <color name="mute_inactive">#33363C</color>
+    <color name="on_mute_inactive">#D3D6DC</color>
+
+    <color name="track_background">#33363C</color>
+</resources>
