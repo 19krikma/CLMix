@@ -13,6 +13,7 @@ from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
 from services.log_store import log
+from services.network_info import get_ethernet_ip
 from services.remote_server import RemoteServer
 from services.user_store import UserStore
 from ui.access_window import AccessWindow
@@ -876,22 +877,37 @@ class MainWindow:
         self.remote_port_entry.insert(0, self.settings["remote_port"])
         self.remote_port_entry.grid(row=3, column=1, padx=5, pady=5)
 
-        ttk.Label(frame, text="Theme").grid(
+        ttk.Label(frame, text="Computer IP").grid(
             row=4, column=0, sticky="w", pady=(10, 0)
+        )
+
+        self.computer_ip_label = ttk.Label(frame, text="Detecting...")
+        self.computer_ip_label.grid(
+            row=4, column=1, padx=5, pady=(10, 0), sticky="w"
+        )
+
+        ttk.Label(frame, text="Theme").grid(
+            row=5, column=0, sticky="w", pady=(10, 0)
         )
 
         self.theme_combo = ttk.Combobox(
             frame, width=13, state="readonly", values=["Light", "Dark"]
         )
         self.theme_combo.set(self.settings["theme"].capitalize())
-        self.theme_combo.grid(row=4, column=1, padx=5, pady=(10, 5), sticky="w")
+        self.theme_combo.grid(row=5, column=1, padx=5, pady=(10, 5), sticky="w")
         self.theme_combo.bind("<<ComboboxSelected>>", self.on_theme_selected)
 
         ttk.Label(
             frame, text=f"Version {VERSION}", foreground="#888888"
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(16, 0))
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(16, 0))
+
+        self.refresh_computer_ip()
 
         self.setup_window.withdraw()
+
+    def refresh_computer_ip(self):
+        ip = get_ethernet_ip()
+        self.computer_ip_label.config(text=ip if ip else "Not found")
 
     def on_theme_selected(self, event=None):
         self.apply_theme(self.theme_combo.get().lower())
