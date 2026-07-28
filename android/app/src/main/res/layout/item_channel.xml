@@ -39,6 +39,16 @@
 
     </FrameLayout>
 
+    <SeekBar
+        android:id="@+id/pan_seek_bar"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:layout_marginTop="4dp"
+        android:max="200"
+        android:thumb="@drawable/seekbar_thumb"
+        android:progressDrawable="@drawable/seekbar_track"
+        android:splitTrack="false" />
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/mute_button"
         style="@style/Widget.Material3.Button.TonalButton"

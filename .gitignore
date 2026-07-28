@@ -1,6 +1,12 @@
 __pycache__/
 *.pyc
 .venv/
+.venv-build/
+
+# Windows packaging build output
+/build/
+/dist/
+packaging/windows/dist_installer/
 
 # Android
 android/.gradle/
@@ -8,3 +14,6 @@ android/.idea/
 android/local.properties
 android/**/build/
 android/**/*.iml
+android/keystore.properties
+android/*.keystore
+android/*.jks

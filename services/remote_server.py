@@ -141,11 +141,11 @@ class RemoteServer:
                 return
 
             state["aux"] = aux
-            self._request_levels(worker, state)
+            self._request_levels_and_pans(worker, state)
 
         elif action == "select_bank":
             state["bank"] = msg.get("bank")
-            self._request_levels(worker, state)
+            self._request_levels_and_pans(worker, state)
             self._request_mutes(worker, state)
 
         elif action == "set_level":
@@ -156,6 +156,15 @@ class RemoteServer:
                 return
 
             self._set_level(state, msg.get("channel"), msg.get("level"))
+
+        elif action == "set_pan":
+            if not self._aux_allowed(worker, entry, state.get("aux")):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for this aux"}
+                )
+                return
+
+            self._set_pan(state, msg.get("channel"), msg.get("pan"))
 
         elif action == "set_mute":
             self._set_mute(msg.get("channel"), msg.get("muted"))
@@ -235,7 +244,7 @@ class RemoteServer:
             except websockets.ConnectionClosed:
                 return
 
-    def _request_levels(self, worker, state):
+    def _request_levels_and_pans(self, worker, state):
         aux = state.get("aux")
 
         if aux is None:
@@ -244,6 +253,9 @@ class RemoteServer:
         for channel in self._channels_for(worker, state.get("bank")):
             self.command_queue.put(
                 f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level/?"
+            )
+            self.command_queue.put(
+                f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan/?"
             )
 
     def _request_mutes(self, worker, state):
@@ -259,6 +271,17 @@ class RemoteServer:
         db = round(float(level), 2)
         self.command_queue.put(
             f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level {db}"
+        )
+
+    def _set_pan(self, state, channel, pan):
+        aux = state.get("aux")
+
+        if aux is None or channel is None or pan is None:
+            return
+
+        value = round(float(pan), 2)
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {value}"
         )
 
     def _set_mute(self, channel, muted):
@@ -307,6 +330,10 @@ class RemoteServer:
             level = round(worker.cache[level_key][0], 2) \
                 if level_key in worker.cache else None
 
+            pan_key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan"
+            pan = round(worker.cache[pan_key][0], 2) \
+                if pan_key in worker.cache else None
+
             mute_key = f"/Input_Channels/{channel}/mute"
             muted = bool(worker.cache[mute_key][0]) \
                 if mute_key in worker.cache else False
@@ -315,6 +342,7 @@ class RemoteServer:
                 "channel": channel,
                 "name": name,
                 "level": level,
+                "pan": pan,
                 "muted": muted,
             })
 

@@ -12,6 +12,7 @@ import com.digico.monitormix.databinding.ItemAuxBinding
 
 class AuxListActivity : AppCompatActivity() {
     private lateinit var binding: ActivityAuxListBinding
+    private var auxes: ArrayList<AuxBus> = arrayListOf()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -19,7 +20,7 @@ class AuxListActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         @Suppress("UNCHECKED_CAST")
-        val auxes = intent.getSerializableExtra("auxes") as? ArrayList<AuxBus> ?: arrayListOf()
+        auxes = intent.getSerializableExtra("auxes") as? ArrayList<AuxBus> ?: arrayListOf()
 
         binding.auxRecycler.layoutManager = LinearLayoutManager(this)
         binding.auxRecycler.adapter = AuxAdapter(auxes) { aux -> openMixer(aux) }
@@ -29,6 +30,7 @@ class AuxListActivity : AppCompatActivity() {
         val intent = Intent(this, MixerActivity::class.java)
         intent.putExtra("auxIndex", aux.index)
         intent.putExtra("auxName", aux.name)
+        intent.putExtra("auxes", auxes)
         startActivity(intent)
     }
 }

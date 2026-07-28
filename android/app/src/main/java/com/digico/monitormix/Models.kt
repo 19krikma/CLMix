@@ -8,5 +8,6 @@ data class ChannelState(
     val channel: Int,
     val name: String,
     val level: Double?,
+    val pan: Double?,
     val muted: Boolean
 )

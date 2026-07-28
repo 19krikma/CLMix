@@ -17,6 +17,7 @@ from services.remote_server import RemoteServer
 from services.user_store import UserStore
 from ui.access_window import AccessWindow
 from ui.logs_window import LogsWindow
+from version import VERSION
 
 SETTINGS_PATH = Path.home() / ".digico_monitor_mix.json"
 
@@ -29,6 +30,7 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Aux_Outputs/\d+/Buss_Trim/name$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/name$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_level$"),
+    re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_pan$"),
     re.compile(r"^/Input_Channels/\d+/mute$"),
 ]
 
@@ -356,11 +358,13 @@ class AuxLevelsPanel:
         self.aux_list = []
 
         self.sliders = {}
+        self.pan_sliders = {}
         self.mute_buttons = {}
-        self.mute_btn_default_bg = None
         self.suppress_send = False
         self.dragging = set()
         self.drag_released_at = {}
+        self.pan_dragging = set()
+        self.pan_drag_released_at = {}
         self.bank_names_shown = None
 
         self.build_ui()
@@ -450,9 +454,12 @@ class AuxLevelsPanel:
             child.destroy()
 
         self.sliders = {}
+        self.pan_sliders = {}
         self.mute_buttons = {}
         self.dragging = set()
         self.drag_released_at = {}
+        self.pan_dragging = set()
+        self.pan_drag_released_at = {}
 
     def build_bank_buttons(self):
         bank_names = tuple(self.worker.banks.keys())
@@ -499,9 +506,12 @@ class AuxLevelsPanel:
             child.destroy()
 
         self.sliders = {}
+        self.pan_sliders = {}
         self.mute_buttons = {}
         self.dragging = set()
         self.drag_released_at = {}
+        self.pan_dragging = set()
+        self.pan_drag_released_at = {}
 
         self.build_channel_widgets()
         self.on_aux_selected()
@@ -539,6 +549,27 @@ class AuxLevelsPanel:
 
             self.sliders[i] = slider
 
+            pan_slider = ttk.Scale(
+                column,
+                from_=-1.0,
+                to=1.0,
+                orient="horizontal",
+                length=90,
+                command=lambda value, channel=i:
+                    self.on_pan_change(channel, value)
+            )
+            pan_slider.bind(
+                "<ButtonPress-1>",
+                lambda event, channel=i: self.pan_dragging.add(channel)
+            )
+            pan_slider.bind(
+                "<ButtonRelease-1>",
+                lambda event, channel=i: self.on_pan_release(channel)
+            )
+            pan_slider.pack(pady=(6, 0))
+
+            self.pan_sliders[i] = pan_slider
+
             mute_btn = ttk.Button(
                 column,
                 text="Mute",
@@ -567,6 +598,9 @@ class AuxLevelsPanel:
             self.command_queue.put(
                 f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level/?"
             )
+            self.command_queue.put(
+                f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan/?"
+            )
 
     def on_slider_change(self, channel, value):
         if self.suppress_send:
@@ -586,6 +620,25 @@ class AuxLevelsPanel:
     def on_slider_release(self, channel):
         self.dragging.discard(channel)
         self.drag_released_at[channel] = time.monotonic()
+
+    def on_pan_change(self, channel, value):
+        if self.suppress_send:
+            return
+
+        aux = self.current_aux()
+
+        if aux is None or self.worker is None or not self.worker.is_alive():
+            return
+
+        pan = round(float(value), 2)
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {pan}"
+        )
+
+    def on_pan_release(self, channel):
+        self.pan_dragging.discard(channel)
+        self.pan_drag_released_at[channel] = time.monotonic()
 
     def request_mute_states(self):
         if self.worker is None or not self.worker.is_alive():
@@ -631,6 +684,28 @@ class AuxLevelsPanel:
                         slider.set(self._db_to_fraction(level))
                         self.suppress_send = False
 
+                for channel, pan_slider in self.pan_sliders.items():
+                    if channel in self.pan_dragging:
+                        continue
+
+                    released_at = self.pan_drag_released_at.get(channel)
+                    if released_at is not None and \
+                            time.monotonic() - released_at < self.DRAG_GRACE_SECONDS:
+                        continue
+
+                    key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan"
+
+                    if key not in self.worker.cache:
+                        continue
+
+                    pan = round(self.worker.cache[key][0], 2)
+                    current_pan = round(float(pan_slider.get()), 2)
+
+                    if abs(current_pan - pan) > self.LEVEL_EPSILON:
+                        self.suppress_send = True
+                        pan_slider.set(pan)
+                        self.suppress_send = False
+
             for channel, button in self.mute_buttons.items():
                 key = f"/Input_Channels/{channel}/mute"
 
@@ -653,7 +728,7 @@ class MainWindow:
     def __init__(self):
 
         self.root = tk.Tk()
-        self.root.title("Mixer Controller")
+        self.root.title(f"Mixer Controller v{VERSION}")
         self.root.geometry("800x500")
 
         self.worker = None
@@ -811,6 +886,10 @@ class MainWindow:
         self.theme_combo.set(self.settings["theme"].capitalize())
         self.theme_combo.grid(row=4, column=1, padx=5, pady=(10, 5), sticky="w")
         self.theme_combo.bind("<<ComboboxSelected>>", self.on_theme_selected)
+
+        ttk.Label(
+            frame, text=f"Version {VERSION}", foreground="#888888"
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(16, 0))
 
         self.setup_window.withdraw()
 

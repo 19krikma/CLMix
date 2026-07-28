@@ -24,7 +24,7 @@ interface MixerClientListener {
  * Talks to the DigicoMonitorMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
  * protocol: login/list_auxes/list_banks/select_aux/select_bank/set_level/
- * set_mute out, login_result/auxes/banks/levels/error in.
+ * set_pan/set_mute out, login_result/auxes/banks/levels/error in.
  *
  * The server rejects every action until a successful "login" - callers
  * must send credentials via login() and wait for onLoginResult(true)
@@ -105,6 +105,13 @@ object MixerClient {
             .put("level", level)
     )
 
+    fun setPan(channel: Int, pan: Double) = send(
+        JSONObject()
+            .put("action", "set_pan")
+            .put("channel", channel)
+            .put("pan", pan)
+    )
+
     fun setMute(channel: Int, muted: Boolean) = send(
         JSONObject()
             .put("action", "set_mute")
@@ -150,6 +157,7 @@ object MixerClient {
                         channel = o.getInt("channel"),
                         name = o.getString("name"),
                         level = if (o.isNull("level")) null else o.getDouble("level"),
+                        pan = if (o.isNull("pan")) null else o.getDouble("pan"),
                         muted = o.getBoolean("muted")
                     )
                 }

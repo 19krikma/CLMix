@@ -10,9 +10,12 @@ import com.digico.monitormix.databinding.ItemChannelBinding
 
 class ChannelAdapter(
     private val onLevelChanged: (Int, Double) -> Unit,
+    private val onPanChanged: (Int, Double) -> Unit,
     private val onMuteToggled: (Int, Boolean) -> Unit,
     private val onDragStart: (Int) -> Unit,
-    private val onDragEnd: (Int) -> Unit
+    private val onDragEnd: (Int) -> Unit,
+    private val onPanDragStart: (Int) -> Unit,
+    private val onPanDragEnd: (Int) -> Unit
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     private var channels: List<ChannelState> = emptyList()
@@ -22,9 +25,14 @@ class ChannelAdapter(
     // what was causing every slider to rebind (and visibly pulse) on
     // every ~150ms server push regardless of whether anything moved.
     private val displayedProgress = mutableMapOf<Int, Int>()
+    private val displayedPanProgress = mutableMapOf<Int, Int>()
     private val displayedMuted = mutableMapOf<Int, Boolean>()
 
-    fun updateChannels(newChannels: List<ChannelState>, draggingChannels: Set<Int>) {
+    fun updateChannels(
+        newChannels: List<ChannelState>,
+        draggingChannels: Set<Int>,
+        panDraggingChannels: Set<Int>
+    ) {
         val sameChannelSet = channels.size == newChannels.size &&
             channels.map { it.channel } == newChannels.map { it.channel }
 
@@ -37,14 +45,21 @@ class ChannelAdapter(
 
         for (index in newChannels.indices) {
             val channel = newChannels[index]
-            if (channel.channel in draggingChannels) continue
+            if (channel.channel in draggingChannels || channel.channel in panDraggingChannels) {
+                continue
+            }
 
             val targetProgress = channel.level?.let { levelToProgress(it) }
             val progressChanged = targetProgress != null &&
                 displayedProgress[channel.channel] != targetProgress
+
+            val targetPanProgress = channel.pan?.let { panToProgress(it) }
+            val panProgressChanged = targetPanProgress != null &&
+                displayedPanProgress[channel.channel] != targetPanProgress
+
             val muteChanged = displayedMuted[channel.channel] != channel.muted
 
-            if (progressChanged || muteChanged) {
+            if (progressChanged || panProgressChanged || muteChanged) {
                 notifyItemChanged(index, PAYLOAD_UPDATE)
             }
         }
@@ -77,6 +92,17 @@ class ChannelAdapter(
             override fun onStopTrackingTouch(bar: SeekBar?) = onDragEnd(channel.channel)
         })
 
+        holder.binding.panSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+
+                onPanChanged(channel.channel, progressToPan(progress))
+            }
+
+            override fun onStartTrackingTouch(bar: SeekBar?) = onPanDragStart(channel.channel)
+            override fun onStopTrackingTouch(bar: SeekBar?) = onPanDragEnd(channel.channel)
+        })
+
         holder.binding.muteButton.setOnClickListener {
             val adapterPosition = holder.bindingAdapterPosition
             if (adapterPosition != RecyclerView.NO_POSITION) {
@@ -85,24 +111,31 @@ class ChannelAdapter(
             }
         }
 
-        bindLevelAndMute(holder, channel)
+        bindChannelState(holder, channel)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.contains(PAYLOAD_UPDATE)) {
-            bindLevelAndMute(holder, channels[position])
+            bindChannelState(holder, channels[position])
             return
         }
 
         super.onBindViewHolder(holder, position, payloads)
     }
 
-    private fun bindLevelAndMute(holder: ViewHolder, channel: ChannelState) {
+    private fun bindChannelState(holder: ViewHolder, channel: ChannelState) {
         val level = channel.level
         if (level != null) {
             val progress = levelToProgress(level)
             holder.binding.levelSeekBar.progress = progress
             displayedProgress[channel.channel] = progress
+        }
+
+        val pan = channel.pan
+        if (pan != null) {
+            val panProgress = panToProgress(pan)
+            holder.binding.panSeekBar.progress = panProgress
+            displayedPanProgress[channel.channel] = panProgress
         }
 
         displayedMuted[channel.channel] = channel.muted
@@ -124,10 +157,20 @@ class ChannelAdapter(
 
     private fun levelToProgress(db: Double) = (AuxTaper.dbToFraction(db) * SEEK_MAX).toInt()
 
+    // Pan is a plain linear value (-1.0 hard left .. +1.0 hard right,
+    // 0.0 center) - unlike level it has no dB-style taper to apply.
+    private fun panToProgress(pan: Double) = (((pan + 1.0) / 2.0) * PAN_SEEK_MAX).toInt()
+
+    private fun progressToPan(progress: Int): Double {
+        val raw = (progress.toDouble() / PAN_SEEK_MAX) * 2.0 - 1.0
+        return Math.round(raw * 100.0) / 100.0
+    }
+
     override fun getItemCount() = channels.size
 
     companion object {
         private const val SEEK_MAX = 1000
+        private const val PAN_SEEK_MAX = 200
         private const val PAYLOAD_UPDATE = "update"
     }
 }
