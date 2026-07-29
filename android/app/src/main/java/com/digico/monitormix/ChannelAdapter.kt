@@ -1,7 +1,9 @@
 package com.digico.monitormix
 
 import android.content.res.ColorStateList
+import android.view.GestureDetector
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.SeekBar
 import androidx.core.content.ContextCompat
@@ -65,7 +67,32 @@ class ChannelAdapter(
         }
     }
 
-    inner class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root)
+    inner class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {
+        private val panGestureDetector = GestureDetector(
+            binding.root.context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    val position = bindingAdapterPosition
+                    if (position == RecyclerView.NO_POSITION) return false
+
+                    val channel = channels[position].channel
+                    val centerProgress = PAN_SEEK_MAX / 2
+
+                    binding.panSeekBar.progress = centerProgress
+                    displayedPanProgress[channel] = centerProgress
+                    onPanChanged(channel, 0.0)
+                    return true
+                }
+            }
+        )
+
+        init {
+            binding.panSeekBar.setOnTouchListener { view, event ->
+                panGestureDetector.onTouchEvent(event)
+                view.onTouchEvent(event)
+            }
+        }
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemChannelBinding.inflate(

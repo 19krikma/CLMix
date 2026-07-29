@@ -279,9 +279,9 @@ class RemoteServer:
         if aux is None or channel is None or pan is None:
             return
 
-        value = round(float(pan), 2)
+        wire_pan = self._ui_pan_to_wire(float(pan))
         self.command_queue.put(
-            f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {value}"
+            f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {wire_pan}"
         )
 
     def _set_mute(self, channel, muted):
@@ -317,8 +317,20 @@ class RemoteServer:
         channel_count = int(worker.cache["/Console/Input_Channels"][0])
         return list(range(1, channel_count + 1))
 
+    # The mixer's own send_pan values run 0.0 (hard left) to 1.0 (hard
+    # right) with 0.5 as center. Phone clients use the more conventional
+    # -1.0..1.0 with 0.0 as center, so every value crossing this boundary
+    # needs converting.
     @staticmethod
-    def _channel_states(worker, channels, aux):
+    def _wire_pan_to_ui(value):
+        return round((value - 0.5) * 2, 2)
+
+    @staticmethod
+    def _ui_pan_to_wire(value):
+        return round((value / 2) + 0.5, 2)
+
+    @classmethod
+    def _channel_states(cls, worker, channels, aux):
         states = []
 
         for channel in channels:
@@ -331,7 +343,7 @@ class RemoteServer:
                 if level_key in worker.cache else None
 
             pan_key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan"
-            pan = round(worker.cache[pan_key][0], 2) \
+            pan = cls._wire_pan_to_ui(worker.cache[pan_key][0]) \
                 if pan_key in worker.cache else None
 
             mute_key = f"/Input_Channels/{channel}/mute"

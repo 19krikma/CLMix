@@ -324,12 +324,12 @@ class AuxLevelsPanel:
     # The physical fader only travels smoothly between TOP_DB and MID_DB;
     # below that it drops almost immediately to BOTTOM_DB. FRACTION_MID
     # is the fraction (from the bottom) where that transition happens:
-    # above it is the TOP_DB..MID_DB range (90% of the travel), below it
-    # is the steep MID_DB..BOTTOM_DB tail near the very bottom (10%).
+    # above it is the TOP_DB..MID_DB range (80% of the travel), below it
+    # is the steep MID_DB..BOTTOM_DB tail near the very bottom (20%).
     TOP_DB = 10.0
     MID_DB = -60.0
     BOTTOM_DB = -150.0
-    FRACTION_MID = 0.1
+    FRACTION_MID = 0.2
 
     @classmethod
     def _fraction_to_db(cls, fraction):
@@ -348,6 +348,18 @@ class AuxLevelsPanel:
 
         t = (db - cls.BOTTOM_DB) / (cls.MID_DB - cls.BOTTOM_DB)
         return max(0.0, t * cls.FRACTION_MID)
+
+    # The mixer's own send_pan values run 0.0 (hard left) to 1.0 (hard
+    # right) with 0.5 as center. The UI (and double-click reset) use the
+    # more conventional -1.0..1.0 with 0.0 as center, so every value
+    # crossing the OSC boundary needs converting.
+    @staticmethod
+    def _wire_pan_to_ui(value):
+        return round((value - 0.5) * 2, 2)
+
+    @staticmethod
+    def _ui_pan_to_wire(value):
+        return round((value / 2) + 0.5, 2)
 
     def __init__(self, master, command_queue):
         self.master = master
@@ -559,6 +571,7 @@ class AuxLevelsPanel:
                 command=lambda value, channel=i:
                     self.on_pan_change(channel, value)
             )
+            pan_slider.set(0.0)
             pan_slider.bind(
                 "<ButtonPress-1>",
                 lambda event, channel=i: self.pan_dragging.add(channel)
@@ -566,6 +579,10 @@ class AuxLevelsPanel:
             pan_slider.bind(
                 "<ButtonRelease-1>",
                 lambda event, channel=i: self.on_pan_release(channel)
+            )
+            pan_slider.bind(
+                "<Double-Button-1>",
+                lambda event, channel=i: self.on_pan_double_click(channel)
             )
             pan_slider.pack(pady=(6, 0))
 
@@ -631,15 +648,26 @@ class AuxLevelsPanel:
         if aux is None or self.worker is None or not self.worker.is_alive():
             return
 
-        pan = round(float(value), 2)
+        ui_pan = round(float(value), 2)
+        wire_pan = self._ui_pan_to_wire(ui_pan)
 
         self.command_queue.put(
-            f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {pan}"
+            f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {wire_pan}"
         )
 
     def on_pan_release(self, channel):
         self.pan_dragging.discard(channel)
         self.pan_drag_released_at[channel] = time.monotonic()
+
+    def on_pan_double_click(self, channel):
+        pan_slider = self.pan_sliders.get(channel)
+
+        if pan_slider is None:
+            return
+
+        # .set() triggers the slider's own command callback (on_pan_change),
+        # which sends the corresponding OSC command - no need to send here too.
+        pan_slider.set(0.0)
 
     def request_mute_states(self):
         if self.worker is None or not self.worker.is_alive():
@@ -699,12 +727,13 @@ class AuxLevelsPanel:
                     if key not in self.worker.cache:
                         continue
 
-                    pan = round(self.worker.cache[key][0], 2)
+                    wire_pan = round(self.worker.cache[key][0], 2)
+                    ui_pan = self._wire_pan_to_ui(wire_pan)
                     current_pan = round(float(pan_slider.get()), 2)
 
-                    if abs(current_pan - pan) > self.LEVEL_EPSILON:
+                    if abs(current_pan - ui_pan) > self.LEVEL_EPSILON:
                         self.suppress_send = True
-                        pan_slider.set(pan)
+                        pan_slider.set(ui_pan)
                         self.suppress_send = False
 
             for channel, button in self.mute_buttons.items():

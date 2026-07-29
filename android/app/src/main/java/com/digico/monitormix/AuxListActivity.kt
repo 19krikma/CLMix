@@ -10,7 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.digico.monitormix.databinding.ActivityAuxListBinding
 import com.digico.monitormix.databinding.ItemAuxBinding
 
-class AuxListActivity : AppCompatActivity() {
+class AuxListActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityAuxListBinding
     private var auxes: ArrayList<AuxBus> = arrayListOf()
 
@@ -26,12 +26,33 @@ class AuxListActivity : AppCompatActivity() {
         binding.auxRecycler.adapter = AuxAdapter(auxes) { aux -> openMixer(aux) }
     }
 
+    override fun onResume() {
+        super.onResume()
+        MixerClient.listener = this
+    }
+
     private fun openMixer(aux: AuxBus) {
         val intent = Intent(this, MixerActivity::class.java)
         intent.putExtra("auxIndex", aux.index)
         intent.putExtra("auxName", aux.name)
         intent.putExtra("auxes", auxes)
         startActivity(intent)
+    }
+
+    private fun returnToLogin() {
+        val intent = Intent(this, ConnectActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+    }
+
+    override fun onDisconnected() {
+        returnToLogin()
+    }
+
+    override fun onError(message: String) {
+        if (!MixerClient.isConnected) {
+            returnToLogin()
+        }
     }
 }
 
