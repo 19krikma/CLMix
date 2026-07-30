@@ -6,6 +6,7 @@ import re
 import socket
 import json
 import time
+import webbrowser
 from pathlib import Path
 
 import sv_ttk
@@ -15,6 +16,7 @@ from pythonosc.osc_message_builder import OscMessageBuilder
 from services.log_store import log
 from services.network_info import get_ethernet_ip
 from services.remote_server import RemoteServer
+from services.update_checker import check_for_update
 from services.user_store import UserStore
 from ui.access_window import AccessWindow
 from ui.logs_window import LogsWindow
@@ -926,13 +928,79 @@ class MainWindow:
         self.theme_combo.grid(row=5, column=1, padx=5, pady=(10, 5), sticky="w")
         self.theme_combo.bind("<<ComboboxSelected>>", self.on_theme_selected)
 
+        ttk.Separator(frame, orient="horizontal").grid(
+            row=6, column=0, columnspan=2, sticky="ew", pady=(16, 10)
+        )
+
+        update_row = ttk.Frame(frame)
+        update_row.grid(row=7, column=0, columnspan=2, sticky="w")
+
         ttk.Label(
-            frame, text=f"Version {VERSION}", foreground="#888888"
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(16, 0))
+            update_row, text=f"Version {VERSION}", foreground="#888888"
+        ).pack(side="left")
+
+        self.check_update_btn = ttk.Button(
+            update_row, text="Check", command=self.on_check_update_button
+        )
+        self.check_update_btn.pack(side="left", padx=(10, 4))
+
+        self.update_btn = ttk.Button(
+            update_row, text="Update", command=self.open_update_page,
+            state="disabled"
+        )
+        self.update_btn.pack(side="left")
+
+        self.update_status_label = ttk.Label(
+            frame, text="", foreground="#888888"
+        )
+        self.update_status_label.grid(
+            row=8, column=0, columnspan=2, sticky="w", pady=(4, 0)
+        )
+
+        self.latest_release_url = None
 
         self.refresh_computer_ip()
 
         self.setup_window.withdraw()
+
+    def on_check_update_button(self):
+        if getattr(self, "_checking_for_update", False):
+            return
+
+        self._checking_for_update = True
+        self.update_status_label.config(text="Checking...")
+
+        threading.Thread(
+            target=self._check_for_update_worker, daemon=True
+        ).start()
+
+    def _check_for_update_worker(self):
+        result = check_for_update(VERSION)
+        self.message_queue.put(("update_check", result))
+
+    def _apply_update_check_result(self, result):
+        self._checking_for_update = False
+
+        if result["error"]:
+            self.update_status_label.config(text=f"Check failed: {result['error']}")
+            self.update_btn.config(state="disabled")
+            self.latest_release_url = None
+
+        elif result["available"]:
+            self.update_status_label.config(
+                text=f"Update available: v{result['latest_version']}"
+            )
+            self.latest_release_url = result["url"]
+            self.update_btn.config(state="normal")
+
+        else:
+            self.update_status_label.config(text="You're up to date")
+            self.update_btn.config(state="disabled")
+            self.latest_release_url = None
+
+    def open_update_page(self):
+        if self.latest_release_url:
+            webbrowser.open(self.latest_release_url)
 
     def refresh_computer_ip(self):
         ip = get_ethernet_ip()
@@ -1109,6 +1177,9 @@ class MainWindow:
 
             elif msg_type == "message":
                 log("debug", value)
+
+            elif msg_type == "update_check":
+                self._apply_update_check_result(value)
 
         self.root.after(100, self.process_messages)
 
