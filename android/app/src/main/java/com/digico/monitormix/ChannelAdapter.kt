@@ -1,6 +1,9 @@
 package com.digico.monitormix
 
 import android.content.res.ColorStateList
+import android.graphics.Color
+import android.os.Handler
+import android.os.Looper
 import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -9,6 +12,9 @@ import android.widget.SeekBar
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.digico.monitormix.databinding.ItemChannelBinding
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sign
 
 class ChannelAdapter(
     private val onLevelChanged: (Int, Double) -> Unit,
@@ -19,6 +25,12 @@ class ChannelAdapter(
     private val onPanDragStart: (Int) -> Unit,
     private val onPanDragEnd: (Int) -> Unit
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
+
+    // "Smooth" mode (toggled from MixerActivity's top bar): while on, a
+    // dragged fader/pan slider doesn't jump to the touch position - it
+    // eases toward it at GLIDE_PERCENT_PER_SECOND and freezes wherever
+    // it's reached the instant the user releases.
+    var smoothEnabled: Boolean = false
 
     private var channels: List<ChannelState> = emptyList()
 
@@ -33,7 +45,9 @@ class ChannelAdapter(
     fun updateChannels(
         newChannels: List<ChannelState>,
         draggingChannels: Set<Int>,
-        panDraggingChannels: Set<Int>
+        panDraggingChannels: Set<Int>,
+        dragReleasedAt: Map<Int, Long> = emptyMap(),
+        panDragReleasedAt: Map<Int, Long> = emptyMap()
     ) {
         val sameChannelSet = channels.size == newChannels.size &&
             channels.map { it.channel } == newChannels.map { it.channel }
@@ -45,9 +59,24 @@ class ChannelAdapter(
             return
         }
 
+        val now = System.currentTimeMillis()
+
         for (index in newChannels.indices) {
             val channel = newChannels[index]
-            if (channel.channel in draggingChannels || channel.channel in panDraggingChannels) {
+
+            // Mirrors the desktop app's DRAG_GRACE_SECONDS: for a short
+            // window after release, keep ignoring server-reported levels
+            // for this channel too, so a stale/in-flight echo of the
+            // pre-release position can't snap the slider back and make
+            // it feel jumpy.
+            val recentlyReleased =
+                (dragReleasedAt[channel.channel]?.let { now - it < DRAG_GRACE_MS } ?: false) ||
+                (panDragReleasedAt[channel.channel]?.let { now - it < DRAG_GRACE_MS } ?: false)
+
+            if (channel.channel in draggingChannels ||
+                channel.channel in panDraggingChannels ||
+                recentlyReleased
+            ) {
                 continue
             }
 
@@ -92,6 +121,78 @@ class ChannelAdapter(
                 view.onTouchEvent(event)
             }
         }
+
+        // --- Smooth-mode glide (level) ---
+
+        private val glideHandler = Handler(Looper.getMainLooper())
+        private var levelGlideChannel = -1
+        private var levelGlideCurrent = 0.0
+        private var levelGlideTarget = 0.0
+        private val levelGlideRunnable = object : Runnable {
+            override fun run() {
+                levelGlideCurrent = approach(levelGlideCurrent, levelGlideTarget, LEVEL_GLIDE_STEP)
+                val progress = levelGlideCurrent.roundToInt()
+                binding.levelSeekBar.progress = progress
+                displayedProgress[levelGlideChannel] = progress
+
+                val db = Math.round(
+                    AuxTaper.fractionToDb(levelGlideCurrent / SEEK_MAX) * 100.0
+                ) / 100.0
+                onLevelChanged(levelGlideChannel, db)
+
+                glideHandler.postDelayed(this, GLIDE_INTERVAL_MS)
+            }
+        }
+
+        fun startLevelGlide(channel: Int, startProgress: Int) {
+            stopLevelGlide()
+            levelGlideChannel = channel
+            levelGlideCurrent = startProgress.toDouble()
+            levelGlideTarget = startProgress.toDouble()
+            glideHandler.post(levelGlideRunnable)
+        }
+
+        fun updateLevelGlideTarget(progress: Int) {
+            levelGlideTarget = progress.toDouble()
+        }
+
+        fun stopLevelGlide() {
+            glideHandler.removeCallbacks(levelGlideRunnable)
+        }
+
+        // --- Smooth-mode glide (pan) ---
+
+        private var panGlideChannel = -1
+        private var panGlideCurrent = 0.0
+        private var panGlideTarget = 0.0
+        private val panGlideRunnable = object : Runnable {
+            override fun run() {
+                panGlideCurrent = approach(panGlideCurrent, panGlideTarget, PAN_GLIDE_STEP)
+                val progress = panGlideCurrent.roundToInt()
+                binding.panSeekBar.progress = progress
+                displayedPanProgress[panGlideChannel] = progress
+
+                onPanChanged(panGlideChannel, progressToPan(progress))
+
+                glideHandler.postDelayed(this, GLIDE_INTERVAL_MS)
+            }
+        }
+
+        fun startPanGlide(channel: Int, startProgress: Int) {
+            stopPanGlide()
+            panGlideChannel = channel
+            panGlideCurrent = startProgress.toDouble()
+            panGlideTarget = startProgress.toDouble()
+            glideHandler.post(panGlideRunnable)
+        }
+
+        fun updatePanGlideTarget(progress: Int) {
+            panGlideTarget = progress.toDouble()
+        }
+
+        fun stopPanGlide() {
+            glideHandler.removeCallbacks(panGlideRunnable)
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -104,30 +205,70 @@ class ChannelAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = channels[position]
 
+        // This holder may be a recycled view still running a glide for
+        // whatever channel it previously displayed - clear it before
+        // rebinding, so stray ticks can't land on the wrong channel.
+        holder.stopLevelGlide()
+        holder.stopPanGlide()
+
         holder.binding.channelName.text = channel.name
 
         holder.binding.levelSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (!fromUser) return
 
-                val fraction = progress.toDouble() / SEEK_MAX
-                val db = Math.round(AuxTaper.fractionToDb(fraction) * 100.0) / 100.0
-                onLevelChanged(channel.channel, db)
+                if (smoothEnabled) {
+                    holder.updateLevelGlideTarget(progress)
+                } else {
+                    val fraction = progress.toDouble() / SEEK_MAX
+                    val db = Math.round(AuxTaper.fractionToDb(fraction) * 100.0) / 100.0
+                    onLevelChanged(channel.channel, db)
+                }
             }
 
-            override fun onStartTrackingTouch(bar: SeekBar?) = onDragStart(channel.channel)
-            override fun onStopTrackingTouch(bar: SeekBar?) = onDragEnd(channel.channel)
+            override fun onStartTrackingTouch(bar: SeekBar?) {
+                onDragStart(channel.channel)
+                if (smoothEnabled) {
+                    // Not bar?.progress: a SeekBar snaps its thumb to the
+                    // touch-down point immediately, before this callback
+                    // even fires, so that would already be the jumped
+                    // position rather than the fader's true prior value.
+                    val startProgress = displayedProgress[channel.channel]
+                        ?: bar?.progress ?: 0
+                    holder.startLevelGlide(channel.channel, startProgress)
+                }
+            }
+
+            override fun onStopTrackingTouch(bar: SeekBar?) {
+                holder.stopLevelGlide()
+                onDragEnd(channel.channel)
+            }
         })
 
         holder.binding.panSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (!fromUser) return
 
-                onPanChanged(channel.channel, progressToPan(progress))
+                if (smoothEnabled) {
+                    holder.updatePanGlideTarget(progress)
+                } else {
+                    onPanChanged(channel.channel, progressToPan(progress))
+                }
             }
 
-            override fun onStartTrackingTouch(bar: SeekBar?) = onPanDragStart(channel.channel)
-            override fun onStopTrackingTouch(bar: SeekBar?) = onPanDragEnd(channel.channel)
+            override fun onStartTrackingTouch(bar: SeekBar?) {
+                onPanDragStart(channel.channel)
+                if (smoothEnabled) {
+                    val startProgress = displayedPanProgress[channel.channel]
+                        ?: bar?.progress ?: 0
+                    holder.startPanGlide(channel.channel, startProgress)
+                }
+            }
+
+            override fun onStopTrackingTouch(bar: SeekBar?) {
+                holder.stopPanGlide()
+                onPanDragEnd(channel.channel)
+            }
         })
 
         holder.binding.muteButton.setOnClickListener {
@@ -138,19 +279,29 @@ class ChannelAdapter(
             }
         }
 
-        bindChannelState(holder, channel)
+        bindChannelState(holder, channel, position)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.contains(PAYLOAD_UPDATE)) {
-            bindChannelState(holder, channels[position])
+            bindChannelState(holder, channels[position], position)
             return
         }
 
         super.onBindViewHolder(holder, position, payloads)
     }
 
-    private fun bindChannelState(holder: ViewHolder, channel: ChannelState) {
+    private fun bindChannelState(holder: ViewHolder, channel: ChannelState, position: Int) {
+        // Alternate a subtle background so adjacent channel strips read
+        // as visually separate columns instead of blurring together.
+        holder.binding.root.setBackgroundColor(
+            if (position % 2 == 1) {
+                ContextCompat.getColor(holder.binding.root.context, R.color.surface_variant)
+            } else {
+                Color.TRANSPARENT
+            }
+        )
+
         val level = channel.level
         if (level != null) {
             val progress = levelToProgress(level)
@@ -195,9 +346,26 @@ class ChannelAdapter(
 
     override fun getItemCount() = channels.size
 
+    // Eases "current" toward "target" by at most maxStep, without overshooting.
+    private fun approach(current: Double, target: Double, maxStep: Double): Double {
+        val diff = target - current
+        return if (abs(diff) <= maxStep) target else current + maxStep * sign(diff)
+    }
+
     companion object {
         private const val SEEK_MAX = 1000
         private const val PAN_SEEK_MAX = 200
         private const val PAYLOAD_UPDATE = "update"
+
+        // Matches the desktop app's AuxLevelsPanel.DRAG_GRACE_SECONDS.
+        private const val DRAG_GRACE_MS = 300L
+
+        // Smooth mode: 2% of full travel per second, ticked every 50ms.
+        private const val GLIDE_INTERVAL_MS = 50L
+        private const val GLIDE_PERCENT_PER_SECOND = 0.02
+        private val LEVEL_GLIDE_STEP =
+            SEEK_MAX * GLIDE_PERCENT_PER_SECOND * GLIDE_INTERVAL_MS / 1000.0
+        private val PAN_GLIDE_STEP =
+            PAN_SEEK_MAX * GLIDE_PERCENT_PER_SECOND * GLIDE_INTERVAL_MS / 1000.0
     }
 }

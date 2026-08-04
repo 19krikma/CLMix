@@ -43,6 +43,20 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/smooth_button"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="Smooth"
+                android:textSize="12sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                app:cornerRadius="10dp"
+                app:backgroundTint="@color/mute_inactive"
+                android:textColor="@color/on_mute_inactive" />
+
             <TextView
                 android:id="@+id/status_label"
                 android:layout_width="wrap_content"

@@ -1,10 +1,12 @@
 package com.digico.monitormix
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -16,8 +18,11 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerBinding
     private lateinit var adapter: ChannelAdapter
     private var auxIndex: Int = -1
+    private var smoothEnabled = false
     private val draggingChannels = mutableSetOf<Int>()
     private val panDraggingChannels = mutableSetOf<Int>()
+    private val dragReleasedAt = mutableMapOf<Int, Long>()
+    private val panDragReleasedAt = mutableMapOf<Int, Long>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,9 +41,15 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             onPanChanged = { channel, pan -> MixerClient.setPan(channel, pan) },
             onMuteToggled = { channel, muted -> MixerClient.setMute(channel, muted) },
             onDragStart = { channel -> draggingChannels.add(channel) },
-            onDragEnd = { channel -> draggingChannels.remove(channel) },
+            onDragEnd = { channel ->
+                draggingChannels.remove(channel)
+                dragReleasedAt[channel] = System.currentTimeMillis()
+            },
             onPanDragStart = { channel -> panDraggingChannels.add(channel) },
-            onPanDragEnd = { channel -> panDraggingChannels.remove(channel) }
+            onPanDragEnd = { channel ->
+                panDraggingChannels.remove(channel)
+                panDragReleasedAt[channel] = System.currentTimeMillis()
+            }
         )
 
         binding.channelRecycler.layoutManager =
@@ -64,6 +75,23 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.drawerAuxRecycler.adapter = AuxAdapter(auxes) { aux -> switchAux(aux) }
 
         binding.logoutButton.setOnClickListener { logout() }
+
+        binding.smoothButton.setOnClickListener {
+            smoothEnabled = !smoothEnabled
+            adapter.smoothEnabled = smoothEnabled
+            updateSmoothButtonAppearance()
+        }
+        updateSmoothButtonAppearance()
+    }
+
+    private fun updateSmoothButtonAppearance() {
+        val backgroundRes = if (smoothEnabled) R.color.secondary else R.color.mute_inactive
+        val textRes = if (smoothEnabled) R.color.on_secondary else R.color.on_mute_inactive
+
+        binding.smoothButton.backgroundTintList = ColorStateList.valueOf(
+            ContextCompat.getColor(this, backgroundRes)
+        )
+        binding.smoothButton.setTextColor(ContextCompat.getColor(this, textRes))
     }
 
     override fun onResume() {
@@ -131,6 +159,9 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
 
     override fun onLevels(aux: Int, channels: List<ChannelState>) {
         if (aux != auxIndex) return
-        adapter.updateChannels(channels, draggingChannels, panDraggingChannels)
+        adapter.updateChannels(
+            channels, draggingChannels, panDraggingChannels,
+            dragReleasedAt, panDragReleasedAt
+        )
     }
 }
