@@ -15,9 +15,9 @@ class UserStore:
     """Remote-access accounts, keyed by username.
 
     Each account is scoped to one snapshot (by name) or ALL_SNAPSHOTS, and
-    one aux bus (by name) or ALL_AUX. RemoteServer checks these scopes
-    against the mixer's current snapshot/aux before honoring a client's
-    requests.
+    either ALL_AUX or a list of specific aux bus names. RemoteServer checks
+    these scopes against the mixer's current snapshot/aux before honoring
+    a client's requests.
     """
 
     def __init__(self, path=USERS_PATH):
@@ -27,9 +27,20 @@ class UserStore:
     def _load(self):
         try:
             with open(self.path) as f:
-                return json.load(f)
+                users = json.load(f)
         except (OSError, json.JSONDecodeError):
             return {}
+
+        # Older accounts stored "aux" as a single name string rather than
+        # a list - normalize on load so every caller can assume the
+        # current shape (ALL_AUX or a list) regardless of when the
+        # account was created.
+        for record in users.values():
+            aux = record.get("aux")
+            if aux is not None and aux != ALL_AUX and not isinstance(aux, list):
+                record["aux"] = [aux]
+
+        return users
 
     def _save(self):
         try:

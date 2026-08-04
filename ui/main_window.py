@@ -19,6 +19,7 @@ from services.remote_server import RemoteServer
 from services.update_checker import check_for_update
 from services.user_store import UserStore
 from ui.access_window import AccessWindow
+from ui.aux_window import AuxWindow
 from ui.logs_window import LogsWindow
 from version import VERSION
 
@@ -291,7 +292,8 @@ class MixerWorker(threading.Thread):
         self.running = False
 
 
-def build_aux_list(worker):
+def build_aux_list(worker, hidden=None):
+    hidden = hidden or set()
     aux_modes = worker.cache.get("/Console/Aux_Outputs/modes", [])
     aux_list = []
 
@@ -299,6 +301,10 @@ def build_aux_list(worker):
         name_key = f"/Aux_Outputs/{i}/Buss_Trim/name"
         name = worker.cache[name_key][0] \
             if name_key in worker.cache else f"Aux {i}"
+
+        if name in hidden:
+            continue
+
         aux_list.append((i, name))
 
     return aux_list
@@ -310,8 +316,28 @@ def panel_bg(widget):
     # don't show up as a mismatched gray/white square against the theme.
     # sv_ttk exposes its palette only as Tcl array variables, not
     # through the standard ttk::style lookup mechanism.
-    name = "sv_dark" if sv_ttk.get_theme(widget.winfo_toplevel()) == "dark" else "sv_light"
+    #
+    # sv_ttk.get_theme() is called with no argument (relying on
+    # Tkinter's implicit default root) rather than passing this widget's
+    # toplevel - a Toplevel window is its own toplevel ancestor, so
+    # widget.winfo_toplevel() would return the Toplevel itself instead
+    # of the actual Tk root that sv_ttk requires.
+    name = "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
     return widget.tk.eval(f"set ttk::theme::{name}::colors(-bg)")
+
+
+def panel_fg(widget):
+    name = "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
+    return widget.tk.eval(f"set ttk::theme::{name}::colors(-fg)")
+
+
+def stripe_bg(widget):
+    # A subtle alternate background for banding groups of rows apart -
+    # reuses the exact shades sv_ttk itself uses for its own popup menus
+    # (one perceptual step off the base background), so it stays
+    # visually consistent across both themes instead of a single
+    # hardcoded gray that would vanish in dark mode or look muddy in light.
+    return "#292929" if sv_ttk.get_theme() == "dark" else "#e7e7e7"
 
 
 class AuxLevelsPanel:
@@ -363,9 +389,10 @@ class AuxLevelsPanel:
     def _ui_pan_to_wire(value):
         return round((value / 2) + 0.5, 2)
 
-    def __init__(self, master, command_queue):
+    def __init__(self, master, command_queue, get_hidden_auxes=None):
         self.master = master
         self.command_queue = command_queue
+        self.get_hidden_auxes = get_hidden_auxes or (lambda: set())
 
         self.worker = None
         self.all_channels = []
@@ -439,7 +466,7 @@ class AuxLevelsPanel:
         channel_count = int(worker.cache["/Console/Input_Channels"][0])
         self.all_channels = list(range(1, channel_count + 1))
         self.channels = self.all_channels
-        self.aux_list = build_aux_list(worker)
+        self.aux_list = build_aux_list(worker, hidden=self.get_hidden_auxes())
         self.bank_names_shown = None
 
         self.aux_combo.configure(values=[name for _, name in self.aux_list])
@@ -451,6 +478,29 @@ class AuxLevelsPanel:
         if self.aux_list:
             self.aux_combo.current(0)
             self.on_aux_selected()
+
+    def refresh_aux_list(self):
+        # Called when the operator hides/shows an aux via the Aux window,
+        # so the dropdown reflects it immediately rather than only after
+        # the next reconnect.
+        if self.worker is None:
+            return
+
+        previous_aux = self.current_aux()
+
+        self.aux_list = build_aux_list(self.worker, hidden=self.get_hidden_auxes())
+        self.aux_combo.configure(values=[name for _, name in self.aux_list])
+
+        aux_indices = [index for index, _ in self.aux_list]
+
+        if previous_aux in aux_indices:
+            self.aux_combo.current(aux_indices.index(previous_aux))
+        elif self.aux_list:
+            self.aux_combo.current(0)
+        else:
+            self.aux_combo.set("")
+
+        self.on_aux_selected()
 
     def on_mixer_disconnected(self):
         self.worker = None
@@ -765,6 +815,7 @@ class MainWindow:
 
         self.worker = None
         self.access_window = None
+        self.aux_window = None
         self.logs_window = None
         self.remote_server = None
 
@@ -781,7 +832,37 @@ class MainWindow:
 
         self.root.after(100, self.process_messages)
 
+    def build_menu_bar(self):
+        menu_bar = tk.Menu(self.root)
+
+        self.preference_menu = tk.Menu(menu_bar, tearoff=False)
+        self.preference_menu.add_command(label="Config", command=self.open_setup_window)
+        self.preference_menu.add_command(label="Accounts", command=self.open_access_window)
+        self.preference_menu.add_command(label="Aux", command=self.open_aux_window)
+        menu_bar.add_cascade(label="Setup", menu=self.preference_menu)
+
+        self.theme_var = tk.StringVar(value=self.settings["theme"])
+        self.view_menu = tk.Menu(menu_bar, tearoff=False)
+        self.view_menu.add_radiobutton(
+            label="Light", variable=self.theme_var, value="light",
+            command=lambda: self.apply_theme(self.theme_var.get())
+        )
+        self.view_menu.add_radiobutton(
+            label="Dark", variable=self.theme_var, value="dark",
+            command=lambda: self.apply_theme(self.theme_var.get())
+        )
+        menu_bar.add_cascade(label="View", menu=self.view_menu)
+
+        self.help_menu = tk.Menu(menu_bar, tearoff=False)
+        self.help_menu.add_command(label="Logs", command=self.open_logs_window)
+        self.help_menu.add_command(label="About", command=self.open_about_window)
+        menu_bar.add_cascade(label="Help", menu=self.help_menu)
+
+        self.root.config(menu=menu_bar)
+
     def build_ui(self):
+
+        self.build_menu_bar()
 
         top_bar = ttk.Frame(self.root, padding=(15, 10))
         top_bar.pack(fill="x")
@@ -793,72 +874,51 @@ class MainWindow:
         )
         self.connect_btn.pack(side="left")
 
-        self.setup_btn = ttk.Button(
-            top_bar,
-            text="Setup",
-            command=self.open_setup_window
-        )
-        self.setup_btn.pack(side="left", padx=(10, 0))
-
-        self.access_btn = ttk.Button(
-            top_bar,
-            text="Access",
-            command=self.open_access_window
-        )
-        self.access_btn.pack(side="left", padx=(10, 0))
-
-        self.logs_btn = ttk.Button(
-            top_bar,
-            text="Logs",
-            command=self.open_logs_window
-        )
-        self.logs_btn.pack(side="left", padx=(10, 0))
-
         ttk.Separator(top_bar, orient="vertical").pack(
             side="left", fill="y", padx=15
         )
 
-        ttk.Label(top_bar, text="Mixer:").pack(side="left", padx=(0, 6))
+        status_frame = ttk.Frame(top_bar)
+        status_frame.pack(side="left")
+
+        mixer_row = ttk.Frame(status_frame)
+        mixer_row.pack(side="top", anchor="w")
+
+        ttk.Label(mixer_row, text="Status:").pack(side="left", padx=(0, 6))
 
         self.indicator = tk.Canvas(
-            top_bar, width=16, height=16, highlightthickness=0,
+            mixer_row, width=16, height=16, highlightthickness=0,
             bg=panel_bg(top_bar)
         )
         self.indicator.pack(side="left")
         self.light = self.indicator.create_oval(2, 2, 14, 14, fill="red")
 
         self.status_label = ttk.Label(
-            top_bar, text="Disconnected", font=("TkDefaultFont", 10, "bold")
+            mixer_row, text="Disconnected", font=("TkDefaultFont", 10, "bold")
         )
-        self.status_label.pack(side="left", padx=(6, 24))
+        self.status_label.pack(side="left", padx=(6, 0))
 
-        self.server_indicator = tk.Canvas(
-            top_bar, width=16, height=16, highlightthickness=0,
-            bg=panel_bg(top_bar)
-        )
-        self.server_indicator.pack(side="left")
-        self.server_light = self.server_indicator.create_oval(
-            2, 2, 14, 14, fill="red"
-        )
+        snapshot_row = ttk.Frame(status_frame)
+        snapshot_row.pack(side="top", anchor="w", pady=(4, 0))
 
-        self.server_status_label = ttk.Label(top_bar, text="Server: Stopped")
-        self.server_status_label.pack(side="left", padx=6)
-
-        self.snapshot_label = ttk.Label(top_bar, text="Snapshot: --")
-        self.snapshot_label.pack(side="right")
+        self.snapshot_label = ttk.Label(snapshot_row, text="Snapshot: --")
+        self.snapshot_label.pack(side="left")
 
         ttk.Separator(self.root, orient="horizontal").pack(fill="x")
 
         frame = ttk.Frame(self.root, padding=15)
         frame.pack(fill="both", expand=True)
 
-        self.aux_panel = AuxLevelsPanel(frame, self.command_queue)
+        self.aux_panel = AuxLevelsPanel(
+            frame, self.command_queue, get_hidden_auxes=self.get_hidden_auxes
+        )
 
         self.build_setup_window()
+        self.build_about_window()
 
     def build_setup_window(self):
         self.setup_window = tk.Toplevel(self.root)
-        self.setup_window.title("Setup")
+        self.setup_window.title("Config")
         self.setup_window.protocol("WM_DELETE_WINDOW", self.close_setup_window)
 
         frame = ttk.Frame(self.setup_window, padding=15)
@@ -917,23 +977,20 @@ class MainWindow:
             row=4, column=1, padx=5, pady=(10, 0), sticky="w"
         )
 
-        ttk.Label(frame, text="Theme").grid(
-            row=5, column=0, sticky="w", pady=(10, 0)
-        )
+        self.refresh_computer_ip()
 
-        self.theme_combo = ttk.Combobox(
-            frame, width=13, state="readonly", values=["Light", "Dark"]
-        )
-        self.theme_combo.set(self.settings["theme"].capitalize())
-        self.theme_combo.grid(row=5, column=1, padx=5, pady=(10, 5), sticky="w")
-        self.theme_combo.bind("<<ComboboxSelected>>", self.on_theme_selected)
+        self.setup_window.withdraw()
 
-        ttk.Separator(frame, orient="horizontal").grid(
-            row=6, column=0, columnspan=2, sticky="ew", pady=(16, 10)
-        )
+    def build_about_window(self):
+        self.about_window = tk.Toplevel(self.root)
+        self.about_window.title("About")
+        self.about_window.protocol("WM_DELETE_WINDOW", self.close_about_window)
+
+        frame = ttk.Frame(self.about_window, padding=15)
+        frame.pack(fill="both", expand=True)
 
         update_row = ttk.Frame(frame)
-        update_row.grid(row=7, column=0, columnspan=2, sticky="w")
+        update_row.pack(anchor="w")
 
         ttk.Label(
             update_row, text=f"Version {VERSION}", foreground="#888888"
@@ -953,15 +1010,18 @@ class MainWindow:
         self.update_status_label = ttk.Label(
             frame, text="", foreground="#888888"
         )
-        self.update_status_label.grid(
-            row=8, column=0, columnspan=2, sticky="w", pady=(4, 0)
-        )
+        self.update_status_label.pack(anchor="w", pady=(4, 0))
 
         self.latest_release_url = None
 
-        self.refresh_computer_ip()
+        self.about_window.withdraw()
 
-        self.setup_window.withdraw()
+    def open_about_window(self):
+        self.about_window.deiconify()
+        self.about_window.lift()
+
+    def close_about_window(self):
+        self.about_window.withdraw()
 
     def on_check_update_button(self):
         if getattr(self, "_checking_for_update", False):
@@ -1006,9 +1066,6 @@ class MainWindow:
         ip = get_ethernet_ip()
         self.computer_ip_label.config(text=ip if ip else "Not found")
 
-    def on_theme_selected(self, event=None):
-        self.apply_theme(self.theme_combo.get().lower())
-
     def open_setup_window(self):
         self.setup_window.deiconify()
         self.setup_window.lift()
@@ -1027,6 +1084,7 @@ class MainWindow:
             "recv_port": "10024",
             "remote_port": "8765",
             "theme": "dark",
+            "hidden_auxes": [],
         }
 
         try:
@@ -1044,6 +1102,9 @@ class MainWindow:
         except OSError as ex:
             log("error", f"Failed to save settings: {ex!r}")
 
+    def get_hidden_auxes(self):
+        return set(self.settings.get("hidden_auxes", []))
+
     def apply_theme(self, theme, persist=True):
         sv_ttk.set_theme(theme)
 
@@ -1058,9 +1119,8 @@ class MainWindow:
         bg = panel_bg(self.root)
         self.root.configure(bg=bg)
 
-        for canvas in (getattr(self, "indicator", None), getattr(self, "server_indicator", None)):
-            if canvas is not None:
-                canvas.configure(bg=bg)
+        if getattr(self, "indicator", None) is not None:
+            self.indicator.configure(bg=bg)
 
         if getattr(self, "aux_panel", None) is not None:
             self.aux_panel.apply_theme()
@@ -1124,7 +1184,7 @@ class MainWindow:
 
         self.remote_server = RemoteServer(
             lambda: self.worker, self.command_queue, int(remote_port),
-            self.user_store, self.message_queue
+            self.user_store, self.get_hidden_auxes
         )
         self.remote_server.start()
 
@@ -1148,7 +1208,18 @@ class MainWindow:
             return
 
         self.access_window = AccessWindow(
-            self.root, self.user_store, lambda: self.worker
+            self.root, self.user_store, lambda: self.worker, self.get_hidden_auxes
+        )
+
+    def open_aux_window(self):
+
+        if self.aux_window and self.aux_window.window.winfo_exists():
+            self.aux_window.window.lift()
+            return
+
+        self.aux_window = AuxWindow(
+            self.root, self.settings, self.save_settings, lambda: self.worker,
+            on_change=self.aux_panel.refresh_aux_list
         )
 
     def open_logs_window(self):
@@ -1167,9 +1238,6 @@ class MainWindow:
 
             if msg_type == "status":
                 self._apply_mixer_status(value)
-
-            elif msg_type == "server_status":
-                self._apply_server_status(value)
 
             elif msg_type == "snapshot":
                 number, name = value
@@ -1205,11 +1273,6 @@ class MainWindow:
 
         if value == "Loaded":
             self.aux_panel.on_mixer_loaded(self.worker)
-
-    def _apply_server_status(self, value):
-        color = "green" if value == "Ready" else "red"
-        self.server_status_label.config(text=f"Server: {value}")
-        self.server_indicator.itemconfig(self.server_light, fill=color)
 
     def run(self):
         self.root.mainloop()

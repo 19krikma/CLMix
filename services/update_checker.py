@@ -1,11 +1,21 @@
 import json
 import re
+import ssl
 import urllib.error
 import urllib.request
+
+import certifi
 
 REPO = "19krikma/DigicoMonitorMix"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 REQUEST_TIMEOUT_SECONDS = 8
+
+# Built explicitly from certifi's bundled CA file rather than relying on
+# urllib's default (the OS trust store) - on some Windows Python installs,
+# and especially in a PyInstaller-frozen build, that lookup fails with
+# "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate"
+# even though the same code works fine on Linux/macOS.
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 def check_for_update(current_version):
@@ -28,7 +38,9 @@ def check_for_update(current_version):
             },
         )
 
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(
+            request, timeout=REQUEST_TIMEOUT_SECONDS, context=_SSL_CONTEXT
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
     except urllib.error.HTTPError as ex:

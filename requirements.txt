@@ -1,3 +1,4 @@
 python-osc
 websockets
 sv-ttk
+certifi

@@ -26,12 +26,13 @@ class RemoteServer:
     UI uses via MixerWorker's cache and command_queue.
     """
 
-    def __init__(self, get_worker, command_queue, port, user_store, message_queue=None):
+    def __init__(self, get_worker, command_queue, port, user_store,
+                 get_hidden_auxes=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
         self.user_store = user_store
-        self.message_queue = message_queue
+        self.get_hidden_auxes = get_hidden_auxes or (lambda: set())
 
         self._thread = None
         self._loop = None
@@ -56,19 +57,12 @@ class RemoteServer:
             log("error", f"Remote server error: {ex!r}")
         finally:
             self._loop.close()
-            self._report_status("Stopped")
+            log("info", "Remote server stopped")
 
     async def _serve(self):
         async with websockets.serve(self._handle_client, "0.0.0.0", self.port):
             log("info", f"Remote server listening on port {self.port}")
-            self._report_status("Ready")
             await self._stop_event.wait()
-
-        log("info", "Remote server stopped")
-
-    def _report_status(self, status):
-        if self.message_queue:
-            self.message_queue.put(("server_status", status))
 
     async def _handle_client(self, websocket):
         log("info", f"Client connected: {websocket.remote_address}")
@@ -211,7 +205,10 @@ class RemoteServer:
         if entry["aux"] == ALL_AUX:
             return True
 
-        return aux_index is not None and entry["aux"] == cls._aux_name(worker, aux_index)
+        if aux_index is None:
+            return False
+
+        return cls._aux_name(worker, aux_index) in entry["aux"]
 
     @staticmethod
     def _aux_name(worker, aux_index):
@@ -292,9 +289,9 @@ class RemoteServer:
             f"/Input_Channels/{channel}/mute {1.0 if muted else 0.0}"
         )
 
-    @staticmethod
-    def _aux_list(worker, entry=None):
+    def _aux_list(self, worker, entry=None):
         aux_modes = worker.cache.get("/Console/Aux_Outputs/modes", [])
+        hidden = self.get_hidden_auxes()
         auxes = []
 
         for i in range(1, len(aux_modes) + 1):
@@ -302,7 +299,10 @@ class RemoteServer:
             name = worker.cache[name_key][0] \
                 if name_key in worker.cache else f"Aux {i}"
 
-            if entry and entry["aux"] != ALL_AUX and entry["aux"] != name:
+            if name in hidden:
+                continue
+
+            if entry and entry["aux"] != ALL_AUX and name not in entry["aux"]:
                 continue
 
             auxes.append({"index": i, "name": name})

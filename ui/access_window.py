@@ -3,14 +3,27 @@ from tkinter import messagebox, ttk
 
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
+AUX_CHECKBOXES_PER_ROW = 5
+
+
+def format_aux(aux):
+    if aux == ALL_AUX:
+        return ALL_AUX
+
+    if not aux:
+        return "(none)"
+
+    return ", ".join(aux)
+
 
 class AccessWindow:
-    def __init__(self, master, user_store, get_worker):
+    def __init__(self, master, user_store, get_worker, get_hidden_auxes=None):
         self.user_store = user_store
         self.get_worker = get_worker
+        self.get_hidden_auxes = get_hidden_auxes or (lambda: set())
 
         self.window = tk.Toplevel(master)
-        self.window.title("Access")
+        self.window.title("Accounts")
         self.window.geometry("440x360")
 
         self.build_ui()
@@ -46,7 +59,7 @@ class AccessWindow:
         for username, record in self.user_store.list_users():
             self.tree.insert(
                 "", "end", iid=username,
-                values=(username, record["snapshot"], record["aux"])
+                values=(username, record["snapshot"], format_aux(record["aux"]))
             )
 
     def _known_snapshots(self):
@@ -58,10 +71,11 @@ class AccessWindow:
         worker = self.get_worker()
 
         if not worker or not worker.loaded:
-            return [ALL_AUX]
+            return []
 
         from ui.main_window import build_aux_list
-        return [ALL_AUX] + [name for _, name in build_aux_list(worker)]
+        hidden = self.get_hidden_auxes()
+        return [name for _, name in build_aux_list(worker, hidden=hidden)]
 
     def new_user(self):
         UserEditDialog(
@@ -139,10 +153,42 @@ class UserEditDialog:
         self.snapshot_combo.grid(row=3, column=1, padx=5, pady=(10, 5))
         self.snapshot_combo.set(record["snapshot"] if record else ALL_SNAPSHOTS)
 
-        ttk.Label(frame, text="Aux Access").grid(row=4, column=0, sticky="w")
-        self.aux_combo = ttk.Combobox(frame, width=23, values=aux_options)
-        self.aux_combo.grid(row=4, column=1, padx=5, pady=5)
-        self.aux_combo.set(record["aux"] if record else ALL_AUX)
+        ttk.Label(frame, text="Aux Access").grid(
+            row=4, column=0, sticky="nw", pady=(10, 0)
+        )
+
+        current_aux = record["aux"] if record else ALL_AUX
+        all_selected = current_aux == ALL_AUX
+        selected_names = set() if all_selected else set(current_aux or [])
+
+        aux_frame = ttk.Frame(frame)
+        aux_frame.grid(row=4, column=1, sticky="w", padx=5, pady=(10, 5))
+
+        self.all_aux_var = tk.BooleanVar(value=all_selected)
+        ttk.Checkbutton(
+            aux_frame, text="All", variable=self.all_aux_var,
+            command=self.on_all_aux_toggled
+        ).grid(
+            row=0, column=0, columnspan=AUX_CHECKBOXES_PER_ROW,
+            sticky="w", pady=(0, 4)
+        )
+
+        self.aux_vars = {}
+        self.aux_checkbuttons = {}
+        checkbox_state = "disabled" if all_selected else "normal"
+
+        for i, name in enumerate(aux_options):
+            row = 1 + i // AUX_CHECKBOXES_PER_ROW
+            column = i % AUX_CHECKBOXES_PER_ROW
+
+            var = tk.BooleanVar(value=name in selected_names)
+            self.aux_vars[name] = var
+
+            checkbutton = ttk.Checkbutton(
+                aux_frame, text=name, variable=var, state=checkbox_state
+            )
+            checkbutton.grid(row=row, column=column, sticky="w", padx=(0, 12), pady=2)
+            self.aux_checkbuttons[name] = checkbutton
 
         btn_bar = ttk.Frame(frame)
         btn_bar.grid(row=5, column=0, columnspan=2, pady=(15, 0))
@@ -152,11 +198,21 @@ class UserEditDialog:
             btn_bar, text="Cancel", command=self.window.destroy
         ).pack(side="left")
 
+    def on_all_aux_toggled(self):
+        state = "disabled" if self.all_aux_var.get() else "normal"
+
+        for checkbutton in self.aux_checkbuttons.values():
+            checkbutton.config(state=state)
+
     def save(self):
         username = self.username or self.username_entry.get().strip()
         password = self.password_entry.get()
         snapshot = self.snapshot_combo.get().strip() or ALL_SNAPSHOTS
-        aux = self.aux_combo.get().strip() or ALL_AUX
+
+        if self.all_aux_var.get():
+            aux = ALL_AUX
+        else:
+            aux = [name for name, var in self.aux_vars.items() if var.get()]
 
         if not username:
             messagebox.showerror(

@@ -1,7 +1,24 @@
+import os
+import platform
+import subprocess
 import tkinter as tk
 from tkinter import ttk
 
 from services.log_store import log_store
+
+
+def open_folder(path):
+    system = platform.system()
+
+    try:
+        if system == "Windows":
+            os.startfile(path)  # noqa: S606 - user-initiated, local path only
+        elif system == "Darwin":
+            subprocess.run(["open", str(path)], check=False)
+        else:
+            subprocess.run(["xdg-open", str(path)], check=False)
+    except OSError:
+        pass
 
 
 class LogsWindow:
@@ -31,6 +48,18 @@ class LogsWindow:
             ).pack(side="left", padx=(0, 12))
 
         ttk.Button(bar, text="Clear", command=self.clear).pack(side="right")
+        ttk.Button(
+            bar, text="Open Logs Folder",
+            command=lambda: open_folder(log_store.logs_dir)
+        ).pack(side="right", padx=(0, 8))
+
+        file_bar = ttk.Frame(self.window, padding=(10, 0))
+        file_bar.pack(fill="x")
+
+        ttk.Label(
+            file_bar, text=f"Log file: {log_store.current_log_path()}",
+            foreground="#888888"
+        ).pack(side="left")
 
         text_frame = ttk.Frame(self.window, padding=(10, 0, 10, 10))
         text_frame.pack(fill="both", expand=True)
