@@ -1,4 +1,4 @@
-package com.digico.monitormix
+package com.clmix
 
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -12,7 +12,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.digico.monitormix.databinding.ActivityMixerBinding
+import com.clmix.databinding.ActivityMixerBinding
 
 class MixerActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerBinding

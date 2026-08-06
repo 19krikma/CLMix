@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DigicoMonitorMix"
+rootProject.name = "CLMix"
 include(":app")

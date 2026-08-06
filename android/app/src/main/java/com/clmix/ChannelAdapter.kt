@@ -1,4 +1,4 @@
-package com.digico.monitormix
+package com.clmix
 
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -11,7 +11,7 @@ import android.view.ViewGroup
 import android.widget.SeekBar
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
-import com.digico.monitormix.databinding.ItemChannelBinding
+import com.clmix.databinding.ItemChannelBinding
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign

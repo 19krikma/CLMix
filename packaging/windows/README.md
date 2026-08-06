@@ -1,6 +1,6 @@
 # Windows packaging
 
-Turns the app into a double-click installer (`DigicoMonitorMixSetup-<version>.exe`)
+Turns the app into a double-click installer (`CLMixSetup-<version>.exe`)
 that installs to Program Files, adds a Start Menu entry, offers an optional
 Desktop shortcut, and registers a normal uninstaller in
 "Add or remove programs".
@@ -30,10 +30,10 @@ This will:
 1. Read the version from `version.py`.
 2. Create a build-only virtual environment (`.venv-build`) and install
    `requirements.txt` + `pyinstaller` into it.
-3. Run PyInstaller against `digico_monitor_mix.spec`, producing
-   `dist\DigicoMonitorMix\`.
+3. Run PyInstaller against `clmix.spec`, producing
+   `dist\CLMix\`.
 4. Run Inno Setup against `installer.iss`, producing
-   `packaging\windows\dist_installer\DigicoMonitorMixSetup-<version>.exe`.
+   `packaging\windows\dist_installer\CLMixSetup-<version>.exe`.
 
 Hand that one `.exe` to anyone - running it installs the app and offers to
 create a desktop shortcut, no Python required on the target machine.
@@ -49,7 +49,7 @@ bar both pick up the new version automatically.
 - `.venv-build`, `build\`, `dist\`, and `packaging\windows\dist_installer\`
   are build output - safe to delete and regenerate, not meant to be
   committed.
-- No app icon is wired up yet (`digico_monitor_mix.spec` uses PyInstaller's
+- No app icon is wired up yet (`clmix.spec` uses PyInstaller's
   default). Drop an `.ico` file in this directory and pass `icon=` to the
   `EXE(...)` call in the spec if you want one.
 - The installer isn't code-signed. Unsigned installers will trigger a

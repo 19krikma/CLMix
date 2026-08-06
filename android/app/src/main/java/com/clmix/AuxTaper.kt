@@ -1,4 +1,4 @@
-package com.digico.monitormix
+package com.clmix
 
 /**
  * Mirrors the desktop app's slider taper (ui/main_window.py,

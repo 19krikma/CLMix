@@ -1,4 +1,4 @@
-package com.digico.monitormix
+package com.clmix
 
 import java.io.Serializable
 

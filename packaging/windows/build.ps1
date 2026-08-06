@@ -1,4 +1,4 @@
-# Builds a double-click Windows installer for DigicoMonitorMix.
+# Builds a double-click Windows installer for CLMix.
 #
 # Run this ON WINDOWS (PyInstaller bundles the interpreter of whatever OS
 # it runs on - it cannot cross-compile a Windows .exe from Linux/macOS).
@@ -12,7 +12,7 @@
 # Usage (from anywhere):
 #   powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 #
-# Produces packaging\windows\dist_installer\DigicoMonitorMixSetup-<version>.exe
+# Produces packaging\windows\dist_installer\CLMixSetup-<version>.exe
 
 $ErrorActionPreference = "Stop"
 
@@ -39,11 +39,11 @@ $VenvPython = Join-Path $RepoRoot ".venv-build\Scripts\python.exe"
 & $VenvPython -m pip install -r requirements.txt pyinstaller
 
 Write-Host "==> Running PyInstaller"
-& $VenvPython -m PyInstaller "packaging\windows\digico_monitor_mix.spec" `
+& $VenvPython -m PyInstaller "packaging\windows\clmix.spec" `
     --distpath dist --workpath build --noconfirm
 
-if (-not (Test-Path "dist\DigicoMonitorMix\DigicoMonitorMix.exe")) {
-    throw "PyInstaller did not produce dist\DigicoMonitorMix\DigicoMonitorMix.exe"
+if (-not (Test-Path "dist\CLMix\CLMix.exe")) {
+    throw "PyInstaller did not produce dist\CLMix\CLMix.exe"
 }
 
 Write-Host "==> Locating Inno Setup compiler (ISCC.exe)"
@@ -65,6 +65,6 @@ if (-not $Iscc) {
 Write-Host "==> Building installer with Inno Setup"
 & $IsccPath "/DMyAppVersion=$Version" "packaging\windows\installer.iss"
 
-$OutputExe = "packaging\windows\dist_installer\DigicoMonitorMixSetup-$Version.exe"
+$OutputExe = "packaging\windows\dist_installer\CLMixSetup-$Version.exe"
 Write-Host ""
 Write-Host "==> Done: $OutputExe"

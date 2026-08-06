@@ -1,4 +1,4 @@
-package com.digico.monitormix
+package com.clmix
 
 import android.os.Handler
 import android.os.Looper
@@ -21,7 +21,7 @@ interface MixerClientListener {
 }
 
 /**
- * Talks to the DigicoMonitorMix desktop app's RemoteServer
+ * Talks to the CLMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
  * protocol: login/list_auxes/list_banks/select_aux/select_bank/set_level/
  * set_pan/set_mute out, login_result/auxes/banks/levels/error in.

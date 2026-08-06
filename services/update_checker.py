@@ -6,7 +6,7 @@ import urllib.request
 
 import certifi
 
-REPO = "19krikma/DigicoMonitorMix"
+REPO = "19krikma/CLMix"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 REQUEST_TIMEOUT_SECONDS = 8
 
@@ -34,7 +34,7 @@ def check_for_update(current_version):
             headers={
                 "Accept": "application/vnd.github+json",
                 # GitHub's API rejects requests with no User-Agent.
-                "User-Agent": "DigicoMonitorMix-UpdateChecker",
+                "User-Agent": "CLMix-UpdateChecker",
             },
         )
 

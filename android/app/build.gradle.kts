@@ -27,11 +27,11 @@ if (hasKeystoreProperties) {
 }
 
 android {
-    namespace = "com.digico.monitormix"
+    namespace = "com.clmix"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.digico.monitormix"
+        applicationId = "com.clmix"
         minSdk = 24
         targetSdk = 34
         versionCode = verMajor * 10000 + verMinor * 100 + verPatch

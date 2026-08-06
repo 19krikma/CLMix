@@ -6,7 +6,7 @@ from pathlib import Path
 MAX_ENTRIES = 5000
 RETENTION_DAYS = 30
 
-LOGS_DIR = Path.home() / ".digico_monitor_mix_logs"
+LOGS_DIR = Path.home() / ".clmix_logs"
 
 
 class LogStore:

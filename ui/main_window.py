@@ -23,7 +23,7 @@ from ui.aux_window import AuxWindow
 from ui.logs_window import LogsWindow
 from version import VERSION
 
-SETTINGS_PATH = Path.home() / ".digico_monitor_mix.json"
+SETTINGS_PATH = Path.home() / ".clmix.json"
 
 
 # Addresses worth keeping in the in-memory cache, mirroring the
@@ -810,7 +810,7 @@ class MainWindow:
     def __init__(self):
 
         self.root = tk.Tk()
-        self.root.title(f"Mixer Controller v{VERSION}")
+        self.root.title(f"CLMix v{VERSION}")
         self.root.geometry("800x500")
 
         self.worker = None

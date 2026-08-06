@@ -9,7 +9,7 @@
         android:label="@string/app_name"
         android:roundIcon="@drawable/ic_launcher"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.MonitorMix">
+        android:theme="@style/Theme.CLMix">
 
         <activity
             android:name=".ConnectActivity"

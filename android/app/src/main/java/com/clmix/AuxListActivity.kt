@@ -1,4 +1,4 @@
-package com.digico.monitormix
+package com.clmix
 
 import android.content.Intent
 import android.os.Bundle
@@ -7,8 +7,8 @@ import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.digico.monitormix.databinding.ActivityAuxListBinding
-import com.digico.monitormix.databinding.ItemAuxBinding
+import com.clmix.databinding.ActivityAuxListBinding
+import com.clmix.databinding.ItemAuxBinding
 
 class AuxListActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityAuxListBinding

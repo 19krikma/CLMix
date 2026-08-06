@@ -1,11 +1,11 @@
-package com.digico.monitormix
+package com.clmix
 
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.digico.monitormix.databinding.ActivityConnectBinding
+import com.clmix.databinding.ActivityConnectBinding
 
 class ConnectActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityConnectBinding

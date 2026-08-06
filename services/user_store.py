@@ -5,7 +5,7 @@ from pathlib import Path
 
 from services.log_store import log
 
-USERS_PATH = Path.home() / ".digico_monitor_mix_users.json"
+USERS_PATH = Path.home() / ".clmix_users.json"
 
 ALL_SNAPSHOTS = "All Snapshots"
 ALL_AUX = "All Aux"
