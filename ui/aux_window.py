@@ -73,6 +73,15 @@ class AuxWindow:
             lambda event: canvas.configure(scrollregion=canvas.bbox("all"))
         )
 
+        # Raw tk.Checkbutton's indicator rendering is unreliable across
+        # platforms/themes (its "checked" fill can end up indistinguishable
+        # from its own background) - ttk.Checkbutton gets a proper themed
+        # checkmark from sv_ttk instead. ttk widgets can't take a plain
+        # bg=, so the two alternating row backgrounds get their own styles.
+        style = ttk.Style()
+        style.configure("AuxRowBase.TCheckbutton", background=base_bg)
+        style.configure("AuxRowAlt.TCheckbutton", background=alt_bg)
+
         rows_per_group = max(1, math.ceil(math.sqrt(len(aux_list))))
         header_font = ("TkDefaultFont", 9, "bold")
         group_frames = {}
@@ -102,12 +111,12 @@ class AuxWindow:
                 group_frame, text=name, bg=group_bg, fg=fg, anchor="w"
             ).grid(row=row_in_group + 1, column=0, sticky="w", padx=(8, 16), pady=2)
 
-            tk.Checkbutton(
+            row_style = "AuxRowAlt.TCheckbutton" if group % 2 == 1 else "AuxRowBase.TCheckbutton"
+
+            ttk.Checkbutton(
                 group_frame,
                 variable=var,
-                bg=group_bg,
-                activebackground=group_bg,
-                highlightthickness=0,
+                style=row_style,
                 command=lambda n=name, v=var: self.on_toggle(n, v)
             ).grid(row=row_in_group + 1, column=1, sticky="e", padx=(0, 8), pady=2)
 

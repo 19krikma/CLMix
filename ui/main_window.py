@@ -810,7 +810,7 @@ class MainWindow:
     def __init__(self):
 
         self.root = tk.Tk()
-        self.root.title(f"CLMix v{VERSION}")
+        self.root.title("CLMix")
         self.root.geometry("800x500")
 
         self.worker = None

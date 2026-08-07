@@ -39,17 +39,19 @@
 
     </FrameLayout>
 
-    <SeekBar
-        android:id="@+id/pan_seek_bar"
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/pan_button"
+        style="@style/Widget.Material3.Button.TonalButton"
         android:layout_width="match_parent"
-        android:layout_height="28dp"
-        android:layout_marginStart="-6dp"
-        android:layout_marginEnd="-6dp"
+        android:layout_height="34dp"
         android:layout_marginTop="4dp"
-        android:max="200"
-        android:thumb="@drawable/seekbar_thumb"
-        android:progressDrawable="@drawable/seekbar_track"
-        android:splitTrack="false" />
+        android:text="Pan"
+        android:textSize="11sp"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        app:cornerRadius="10dp"
+        app:backgroundTint="@color/mute_inactive"
+        android:textColor="@color/on_mute_inactive" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/mute_button"

@@ -20,9 +20,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     private var auxIndex: Int = -1
     private var smoothEnabled = false
     private val draggingChannels = mutableSetOf<Int>()
-    private val panDraggingChannels = mutableSetOf<Int>()
     private val dragReleasedAt = mutableMapOf<Int, Long>()
-    private val panDragReleasedAt = mutableMapOf<Int, Long>()
+    private var panSheet: PanBottomSheet? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,18 +37,13 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
 
         adapter = ChannelAdapter(
             onLevelChanged = { channel, db -> MixerClient.setLevel(channel, db) },
-            onPanChanged = { channel, pan -> MixerClient.setPan(channel, pan) },
             onMuteToggled = { channel, muted -> MixerClient.setMute(channel, muted) },
             onDragStart = { channel -> draggingChannels.add(channel) },
             onDragEnd = { channel ->
                 draggingChannels.remove(channel)
                 dragReleasedAt[channel] = System.currentTimeMillis()
             },
-            onPanDragStart = { channel -> panDraggingChannels.add(channel) },
-            onPanDragEnd = { channel ->
-                panDraggingChannels.remove(channel)
-                panDragReleasedAt[channel] = System.currentTimeMillis()
-            }
+            onPanButtonClicked = { channel -> showPanSheet(channel) }
         )
 
         binding.channelRecycler.layoutManager =
@@ -114,14 +108,36 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
 
+    private fun showPanSheet(channel: ChannelState) {
+        val sheet = PanBottomSheet(
+            this, channel.channel, channel.name, channel.pan ?: 0.0
+        ) { ch, pan -> MixerClient.setPan(ch, pan) }
+
+        sheet.setOnDismissListener {
+            if (panSheet === sheet) panSheet = null
+        }
+
+        panSheet = sheet
+        sheet.show()
+    }
+
     private fun switchAux(aux: AuxBus) {
         binding.drawerLayout.closeDrawer(GravityCompat.START)
 
         if (aux.index == auxIndex) return
 
+        // Pan is per-aux-send, so a sheet left open from the previous aux
+        // would otherwise keep sending pan updates against the new one.
+        dismissPanSheet()
+
         auxIndex = aux.index
         title = aux.name
         MixerClient.selectAux(auxIndex)
+    }
+
+    private fun dismissPanSheet() {
+        panSheet?.dismiss()
+        panSheet = null
     }
 
     private fun logout() {
@@ -130,6 +146,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun returnToLogin() {
+        // A pan sheet left showing would otherwise leak its window once
+        // this activity is torn down by the task-clearing navigation below.
+        dismissPanSheet()
+
         val intent = Intent(this, ConnectActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
@@ -159,9 +179,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
 
     override fun onLevels(aux: Int, channels: List<ChannelState>) {
         if (aux != auxIndex) return
-        adapter.updateChannels(
-            channels, draggingChannels, panDraggingChannels,
-            dragReleasedAt, panDragReleasedAt
-        )
+        adapter.updateChannels(channels, draggingChannels, dragReleasedAt)
+
+        panSheet?.let { sheet ->
+            channels.firstOrNull { it.channel == sheet.channel }?.pan?.let(sheet::updateIfIdle)
+        }
     }
 }
