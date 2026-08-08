@@ -60,5 +60,6 @@ live testing, so expect to need some hands-on adjustment there.
 | `MixerView.swift` | `MixerActivity` | Bank picker, channel grid, aux switcher |
 | `ChannelStripView.swift` | `ChannelAdapter.kt` | Per-channel fader/pan/mute |
 | `LevelFaderView.swift` | `ChannelAdapter.kt`'s fine-drag handling | Vertical fader with Fine-mode precision drag |
+| `LevelRulerView.swift` | `LevelRulerView.kt` | dB scale beside the fader, ticks packed tight near -infinity |
 | `PanSheetView.swift` | `PanBottomSheet.kt` + `PanTrackDrawable.kt` | Full-width pan control, center-anchored fill |
 | `CLMixApp.swift` | n/a (Activities) | App entry point |

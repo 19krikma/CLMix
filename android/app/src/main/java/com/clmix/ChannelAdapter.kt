@@ -89,6 +89,29 @@ class ChannelAdapter(
         val binding = ItemChannelBinding.inflate(
             LayoutInflater.from(parent.context), parent, false
         )
+
+        // The level fader is a SeekBar rotated 270° - its layout width
+        // becomes its visual length once rotated, but XML has no way to
+        // express "width = parent's height" for a rotated view. Instead,
+        // whenever fader_row's actual height changes (initial layout,
+        // orientation change), resize the SeekBar to match it exactly -
+        // otherwise the fader is stuck at a guessed fixed length, wasting
+        // space when more is available and clipping the ruler drawn
+        // beside it (LevelRulerView, which does size itself off the
+        // row's real height) when less is.
+        binding.faderRow.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            val newHeight = bottom - top
+            val oldHeight = oldBottom - oldTop
+
+            if (newHeight > 0 && newHeight != oldHeight) {
+                val params = binding.levelSeekBar.layoutParams
+                if (params.width != newHeight) {
+                    params.width = newHeight
+                    binding.levelSeekBar.layoutParams = params
+                }
+            }
+        }
+
         return ViewHolder(binding)
     }
 

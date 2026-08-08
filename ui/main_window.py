@@ -340,6 +340,20 @@ def stripe_bg(widget):
     return "#292929" if sv_ttk.get_theme() == "dark" else "#e7e7e7"
 
 
+def _cumulative_weighted_fractions(gap_count):
+    # Fraction 0 (bottom) .. 1 (top) at each of gap_count+1 points, with
+    # gap widths growing 1, 2, 3, ... toward the top - the same "packed
+    # tight near -infinity, spread out near unity" shape as a printed
+    # fader scale, generalized to a continuous 0..1 range.
+    total_weight = gap_count * (gap_count + 1) / 2
+    fractions = [0.0]
+
+    for weight in range(1, gap_count + 1):
+        fractions.append(fractions[-1] + weight / total_weight)
+
+    return fractions
+
+
 class AuxLevelsPanel:
     REFRESH_MS = 150
     LEVEL_EPSILON = 0.005
@@ -349,33 +363,79 @@ class AuxLevelsPanel:
     # earlier drag position can't snap it back and make it feel jumpy.
     DRAG_GRACE_SECONDS = 0.3
 
-    # The physical fader only travels smoothly between TOP_DB and MID_DB;
-    # below that it drops almost immediately to BOTTOM_DB. FRACTION_MID
-    # is the fraction (from the bottom) where that transition happens:
-    # above it is the TOP_DB..MID_DB range (80% of the travel), below it
-    # is the steep MID_DB..BOTTOM_DB tail near the very bottom (20%).
     TOP_DB = 10.0
-    MID_DB = -60.0
     BOTTOM_DB = -150.0
-    FRACTION_MID = 0.2
+
+    # Pixel length of the level slider's trough - shared with the ruler
+    # drawn beside it.
+    LEVEL_LENGTH = 220
+
+    # The fader's dB<->position curve (_fraction_to_db / _db_to_fraction
+    # below) is a piecewise-linear interpolation through these points,
+    # using LEVEL_TICK_FRACTIONS for each one's position - so dragging
+    # the fader to where a ruler number sits reports that exact dB value,
+    # matching a printed fader scale: packed tight near -infinity, spread
+    # out near unity.
+    LEVEL_TICKS = [
+        (BOTTOM_DB, "∞"),
+        (-60.0, "60"),
+        (-50.0, "50"),
+        (-40.0, "40"),
+        (-30.0, "30"),
+        (-20.0, "20"),
+        (-10.0, "10"),
+        (-5.0, "5"),
+        (0.0, "0"),
+        (5.0, "5"),
+        (TOP_DB, "10"),
+    ]
+    LEVEL_TICK_FRACTIONS = _cumulative_weighted_fractions(len(LEVEL_TICKS) - 1)
+
+    # Keeps the top/bottom tick labels (+10, ∞) from being clipped by the
+    # canvas edge, since their text is vertically centered on the exact
+    # top/bottom endpoints otherwise.
+    LEVEL_TICK_INSET = 4
+
+    # Total ruler width, and where each tick's connector line (pointing
+    # from the number toward the fader track) starts - matching the
+    # reference photo's numbers-then-line-to-the-fader look.
+    LEVEL_RULER_WIDTH = 26
+    LEVEL_TICK_LINE_START = 16
 
     @classmethod
     def _fraction_to_db(cls, fraction):
-        if fraction >= cls.FRACTION_MID:
-            t = (fraction - cls.FRACTION_MID) / (1 - cls.FRACTION_MID)
-            return cls.MID_DB + t * (cls.TOP_DB - cls.MID_DB)
+        fraction = min(1.0, max(0.0, fraction))
+        fractions = cls.LEVEL_TICK_FRACTIONS
 
-        t = fraction / cls.FRACTION_MID
-        return cls.BOTTOM_DB + t * (cls.MID_DB - cls.BOTTOM_DB)
+        for i in range(len(fractions) - 1):
+            f0, f1 = fractions[i], fractions[i + 1]
+
+            if fraction <= f1:
+                db0, db1 = cls.LEVEL_TICKS[i][0], cls.LEVEL_TICKS[i + 1][0]
+                t = (fraction - f0) / (f1 - f0)
+                return db0 + t * (db1 - db0)
+
+        return cls.TOP_DB
 
     @classmethod
     def _db_to_fraction(cls, db):
-        if db >= cls.MID_DB:
-            t = (db - cls.MID_DB) / (cls.TOP_DB - cls.MID_DB)
-            return cls.FRACTION_MID + t * (1 - cls.FRACTION_MID)
+        ticks = cls.LEVEL_TICKS
+        fractions = cls.LEVEL_TICK_FRACTIONS
 
-        t = (db - cls.BOTTOM_DB) / (cls.MID_DB - cls.BOTTOM_DB)
-        return max(0.0, t * cls.FRACTION_MID)
+        if db <= ticks[0][0]:
+            return 0.0
+
+        if db >= ticks[-1][0]:
+            return 1.0
+
+        for i in range(len(ticks) - 1):
+            db0, db1 = ticks[i][0], ticks[i + 1][0]
+
+            if db <= db1:
+                t = (db - db0) / (db1 - db0)
+                return fractions[i] + t * (fractions[i + 1] - fractions[i])
+
+        return 1.0
 
     # The mixer's own send_pan values run 0.0 (hard left) to 1.0 (hard
     # right) with 0.5 as center. The UI (and double-click reset) use the
@@ -400,6 +460,7 @@ class AuxLevelsPanel:
         self.aux_list = []
 
         self.sliders = {}
+        self.level_rulers = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
         self.suppress_send = False
@@ -460,6 +521,11 @@ class AuxLevelsPanel:
     def apply_theme(self):
         self.canvas.configure(bg=panel_bg(self.master))
 
+        bg = panel_bg(self.master)
+        for ruler in self.level_rulers.values():
+            ruler.configure(bg=bg)
+            self._draw_level_ruler(ruler)
+
     def on_mixer_loaded(self, worker):
         self.worker = worker
 
@@ -519,6 +585,7 @@ class AuxLevelsPanel:
             child.destroy()
 
         self.sliders = {}
+        self.level_rulers = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
         self.dragging = set()
@@ -571,6 +638,7 @@ class AuxLevelsPanel:
             child.destroy()
 
         self.sliders = {}
+        self.level_rulers = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
         self.dragging = set()
@@ -593,12 +661,26 @@ class AuxLevelsPanel:
 
             ttk.Label(column, text=name).pack()
 
+            # A row (not the slider alone) so the ruler and the slider
+            # share the same top edge - and therefore line up - regardless
+            # of the name label's height above them.
+            fader_row = ttk.Frame(column)
+            fader_row.pack()
+
+            ruler = tk.Canvas(
+                fader_row, width=self.LEVEL_RULER_WIDTH, height=self.LEVEL_LENGTH,
+                highlightthickness=0, bg=panel_bg(self.master)
+            )
+            ruler.pack(side="left", fill="y")
+            self.level_rulers[i] = ruler
+            self._draw_level_ruler(ruler)
+
             slider = ttk.Scale(
-                column,
+                fader_row,
                 from_=1.0,
                 to=0.0,
                 orient="vertical",
-                length=220,
+                length=self.LEVEL_LENGTH,
                 command=lambda value, channel=i:
                     self.on_slider_change(channel, value)
             )
@@ -610,7 +692,7 @@ class AuxLevelsPanel:
                 "<ButtonRelease-1>",
                 lambda event, channel=i: self.on_slider_release(channel)
             )
-            slider.pack()
+            slider.pack(side="left")
 
             self.sliders[i] = slider
 
@@ -649,6 +731,23 @@ class AuxLevelsPanel:
             mute_btn.pack(pady=(4, 0))
 
             self.mute_buttons[i] = mute_btn
+
+    def _draw_level_ruler(self, ruler):
+        ruler.delete("all")
+        fg = panel_fg(self.master)
+        span = self.LEVEL_LENGTH - 2 * self.LEVEL_TICK_INSET
+
+        # Same LEVEL_TICK_FRACTIONS the fader itself uses (_fraction_to_db
+        # / _db_to_fraction), so a tick's printed position always matches
+        # exactly where dragging the fader there reports that dB value.
+        for (_db, label), fraction in zip(self.LEVEL_TICKS, self.LEVEL_TICK_FRACTIONS):
+            y = self.LEVEL_TICK_INSET + (1 - fraction) * span
+            ruler.create_line(
+                self.LEVEL_TICK_LINE_START, y, self.LEVEL_RULER_WIDTH, y, fill=fg
+            )
+            ruler.create_text(
+                2, y, text=label, anchor="w", fill=fg, font=("TkDefaultFont", 7)
+            )
 
     def current_aux(self):
         index = self.aux_combo.current()

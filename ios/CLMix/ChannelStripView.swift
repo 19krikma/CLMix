@@ -15,12 +15,17 @@ struct ChannelStripView: View {
                 .multilineTextAlignment(.center)
                 .frame(height: 32)
 
-            LevelFaderView(
-                db: channel.level ?? AuxTaper.bottomDb,
-                fineMode: fineMode,
-                onChange: { db in model.setLevel(channel: channel.channel, db: db) }
-            )
-            .frame(width: 44, height: 220)
+            HStack(spacing: 0) {
+                LevelRulerView()
+                    .frame(width: 26, height: 220)
+
+                LevelFaderView(
+                    db: channel.level ?? AuxTaper.bottomDb,
+                    fineMode: fineMode,
+                    onChange: { db in model.setLevel(channel: channel.channel, db: db) }
+                )
+                .frame(width: 44, height: 220)
+            }
 
             Button(PanFormat.buttonLabel(channel.pan)) {
                 showPanSheet = true
@@ -35,7 +40,7 @@ struct ChannelStripView: View {
             .tint(channel.muted ? .red : .gray)
             .frame(maxWidth: .infinity)
         }
-        .frame(width: 92)
+        .frame(width: 118)
         .sheet(isPresented: $showPanSheet) {
             PanSheetView(
                 channelName: channel.name,

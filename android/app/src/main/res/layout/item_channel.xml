@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="92dp"
+    android:layout_width="118dp"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center_horizontal"
@@ -19,25 +19,44 @@
         android:textStyle="bold"
         android:textColor="?attr/colorOnSurface" />
 
-    <FrameLayout
+    <LinearLayout
+        android:id="@+id/fader_row"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:orientation="horizontal">
 
-        <SeekBar
-            android:id="@+id/level_seek_bar"
-            android:layout_width="260dp"
-            android:layout_height="44dp"
-            android:layout_gravity="center"
-            android:rotation="270"
-            android:max="1000"
-            android:thumb="@drawable/seekbar_thumb"
-            android:progressDrawable="@drawable/seekbar_track"
-            android:splitTrack="false"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp" />
+        <com.clmix.LevelRulerView
+            android:id="@+id/level_ruler"
+            android:layout_width="26dp"
+            android:layout_height="match_parent" />
 
-    </FrameLayout>
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <!-- layout_width is overwritten at runtime (ChannelAdapter's
+                 fader_row layout listener) to match fader_row's actual
+                 measured height, since that becomes this rotated view's
+                 visual length - letting the fader fill all the space
+                 actually available instead of a guessed fixed length. -->
+            <SeekBar
+                android:id="@+id/level_seek_bar"
+                android:layout_width="260dp"
+                android:layout_height="44dp"
+                android:layout_gravity="center"
+                android:rotation="270"
+                android:max="1000"
+                android:thumb="@drawable/seekbar_thumb"
+                android:progressDrawable="@drawable/seekbar_track"
+                android:splitTrack="false"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp" />
+
+        </FrameLayout>
+
+    </LinearLayout>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/pan_button"
