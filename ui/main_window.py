@@ -340,6 +340,16 @@ def stripe_bg(widget):
     return "#292929" if sv_ttk.get_theme() == "dark" else "#e7e7e7"
 
 
+def accent_color(widget):
+    # sv_ttk's own selection/accent blue, reused so the plain tk widgets
+    # below (Scale, Button - ttk versions of these render their trough/
+    # fill via fixed PNG image assets sv_ttk ships, which a ttk style's
+    # "background" option cannot recolor per-instance at all) still look
+    # like they belong to the theme instead of a guessed hardcoded blue.
+    name = "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
+    return widget.tk.eval(f"set ttk::theme::{name}::colors(-selbg)")
+
+
 def _cumulative_weighted_fractions(gap_count):
     # Fraction 0 (bottom) .. 1 (top) at each of gap_count+1 points, with
     # gap widths growing 1, 2, 3, ... toward the top - the same "packed
@@ -352,6 +362,119 @@ def _cumulative_weighted_fractions(gap_count):
         fractions.append(fractions[-1] + weight / total_weight)
 
     return fractions
+
+
+class RoundSlider:
+    """Canvas-drawn slider - a rounded pill track plus a round thumb,
+    matching sv_ttk's ttk.Scale look. ttk.Scale itself can't be used for
+    the per-channel colors AuxLevelsPanel needs: sv_ttk renders both the
+    trough and the slider as fixed PNG image assets (see
+    sv_ttk/theme/*.tcl), so a ttk style's "background" option has no
+    visual effect on them at all - and plain tk.Scale, while colorable,
+    defaults to whole-number resolution (breaking a 0..1-range fader)
+    and pages toward a trough click instead of jumping straight to it,
+    both requiring workarounds of their own.
+
+    Exposes the same get/set/configure/bind/pack surface AuxLevelsPanel
+    already used for tk.Scale, so call sites only needed the constructor
+    swapped, plus value_at() for the press/drag handlers to map a click
+    coordinate to a value directly (replacing the old cget-based
+    _scale_value_at, which assumed tk.Scale's own trough geometry).
+    """
+
+    THUMB_RADIUS = 9
+    TRACK_THICKNESS = 6
+
+    def __init__(self, parent, orient, from_, to, length,
+                 bg, troughcolor, thumb_color, command=None):
+        self.orient = orient
+        self.from_value = from_
+        self.to_value = to
+        self.length = length
+        self.command = command
+        self._value = from_
+        self._track_color = troughcolor
+        self._thumb_color = thumb_color
+
+        pad = self.THUMB_RADIUS + 2
+        width, height = (pad * 2, length) if orient == "vertical" else (length, pad * 2)
+
+        self.canvas = tk.Canvas(
+            parent, width=width, height=height, bg=bg, highlightthickness=0
+        )
+        self.canvas.bind("<Configure>", lambda event: self._redraw())
+        self._redraw()
+
+    def pack(self, **kwargs):
+        self.canvas.pack(**kwargs)
+
+    def bind(self, sequence, func, add=None):
+        return self.canvas.bind(sequence, func, add=add)
+
+    def configure(self, bg=None, troughcolor=None, activebackground=None, **_ignored):
+        if bg is not None:
+            self.canvas.configure(bg=bg)
+        if troughcolor is not None:
+            self._track_color = troughcolor
+        if activebackground is not None:
+            self._thumb_color = activebackground
+        self._redraw()
+
+    def get(self):
+        return self._value
+
+    def set(self, value):
+        low, high = sorted((self.from_value, self.to_value))
+        self._value = min(high, max(low, value))
+        self._redraw()
+
+        # Matches tk.Scale's own behavior: .set() fires the command
+        # regardless of whether the caller is the user dragging or code
+        # updating the value programmatically - AuxLevelsPanel relies on
+        # this (its suppress_send flag exists specifically to no-op the
+        # command during a programmatic set rather than needing a
+        # separate "set without firing" method).
+        if self.command is not None:
+            self.command(self._value)
+
+    def value_at(self, coordinate):
+        pad = self.THUMB_RADIUS
+        span = self.length - 2 * pad
+        fraction = 0.0 if span <= 0 else (coordinate - pad) / span
+        fraction = min(1.0, max(0.0, fraction))
+        return self.from_value + fraction * (self.to_value - self.from_value)
+
+    def _fraction(self):
+        span = self.to_value - self.from_value
+        return 0.0 if span == 0 else (self._value - self.from_value) / span
+
+    def _redraw(self):
+        self.canvas.delete("all")
+        r = self.THUMB_RADIUS
+        fraction = self._fraction()
+
+        if self.orient == "vertical":
+            cx = int(self.canvas["width"]) / 2
+            y0, y1 = r, self.length - r
+            self.canvas.create_line(
+                cx, y0, cx, y1, width=self.TRACK_THICKNESS,
+                capstyle=tk.ROUND, fill=self._track_color
+            )
+            cy = y0 + fraction * (y1 - y0)
+            self.canvas.create_oval(
+                cx - r, cy - r, cx + r, cy + r, fill=self._thumb_color, outline=""
+            )
+        else:
+            cy = int(self.canvas["height"]) / 2
+            x0, x1 = r, self.length - r
+            self.canvas.create_line(
+                x0, cy, x1, cy, width=self.TRACK_THICKNESS,
+                capstyle=tk.ROUND, fill=self._track_color
+            )
+            cx = x0 + fraction * (x1 - x0)
+            self.canvas.create_oval(
+                cx - r, cy - r, cx + r, cy + r, fill=self._thumb_color, outline=""
+            )
 
 
 class AuxLevelsPanel:
@@ -463,6 +586,10 @@ class AuxLevelsPanel:
         self.level_rulers = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
+        self.channel_columns = {}
+        self.channel_fader_rows = {}
+        self.channel_name_labels = {}
+        self.channel_parity = {}
         self.suppress_send = False
         self.dragging = set()
         self.drag_released_at = {}
@@ -521,10 +648,45 @@ class AuxLevelsPanel:
     def apply_theme(self):
         self.canvas.configure(bg=panel_bg(self.master))
 
-        bg = panel_bg(self.master)
-        for ruler in self.level_rulers.values():
-            ruler.configure(bg=bg)
-            self._draw_level_ruler(ruler)
+        fg = panel_fg(self.master)
+        accent = accent_color(self.master)
+
+        for channel, column in self.channel_columns.items():
+            column_bg = self._channel_bg(self.channel_parity.get(channel, False))
+            column.configure(bg=column_bg)
+
+            label = self.channel_name_labels.get(channel)
+            if label is not None:
+                label.configure(bg=column_bg, fg=fg)
+
+            fader_row = self.channel_fader_rows.get(channel)
+            if fader_row is not None:
+                fader_row.configure(bg=column_bg)
+
+            ruler = self.level_rulers.get(channel)
+            if ruler is not None:
+                ruler.configure(bg=column_bg)
+                self._draw_level_ruler(ruler)
+
+            track_color = self._track_color(column_bg)
+
+            slider = self.sliders.get(channel)
+            if slider is not None:
+                slider.configure(bg=column_bg, activebackground=accent, troughcolor=track_color)
+
+            pan_slider = self.pan_sliders.get(channel)
+            if pan_slider is not None:
+                pan_slider.configure(
+                    bg=column_bg, activebackground=accent, troughcolor=track_color
+                )
+
+            button = self.mute_buttons.get(channel)
+            if button is not None:
+                muted = button.cget("text") == "Muted"
+                bg, btn_fg = self._mute_button_colors(channel, muted)
+                button.configure(
+                    bg=bg, fg=btn_fg, activebackground=bg, activeforeground=btn_fg
+                )
 
     def on_mixer_loaded(self, worker):
         self.worker = worker
@@ -588,6 +750,10 @@ class AuxLevelsPanel:
         self.level_rulers = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
+        self.channel_columns = {}
+        self.channel_fader_rows = {}
+        self.channel_name_labels = {}
+        self.channel_parity = {}
         self.dragging = set()
         self.drag_released_at = {}
         self.pan_dragging = set()
@@ -641,6 +807,10 @@ class AuxLevelsPanel:
         self.level_rulers = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
+        self.channel_columns = {}
+        self.channel_fader_rows = {}
+        self.channel_name_labels = {}
+        self.channel_parity = {}
         self.dragging = set()
         self.drag_released_at = {}
         self.pan_dragging = set()
@@ -651,42 +821,75 @@ class AuxLevelsPanel:
         self.request_mute_states()
 
     def build_channel_widgets(self):
-        for i in self.channels:
+        for index, i in enumerate(self.channels):
             name_key = f"/Input_Channels/{i}/Channel_Input/name"
             name = self.worker.cache[name_key][0] \
                 if name_key in self.worker.cache else f"Ch {i}"
 
-            column = ttk.Frame(self.channels_frame)
-            column.pack(side="left", padx=4, fill="y")
+            # Alternating tone so adjacent channel strips read as visually
+            # separate columns instead of blurring together - same idea
+            # as AuxWindow's row striping and the Android app's per-item
+            # background (ChannelAdapter.bindChannelState).
+            is_alt = index % 2 == 1
+            self.channel_parity[i] = is_alt
+            column_bg = self._channel_bg(is_alt)
+            track_color = self._track_color(column_bg)
+            fg = panel_fg(self.master)
+            accent = accent_color(self.master)
 
-            ttk.Label(column, text=name).pack()
+            # tk (not ttk) widgets for everything in this column: sv_ttk
+            # renders Scale's trough and Button's fill as fixed PNG image
+            # assets (see sv_ttk/theme/*.tcl), which a ttk style's
+            # "background" option cannot recolor per-instance at all -
+            # only plain tk widgets accept real background colors here.
+            column = tk.Frame(self.channels_frame, bg=column_bg)
+            column.pack(side="left", padx=4, fill="y")
+            self.channel_columns[i] = column
+
+            name_label = tk.Label(column, text=name, bg=column_bg, fg=fg)
+            name_label.pack()
+            self.channel_name_labels[i] = name_label
 
             # A row (not the slider alone) so the ruler and the slider
             # share the same top edge - and therefore line up - regardless
             # of the name label's height above them.
-            fader_row = ttk.Frame(column)
+            fader_row = tk.Frame(column, bg=column_bg)
             fader_row.pack()
+            self.channel_fader_rows[i] = fader_row
 
             ruler = tk.Canvas(
                 fader_row, width=self.LEVEL_RULER_WIDTH, height=self.LEVEL_LENGTH,
-                highlightthickness=0, bg=panel_bg(self.master)
+                highlightthickness=0, bg=column_bg
             )
             ruler.pack(side="left", fill="y")
             self.level_rulers[i] = ruler
             self._draw_level_ruler(ruler)
 
-            slider = ttk.Scale(
+            slider = RoundSlider(
                 fader_row,
+                orient="vertical",
                 from_=1.0,
                 to=0.0,
-                orient="vertical",
                 length=self.LEVEL_LENGTH,
+                bg=column_bg,
+                troughcolor=track_color,
+                thumb_color=accent,
                 command=lambda value, channel=i:
                     self.on_slider_change(channel, value)
             )
+            # Press and drag are handled entirely by hand (rather than
+            # relying on a native widget's own click/drag handling) since
+            # RoundSlider is Canvas-drawn, not an interactive widget on
+            # its own - "break" stops the event from also reaching
+            # anything else bound on the canvas.
             slider.bind(
                 "<ButtonPress-1>",
-                lambda event, channel=i: self.dragging.add(channel)
+                lambda event, channel=i, widget=slider:
+                    self._on_scale_press(self.dragging, channel, widget, event.y)
+            )
+            slider.bind(
+                "<B1-Motion>",
+                lambda event, widget=slider: self._on_scale_motion(widget, event.y)
             )
             slider.bind(
                 "<ButtonRelease-1>",
@@ -696,19 +899,27 @@ class AuxLevelsPanel:
 
             self.sliders[i] = slider
 
-            pan_slider = ttk.Scale(
+            pan_slider = RoundSlider(
                 column,
+                orient="horizontal",
                 from_=-1.0,
                 to=1.0,
-                orient="horizontal",
                 length=90,
+                bg=column_bg,
+                troughcolor=track_color,
+                thumb_color=accent,
                 command=lambda value, channel=i:
                     self.on_pan_change(channel, value)
             )
             pan_slider.set(0.0)
             pan_slider.bind(
                 "<ButtonPress-1>",
-                lambda event, channel=i: self.pan_dragging.add(channel)
+                lambda event, channel=i, widget=pan_slider:
+                    self._on_scale_press(self.pan_dragging, channel, widget, event.x)
+            )
+            pan_slider.bind(
+                "<B1-Motion>",
+                lambda event, widget=pan_slider: self._on_scale_motion(widget, event.x)
             )
             pan_slider.bind(
                 "<ButtonRelease-1>",
@@ -722,15 +933,59 @@ class AuxLevelsPanel:
 
             self.pan_sliders[i] = pan_slider
 
-            mute_btn = ttk.Button(
+            mute_bg, mute_fg = self._mute_button_colors(i, muted=False)
+            mute_btn = tk.Button(
                 column,
                 text="Mute",
                 width=6,
+                bd=0,
+                highlightthickness=0,
+                bg=mute_bg,
+                fg=mute_fg,
+                activebackground=mute_bg,
+                activeforeground=mute_fg,
                 command=lambda channel=i: self.on_mute_toggle(channel)
             )
             mute_btn.pack(pady=(4, 0))
 
             self.mute_buttons[i] = mute_btn
+
+    def _channel_bg(self, is_alt):
+        return stripe_bg(self.master) if is_alt else panel_bg(self.master)
+
+    def _track_color(self, column_bg):
+        # A visible rail for the slider to ride on, without going back to
+        # a flatly different-colored patch (the earlier complaint) - it's
+        # blended from the column's own background toward the theme's fg,
+        # so it's a subtle step off whatever tone that channel already
+        # has rather than an unrelated fixed gray.
+        r1, g1, b1 = self.master.winfo_rgb(column_bg)
+        r2, g2, b2 = self.master.winfo_rgb(panel_fg(self.master))
+        ratio = 0.35
+
+        blended = tuple(
+            round(c1 + (c2 - c1) * ratio) >> 8
+            for c1, c2 in ((r1, r2), (g1, g2), (b1, b2))
+        )
+        return "#{:02x}{:02x}{:02x}".format(*blended)
+
+    def _mute_button_colors(self, channel, muted):
+        if muted:
+            return "#c0392b", "white"
+
+        # The opposite tone from its own column, so the button stands out
+        # against the background instead of blending into it.
+        is_alt = self.channel_parity.get(channel, False)
+        return self._channel_bg(not is_alt), panel_fg(self.master)
+
+    def _on_scale_press(self, dragging_set, channel, widget, coordinate):
+        dragging_set.add(channel)
+        widget.set(widget.value_at(coordinate))
+        return "break"
+
+    def _on_scale_motion(self, widget, coordinate):
+        widget.set(widget.value_at(coordinate))
+        return "break"
 
     def _draw_level_ruler(self, ruler):
         ruler.delete("all")
@@ -894,9 +1149,10 @@ class AuxLevelsPanel:
                     continue
 
                 muted = bool(self.worker.cache[key][0])
+                bg, fg = self._mute_button_colors(channel, muted)
                 button.config(
                     text="Muted" if muted else "Mute",
-                    style="Muted.TButton" if muted else "TButton"
+                    bg=bg, fg=fg, activebackground=bg, activeforeground=fg
                 )
 
             self.build_bank_buttons()
@@ -1206,14 +1462,6 @@ class MainWindow:
 
     def apply_theme(self, theme, persist=True):
         sv_ttk.set_theme(theme)
-
-        style = ttk.Style()
-        style.configure("Muted.TButton", background="#c0392b", foreground="white")
-        style.map(
-            "Muted.TButton",
-            background=[("active", "#e74c3c")],
-            foreground=[("active", "white")]
-        )
 
         bg = panel_bg(self.root)
         self.root.configure(bg=bg)
