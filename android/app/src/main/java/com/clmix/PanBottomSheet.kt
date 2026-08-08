@@ -3,6 +3,7 @@ package com.clmix
 import android.content.Context
 import android.widget.FrameLayout
 import android.widget.SeekBar
+import androidx.core.content.ContextCompat
 import com.clmix.databinding.BottomSheetPanBinding
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -43,6 +44,14 @@ class PanBottomSheet(
                 behavior.skipCollapsed = true
             }
         }
+
+        val density = context.resources.displayMetrics.density
+        binding.panSeekBarLarge.progressDrawable = PanTrackDrawable(
+            trackColor = ContextCompat.getColor(context, R.color.track_background),
+            fillColor = ContextCompat.getColor(context, R.color.primary),
+            trackHeightPx = 10 * density,
+            cornerRadiusPx = 5 * density
+        )
 
         binding.panChannelName.text = channelName
         binding.panSeekBarLarge.progress = PanFormat.toProgress(initialPan)
