@@ -51,7 +51,10 @@ $Iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
 if (-not $Iscc) {
     $candidates = @(
         "${Env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-        "$Env:ProgramFiles\Inno Setup 6\ISCC.exe"
+        "$Env:ProgramFiles\Inno Setup 6\ISCC.exe",
+        # Default location when Inno Setup is installed "for me only"
+        # rather than system-wide - common without admin rights (e.g. a VM).
+        "$Env:LocalAppData\Programs\Inno Setup 6\ISCC.exe"
     )
     $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
     if (-not $found) {
