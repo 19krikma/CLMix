@@ -50,6 +50,18 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.channelRecycler.adapter = adapter
 
+        // enterFullScreen() below hides the system bars asynchronously,
+        // after this recycler's first layout pass - so its height grows
+        // once they're gone. Any channel whose fader never happens to
+        // rebind afterwards (see ChannelAdapter.syncAllFaderWidths) would
+        // otherwise stay measured against the smaller, bars-visible
+        // height forever.
+        binding.channelRecycler.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) {
+                adapter.syncAllFaderWidths(binding.channelRecycler)
+            }
+        }
+
         binding.bankSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
                 parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long

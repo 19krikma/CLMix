@@ -99,17 +99,8 @@ class ChannelAdapter(
         // space when more is available and clipping the ruler drawn
         // beside it (LevelRulerView, which does size itself off the
         // row's real height) when less is.
-        binding.faderRow.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
-            val newHeight = bottom - top
-            val oldHeight = oldBottom - oldTop
-
-            if (newHeight > 0 && newHeight != oldHeight) {
-                val params = binding.levelSeekBar.layoutParams
-                if (params.width != newHeight) {
-                    params.width = newHeight
-                    binding.levelSeekBar.layoutParams = params
-                }
-            }
+        binding.faderRow.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            syncFaderWidth(binding, bottom - top)
         }
 
         return ViewHolder(binding)
@@ -215,6 +206,15 @@ class ChannelAdapter(
     }
 
     private fun bindChannelState(holder: ViewHolder, channel: ChannelState, position: Int) {
+        // A rebind (e.g. after notifyDataSetChanged() on a bank switch)
+        // can reuse a ViewHolder whose fader_row is already measured but
+        // whose SeekBar width was set for a size that no longer applies -
+        // the layout listener above only fires on an actual height
+        // *change*, which a rebind at the same on-screen size never
+        // triggers. Re-check on every bind so the fader can't get stuck
+        // at a stale length.
+        syncFaderWidth(holder.binding, holder.binding.faderRow.height)
+
         // Alternate a subtle background so adjacent channel strips read
         // as visually separate columns instead of blurring together.
         holder.binding.root.setBackgroundColor(
@@ -250,6 +250,44 @@ class ChannelAdapter(
                 if (channel.muted) R.color.on_primary else R.color.on_mute_inactive
             )
         )
+    }
+
+    // Called from MixerActivity whenever channel_recycler's own height
+    // changes (notably: the status/nav bars hiding shortly after first
+    // layout, since that resize happens after the recycler's initial
+    // layout pass). A channel whose fader was measured against the
+    // pre-resize height and never rebinds afterwards (its level, pan and
+    // mute never change) would otherwise be stuck at that wrong length
+    // forever, since nothing else ever re-triggers its own sync.
+    fun syncAllFaderWidths(recyclerView: RecyclerView) {
+        for (i in 0 until recyclerView.childCount) {
+            val holder = recyclerView.getChildViewHolder(recyclerView.getChildAt(i)) as? ViewHolder
+                ?: continue
+            syncFaderWidth(holder.binding, holder.binding.faderRow.height)
+        }
+    }
+
+    private fun syncFaderWidth(binding: ItemChannelBinding, height: Int) {
+        if (height <= 0) return
+
+        val bar = binding.levelSeekBar
+        if (bar.layoutParams.width == height) return
+
+        // Deferred via post(): this is sometimes called from fader_row's
+        // own OnLayoutChangeListener, which fires *during* RecyclerView's
+        // own active layout pass. A requestLayout() triggered synchronously
+        // from in there (which assigning layoutParams below does) gets
+        // silently swallowed by RecyclerView's layout-request suppression -
+        // the width value changes but the SeekBar never actually
+        // re-measures. Posting runs this after the current pass finishes,
+        // outside that suppression window, so the resize actually takes.
+        bar.post {
+            val params = bar.layoutParams
+            if (params.width != height) {
+                params.width = height
+                bar.layoutParams = params
+            }
+        }
     }
 
     private fun applyLevel(channel: Int, progress: Int) {
