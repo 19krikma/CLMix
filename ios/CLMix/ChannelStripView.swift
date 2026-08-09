@@ -44,7 +44,7 @@ struct ChannelStripView: View {
         .sheet(isPresented: $showPanSheet) {
             PanSheetView(
                 channelName: channel.name,
-                initialPan: channel.pan ?? 0,
+                pan: channel.pan ?? 0,
                 onChange: { pan in model.setPan(channel: channel.channel, pan: pan) }
             )
             .presentationDetents([.height(280)])
