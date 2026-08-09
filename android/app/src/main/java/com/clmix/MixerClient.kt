@@ -13,6 +13,13 @@ import java.util.concurrent.TimeUnit
 interface MixerClientListener {
     fun onConnected() {}
     fun onDisconnected() {}
+
+    // The socket itself never opened/dropped (host unreachable, refused,
+    // timed out, ...) - distinct from onError, which is a normal protocol
+    // reply from a server we *did* reach telling us a specific request
+    // was rejected (wrong permission, bad snapshot, ...).
+    fun onConnectionFailed(message: String) {}
+
     fun onError(message: String) {}
     fun onLoginResult(ok: Boolean, message: String?) {}
     fun onAuxes(auxes: List<AuxBus>) {}
@@ -73,7 +80,7 @@ object MixerClient {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 isConnected = false
-                onMain { listener?.onError(t.message ?: "Connection failed") }
+                onMain { listener?.onConnectionFailed("Server unreachable") }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -209,7 +216,7 @@ object MixerClient {
 
             "error" -> {
                 val message = json.optString("message", "Unknown error")
-                onMain { listener?.onError(message) }
+                onMain { listener?.onError(friendlyServerMessage(message)) }
             }
         }
     }
@@ -217,4 +224,18 @@ object MixerClient {
     private fun onMain(action: () -> Unit) {
         mainHandler.post(action)
     }
+}
+
+// Translates RemoteServer's raw protocol error strings (services/remote_server.py)
+// into wording that reads as a plain user-facing message rather than a log line -
+// permission rejections in particular get an explicit "Access denied" prefix so
+// they can't be mistaken for a network problem. Anything not recognized here is
+// already a plain sentence from the server, so it's passed through unchanged.
+private fun friendlyServerMessage(raw: String): String = when (raw) {
+    "Not permitted for the current snapshot" -> "Access denied: not permitted for the current snapshot"
+    "Not permitted for this aux" -> "Access denied: not permitted for this aux"
+    "Not permitted for presets" -> "Access denied: not permitted for presets"
+    "Mixer not connected" -> "Mixer not connected - try again shortly"
+    "Not authenticated" -> "Not logged in"
+    else -> raw
 }

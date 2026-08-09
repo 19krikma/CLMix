@@ -226,15 +226,17 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         returnToLogin()
     }
 
-    override fun onError(message: String) {
-        binding.statusLabel.text = "Error: $message"
+    // The socket actually dropped (network lost, server gone, ...) -
+    // nothing to show here since we're navigating away regardless.
+    override fun onConnectionFailed(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        returnToLogin()
+    }
 
-        // Some errors are just protocol-level (e.g. "not permitted for this
-        // aux") and don't mean the socket itself dropped. Only bounce back
-        // to login when the connection is actually gone.
-        if (!MixerClient.isConnected) {
-            returnToLogin()
-        }
+    // A protocol-level rejection (e.g. "not permitted for this aux") -
+    // the connection itself is still fine, so just surface it in place.
+    override fun onError(message: String) {
+        binding.statusLabel.text = message
     }
 
     override fun onBanks(banks: List<String>) {

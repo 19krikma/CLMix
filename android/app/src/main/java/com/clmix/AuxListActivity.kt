@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -49,10 +50,13 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
         returnToLogin()
     }
 
+    override fun onConnectionFailed(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        returnToLogin()
+    }
+
     override fun onError(message: String) {
-        if (!MixerClient.isConnected) {
-            returnToLogin()
-        }
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }
 

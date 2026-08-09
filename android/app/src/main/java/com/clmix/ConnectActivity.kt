@@ -81,7 +81,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
             MixerClient.requestAuxes()
         } else {
             binding.connectButton.isEnabled = true
-            binding.statusLabel.text = "Login failed: ${message ?: "Invalid username or password"}"
+            binding.statusLabel.text = message ?: "Invalid username or password"
             MixerClient.disconnect()
         }
     }
@@ -91,9 +91,22 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
         binding.statusLabel.text = "Disconnected"
     }
 
+    // The socket never opened at all (bad host, refused, timed out, ...).
+    override fun onConnectionFailed(message: String) {
+        binding.connectButton.isEnabled = true
+        binding.statusLabel.text = message
+    }
+
+    // We were connected and logged in, but the next step (e.g. fetching
+    // the aux list right after login) came back rejected - most commonly
+    // this account's snapshot doesn't match the one currently live on the
+    // console. Nothing left to do at this point but let the user retry,
+    // so disconnect cleanly rather than leaving a dead login session
+    // sitting behind the connect screen.
     override fun onError(message: String) {
         binding.connectButton.isEnabled = true
-        binding.statusLabel.text = "Error: $message"
+        binding.statusLabel.text = message
+        MixerClient.disconnect()
     }
 
     override fun onAuxes(auxes: List<AuxBus>) {
