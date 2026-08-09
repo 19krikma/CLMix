@@ -158,8 +158,16 @@ class UserEditDialog:
         self.snapshot_combo.grid(row=3, column=1, padx=5, pady=(10, 5))
         self.snapshot_combo.set(record["snapshot"] if record else ALL_SNAPSHOTS)
 
+        ttk.Label(frame, text="Preset Access").grid(
+            row=4, column=0, sticky="w", pady=(10, 0)
+        )
+        self.presets_var = tk.BooleanVar(value=record.get("presets", False) if record else False)
+        ttk.Checkbutton(
+            frame, variable=self.presets_var
+        ).grid(row=4, column=1, sticky="w", padx=5, pady=(10, 5))
+
         ttk.Label(frame, text="Aux Access").grid(
-            row=4, column=0, sticky="nw", pady=(10, 0)
+            row=5, column=0, sticky="nw", pady=(10, 0)
         )
 
         current_aux = record["aux"] if record else ALL_AUX
@@ -167,7 +175,7 @@ class UserEditDialog:
         selected_names = set() if all_selected else set(current_aux or [])
 
         aux_frame = ttk.Frame(frame)
-        aux_frame.grid(row=4, column=1, sticky="w", padx=5, pady=(10, 5))
+        aux_frame.grid(row=5, column=1, sticky="w", padx=5, pady=(10, 5))
 
         self.all_aux_var = tk.BooleanVar(value=all_selected)
         ttk.Checkbutton(
@@ -194,11 +202,6 @@ class UserEditDialog:
             )
             checkbutton.grid(row=row, column=column, sticky="w", padx=(0, 12), pady=2)
             self.aux_checkbuttons[name] = checkbutton
-
-        self.presets_var = tk.BooleanVar(value=record.get("presets", False) if record else False)
-        ttk.Checkbutton(
-            frame, text="Preset Access", variable=self.presets_var
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
         btn_bar = ttk.Frame(frame)
         btn_bar.grid(row=6, column=0, columnspan=2, pady=(15, 0))
