@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+import ipaddress
 import threading
 import queue
 import re
@@ -52,6 +53,15 @@ SNAPSHOT_CHANGED_PATTERN = re.compile(
 
 
 class MixerWorker(threading.Thread):
+
+    # How often to poll the mixer for a sign of life, and how long to go
+    # without any reply before treating the connection as dead - UDP has
+    # no built-in "connection lost" notification, so this is the only way
+    # to notice the mixer went away (power loss, cable pull, network
+    # drop) rather than just sitting there silently disconnected.
+    HEARTBEAT_INTERVAL_SECONDS = 3.0
+    HEARTBEAT_TIMEOUT_SECONDS = 10.0
+
     def __init__(self, mixer_ip, send_port, recv_port,
                  command_queue, message_queue):
         super().__init__(daemon=True)
@@ -75,6 +85,9 @@ class MixerWorker(threading.Thread):
         self._snapshot_name_requested = False
         self.snapshot_names = {}
 
+        self._last_received_at = None
+        self._last_heartbeat_sent_at = 0.0
+
     def run(self):
         try:
             log("info", f"Connecting to {self.mixer_ip}:{self.send_port} "
@@ -92,18 +105,15 @@ class MixerWorker(threading.Thread):
             self.message_queue.put(("status", "Connected"))
             log("info", "Connected to mixer, loading parameters...")
 
+            self._last_received_at = time.monotonic()
             self.request_next_parameter()
 
             while self.running:
                 self.receive_osc()
+                self._check_heartbeat()
 
                 try:
                     command = self.command_queue.get_nowait()
-
-                    if command == "STOP":
-                        log("debug", "STOP command received")
-                        break
-
                     self.send_command(command)
 
                 except queue.Empty:
@@ -134,6 +144,8 @@ class MixerWorker(threading.Thread):
         except ParseError:
             return
 
+        self._last_received_at = time.monotonic()
+
         address = message.address
         args = list(message.params)
 
@@ -158,6 +170,19 @@ class MixerWorker(threading.Thread):
 
         if not self.loaded:
             self.request_next_parameter()
+
+    def _check_heartbeat(self):
+        now = time.monotonic()
+
+        if now - self._last_received_at > self.HEARTBEAT_TIMEOUT_SECONDS:
+            log("error", f"No response from mixer for "
+                f"{self.HEARTBEAT_TIMEOUT_SECONDS:.0f}s - connection lost")
+            self.running = False
+            return
+
+        if now - self._last_heartbeat_sent_at > self.HEARTBEAT_INTERVAL_SECONDS:
+            self._last_heartbeat_sent_at = now
+            self.send_osc("/Snapshots/Current_Snapshot/?", [])
 
     def _handle_current_snapshot(self, args):
         changed = self.cache.get("/Snapshots/Current_Snapshot") != args
@@ -1164,6 +1189,11 @@ class AuxLevelsPanel:
 
 class MainWindow:
 
+    # How long to wait before automatically retrying a connection that
+    # dropped on its own (mixer power loss, network blip, ...) rather
+    # than one the user explicitly disconnected.
+    RECONNECT_DELAY_SECONDS = 5
+
     def __init__(self):
 
         self.root = tk.Tk()
@@ -1176,6 +1206,9 @@ class MainWindow:
         self.logs_window = None
         self.presets_window = None
         self.remote_server = None
+
+        self._user_disconnected = True
+        self._reconnect_job = None
 
         self.command_queue = queue.Queue()
         self.message_queue = queue.Queue()
@@ -1316,7 +1349,12 @@ class MainWindow:
             row=2, column=0, sticky="w"
         )
 
-        self.recv_port_entry = ttk.Entry(frame, width=15)
+        self.recv_port_entry = ttk.Entry(
+            frame,
+            width=15,
+            validate="key",
+            validatecommand=port_vcmd
+        )
         self.recv_port_entry.insert(0, self.settings["recv_port"])
         self.recv_port_entry.grid(row=2, column=1, padx=5, pady=5)
 
@@ -1439,7 +1477,22 @@ class MainWindow:
         self.setup_window.withdraw()
 
     def _validate_port_input(self, proposed):
-        return proposed == "" or proposed.isdigit()
+        # Caps keystroke entry at 5 digits (max valid port is 65535) -
+        # full range/validity is still checked at connect() time via
+        # _is_valid_port, since a 5-digit string can still be > 65535.
+        return proposed == "" or (proposed.isdigit() and len(proposed) <= 5)
+
+    @staticmethod
+    def _is_valid_ip(value):
+        try:
+            ipaddress.IPv4Address(value)
+            return True
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _is_valid_port(value):
+        return value.isdigit() and 1 <= int(value) <= 65535
 
     @staticmethod
     def load_settings():
@@ -1487,7 +1540,7 @@ class MainWindow:
             self.save_settings()
 
     def on_connect_button(self):
-        if self.worker and self.worker.is_alive():
+        if self.worker is not None:
             self.disconnect()
         else:
             self.connect()
@@ -1495,26 +1548,35 @@ class MainWindow:
     def connect(self):
         log("debug", "Connect button pressed")
 
-        if self.worker and self.worker.is_alive():
+        if self.worker is not None:
             log("debug", "Worker already running, ignoring")
             return
 
-        send_port = self.send_port_entry.get()
+        mixer_ip = self.ip_entry.get().strip()
+        send_port = self.send_port_entry.get().strip()
+        recv_port = self.recv_port_entry.get().strip()
+        remote_port = self.remote_port_entry.get().strip()
 
-        if len(send_port) < 3:
+        if not self._is_valid_ip(mixer_ip):
+            log("error", f"Invalid mixer IP address: {mixer_ip!r}")
+            self.status_label.config(text="Invalid mixer IP")
+            return
+
+        if not self._is_valid_port(send_port):
             log("error", f"Invalid send port: {send_port!r}")
             self.status_label.config(text="Invalid send port")
             return
 
-        remote_port = self.remote_port_entry.get()
+        if not self._is_valid_port(recv_port):
+            log("error", f"Invalid receive port: {recv_port!r}")
+            self.status_label.config(text="Invalid receive port")
+            return
 
-        if len(remote_port) < 2:
+        if not self._is_valid_port(remote_port):
             log("error", f"Invalid remote port: {remote_port!r}")
             self.status_label.config(text="Invalid remote port")
             return
 
-        mixer_ip = self.ip_entry.get()
-        recv_port = self.recv_port_entry.get()
         log("debug", f"mixer_ip={mixer_ip!r} send_port={send_port!r} "
             f"recv_port={recv_port!r} remote_port={remote_port!r}")
 
@@ -1525,6 +1587,12 @@ class MainWindow:
             "remote_port": remote_port,
         })
         self.save_settings()
+
+        self._user_disconnected = False
+
+        if self._reconnect_job is not None:
+            self.root.after_cancel(self._reconnect_job)
+            self._reconnect_job = None
 
         self.connect_btn.config(text="Disconnect")
 
@@ -1546,18 +1614,45 @@ class MainWindow:
         )
         self.remote_server.start()
 
-    def disconnect(self):
+    def disconnect(self, user_initiated=True):
+
+        self._user_disconnected = user_initiated
+
+        if self._reconnect_job is not None:
+            self.root.after_cancel(self._reconnect_job)
+            self._reconnect_job = None
 
         self.connect_btn.config(text="Connect")
 
         if self.worker:
-
-            self.command_queue.put("STOP")
+            # Stopping the running flag is enough - the worker's own loop
+            # notices within one recv-socket timeout (<=0.1s). Nothing
+            # sends "STOP" through command_queue anymore, since that queue
+            # is reused across reconnects and a stray unconsumed sentinel
+            # left behind by a race here would otherwise be picked up by
+            # the *next* worker's loop and kill it immediately.
             self.worker.stop()
+            self.worker = None
 
         if self.remote_server:
             self.remote_server.stop()
             self.remote_server = None
+
+    def _schedule_reconnect(self):
+        if self._reconnect_job is not None:
+            return
+
+        log("warning", f"Mixer disconnected - retrying in "
+            f"{self.RECONNECT_DELAY_SECONDS}s")
+
+        self._reconnect_job = self.root.after(
+            self.RECONNECT_DELAY_SECONDS * 1000, self._attempt_reconnect
+        )
+
+    def _attempt_reconnect(self):
+        self._reconnect_job = None
+        self.disconnect(user_initiated=False)
+        self.connect()
 
     def open_access_window(self):
 
@@ -1634,6 +1729,21 @@ class MainWindow:
             self.connect_btn.config(text="Connect")
             self.snapshot_label.config(text="Snapshot: --")
             self.aux_panel.on_mixer_disconnected()
+
+            if self.worker is not None:
+                # The worker thread exited on its own (heartbeat timeout
+                # or a socket error) rather than via an explicit
+                # disconnect() call - clear the stale reference so
+                # connect() (guarded by "self.worker is not None") isn't
+                # blocked from starting a new one.
+                self.worker = None
+
+                if self.remote_server:
+                    self.remote_server.stop()
+                    self.remote_server = None
+
+            if not self._user_disconnected:
+                self._schedule_reconnect()
         else:
             self.connect_btn.config(text="Disconnect")
 
