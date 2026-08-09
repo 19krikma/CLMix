@@ -1,0 +1,2647 @@
+{
+  "/Aux_Outputs/1/Buss_Trim/name": [
+    "IEM 5"
+  ],
+  "/Aux_Outputs/1/Buss_Trim/phase": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Buss_Trim/post_meter": [],
+  "/Aux_Outputs/1/Buss_Trim/post_meter/right": [],
+  "/Aux_Outputs/1/Buss_Trim/pre_meter": [],
+  "/Aux_Outputs/1/Buss_Trim/pre_meter/right": [],
+  "/Aux_Outputs/1/Buss_Trim/trim": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Buss_Trim/tube_meter/left": [],
+  "/Aux_Outputs/1/Buss_Trim/tube_meter/right": [],
+  "/Aux_Outputs/1/CGs_level": [
+    0.0
+  ],
+  "/Aux_Outputs/1/CGs_mute": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Channel_Delay/delay": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Channel_Delay/delay_on": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Channel_Delay/fine_delay": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/GR_meter_1": [],
+  "/Aux_Outputs/1/Dynamics/GR_meter_2": [],
+  "/Aux_Outputs/1/Dynamics/GR_meter_3": [],
+  "/Aux_Outputs/1/Dynamics/GR_meter_4": [],
+  "/Aux_Outputs/1/Dynamics/comp-multiband-desser": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_HP_crossover": [
+    1000.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_LP_crossover": [
+    130.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_all_gain": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_all_thresh": [
+    -20.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_attack_1": [
+    0.009999999776482582
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_attack_2": [
+    0.004999999888241291
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_attack_3": [
+    0.02500000037252903
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_auto-gain_1": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_auto-gain_2": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_auto-gain_3": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_auto-gain_4": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_band_in_1": [
+    1.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_band_in_2": [
+    1.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_band_in_3": [
+    1.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_gain_1": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_gain_2": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_gain_3": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_gain_4": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_in": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_knee_1": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_knee_2": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_knee_3": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_knee_4": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_listen_1": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_listen_2": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_listen_3": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_ratio_1": [
+    3.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_ratio_2": [
+    2.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_ratio_3": [
+    2.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_ratio_4": [
+    3.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_release_1": [
+    0.5
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_release_2": [
+    0.20000000298023224
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_release_3": [
+    0.4000000059604645
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_thresh_1": [
+    -20.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_thresh_2": [
+    -20.0
+  ],
+  "/Aux_Outputs/1/Dynamics/comp_thresh_3": [
+    -20.0
+  ],
+  "/Aux_Outputs/1/Dynamics/desser_centre_freq": [
+    127.0
+  ],
+  "/Aux_Outputs/1/Dynamics/desser_freq_width": [
+    255.0
+  ],
+  "/Aux_Outputs/1/Dynamics/gate_attack": [
+    0.0020000000949949026
+  ],
+  "/Aux_Outputs/1/Dynamics/gate_centre_freq": [
+    127.0
+  ],
+  "/Aux_Outputs/1/Dynamics/gate_freq_width": [
+    255.0
+  ],
+  "/Aux_Outputs/1/Dynamics/gate_in": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Dynamics/gate_release": [
+    0.14000000059604645
+  ],
+  "/Aux_Outputs/1/Dynamics/gate_thresh": [
+    -20.0
+  ],
+  "/Aux_Outputs/1/Dynamics/input_meter/left": [],
+  "/Aux_Outputs/1/Dynamics/input_meter/right": [],
+  "/Aux_Outputs/1/Dynamics/key_solo": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/GR_meter_1": [],
+  "/Aux_Outputs/1/EQ/GR_meter_2": [],
+  "/Aux_Outputs/1/EQ/GR_meter_3": [],
+  "/Aux_Outputs/1/EQ/GR_meter_4": [],
+  "/Aux_Outputs/1/EQ/dynamic_eq_on_1": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/dynamic_eq_on_2": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/dynamic_eq_on_3": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/dynamic_eq_on_4": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_Q_1": [
+    0.7099999785423279
+  ],
+  "/Aux_Outputs/1/EQ/eq_Q_2": [
+    0.7099999785423279
+  ],
+  "/Aux_Outputs/1/EQ/eq_Q_3": [
+    0.7099999785423279
+  ],
+  "/Aux_Outputs/1/EQ/eq_Q_4": [
+    0.7099999785423279
+  ],
+  "/Aux_Outputs/1/EQ/eq_Q_5": [
+    0.7099999785423279
+  ],
+  "/Aux_Outputs/1/EQ/eq_Q_6": [
+    0.7099999785423279
+  ],
+  "/Aux_Outputs/1/EQ/eq_Q_7": [
+    0.7099999785423279
+  ],
+  "/Aux_Outputs/1/EQ/eq_Q_8": [
+    0.7099999785423279
+  ],
+  "/Aux_Outputs/1/EQ/eq_attack_1": [
+    0.009999999776482582
+  ],
+  "/Aux_Outputs/1/EQ/eq_attack_2": [
+    0.014999999664723873
+  ],
+  "/Aux_Outputs/1/EQ/eq_attack_3": [
+    0.02500000037252903
+  ],
+  "/Aux_Outputs/1/EQ/eq_attack_4": [
+    0.05000000074505806
+  ],
+  "/Aux_Outputs/1/EQ/eq_curve_1": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_curve_2": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_curve_3": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_curve_4": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_curve_5": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_curve_6": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_curve_7": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_curve_8": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_freq_1": [
+    8000.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_freq_2": [
+    4000.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_freq_3": [
+    100.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_freq_4": [
+    50.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_freq_5": [
+    2000.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_freq_6": [
+    1000.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_freq_7": [
+    500.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_freq_8": [
+    250.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_gain_1": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_gain_2": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_gain_3": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_gain_4": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_gain_5": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_gain_6": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_gain_7": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_gain_8": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_in": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_on_1": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_on_2": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_on_3": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_on_4": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_on_5": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_on_6": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_on_7": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_on_8": [
+    1.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_over-under_1": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_over-under_2": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_over-under_3": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_over-under_4": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_pre-ins": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_ratio_1": [
+    2.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_ratio_2": [
+    2.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_ratio_3": [
+    2.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_ratio_4": [
+    2.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_release_1": [
+    0.30000001192092896
+  ],
+  "/Aux_Outputs/1/EQ/eq_release_2": [
+    0.3499999940395355
+  ],
+  "/Aux_Outputs/1/EQ/eq_release_3": [
+    0.4000000059604645
+  ],
+  "/Aux_Outputs/1/EQ/eq_release_4": [
+    0.6000000238418579
+  ],
+  "/Aux_Outputs/1/EQ/eq_symm_Q_1": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_symm_Q_2": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_symm_Q_3": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_symm_Q_4": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_symm_Q_5": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_symm_Q_6": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_symm_Q_7": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_symm_Q_8": [
+    0.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_thresh_1": [
+    -36.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_thresh_2": [
+    -36.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_thresh_3": [
+    -36.0
+  ],
+  "/Aux_Outputs/1/EQ/eq_thresh_4": [
+    -36.0
+  ],
+  "/Aux_Outputs/1/Insert/insert_A_in": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Insert/insert_B_in": [
+    0.0
+  ],
+  "/Aux_Outputs/1/Output/dir_meter/left": [],
+  "/Aux_Outputs/1/Output/dir_meter/right": [],
+  "/Aux_Outputs/1/Output/meter/LFE": [],
+  "/Aux_Outputs/1/Output/meter/SL": [],
+  "/Aux_Outputs/1/Output/meter/SR": [],
+  "/Aux_Outputs/1/Output/meter/centre": [],
+  "/Aux_Outputs/1/Output/meter/left": [],
+  "/Aux_Outputs/1/Output/meter/right": [],
+  "/Aux_Outputs/1/Output/meter2": [],
+  "/Aux_Outputs/1/Output/meter4": [],
+  "/Aux_Outputs/1/alternate_solo": [
+    0.0
+  ],
+  "/Aux_Outputs/1/auto_solo": [
+    0.0
+  ],
+  "/Aux_Outputs/1/fader": [
+    0.17724137008190155
+  ],
+  "/Aux_Outputs/1/fader_meter/left": [],
+  "/Aux_Outputs/1/fader_meter/right": [],
+  "/Aux_Outputs/1/hard_mute": [
+    0.0
+  ],
+  "/Aux_Outputs/1/mute": [
+    1.0
+  ],
+  "/Aux_Outputs/1/sends_to_faders": [
+    0.0
+  ],
+  "/Aux_Outputs/1/sends_to_rotaries": [
+    0.0
+  ],
+  "/Aux_Outputs/1/solo": [
+    0.0
+  ],
+  "/Aux_Outputs/1/solo_1_or_2": [
+    0.0
+  ],
+  "/Console/Name": [
+    "SD7Q-Q2"
+  ],
+  "/Control_Groups/1/auto-mute": [
+    0.0
+  ],
+  "/Control_Groups/1/aux_send": [
+    0.0
+  ],
+  "/Control_Groups/1/fader": [
+    0.5217241048812866
+  ],
+  "/Control_Groups/1/mode": [
+    1.0
+  ],
+  "/Control_Groups/1/mute": [
+    0.0
+  ],
+  "/Control_Groups/1/name": [
+    "DRUMS DCA"
+  ],
+  "/Control_Groups/1/solo": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq__trim": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_1": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_10": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_11": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_12": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_13": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_14": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_15": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_16": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_17": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_18": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_19": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_2": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_20": [
+    0.47480309009552
+  ],
+  "/Graphic_EQ/1/geq_gain_21": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_22": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_23": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_24": [
+    0.6622046232223511
+  ],
+  "/Graphic_EQ/1/geq_gain_25": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_26": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_27": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_28": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_29": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_3": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_30": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_31": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_32": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_4": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_5": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_6": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_7": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_8": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_gain_9": [
+    0.0
+  ],
+  "/Graphic_EQ/1/geq_in": [
+    1.0
+  ],
+  "/Graphic_EQ/1/input_meter": [],
+  "/Graphic_EQ/1/name": [
+    ""
+  ],
+  "/Graphic_EQ/1/output_meter": [],
+  "/Group_Outputs/1/Aux_Send/1/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/1/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/1/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/1/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/10/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/10/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/10/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/10/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/11/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/11/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/11/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/11/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/12/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/12/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/12/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/12/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/13/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/13/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/13/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/13/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/14/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/14/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/14/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/14/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/15/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/15/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/15/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/15/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/16/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/16/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/16/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/16/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/17/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/17/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/17/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/17/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/18/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/18/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/18/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/18/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/19/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/19/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/19/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/19/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/2/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/2/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/2/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/2/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/20/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/20/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/20/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/20/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/21/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/21/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/21/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/21/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/22/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/22/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/22/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/22/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/23/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/23/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/23/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/23/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/24/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/24/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/24/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/24/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/25/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/25/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/25/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/25/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/26/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/26/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/26/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/26/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/27/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/27/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/27/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/27/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/28/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/28/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/28/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/28/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/29/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/29/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/29/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/29/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/3/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/3/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/3/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/3/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/30/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/30/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/30/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/30/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/4/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/4/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/4/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/4/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/5/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/5/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/5/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/5/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/6/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/6/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/6/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/6/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/7/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/7/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/7/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/7/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/8/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/8/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/8/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/8/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/9/send_level": [
+    -150.0
+  ],
+  "/Group_Outputs/1/Aux_Send/9/send_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Aux_Send/9/send_pan": [
+    0.5
+  ],
+  "/Group_Outputs/1/Aux_Send/9/send_pre-post": [
+    0.0
+  ],
+  "/Group_Outputs/1/Buss_Trim/name": [
+    "MASTER"
+  ],
+  "/Group_Outputs/1/Buss_Trim/phase": [
+    0.0
+  ],
+  "/Group_Outputs/1/Buss_Trim/post_meter": [],
+  "/Group_Outputs/1/Buss_Trim/post_meter/right": [],
+  "/Group_Outputs/1/Buss_Trim/pre_meter": [],
+  "/Group_Outputs/1/Buss_Trim/pre_meter/right": [],
+  "/Group_Outputs/1/Buss_Trim/trim": [
+    0.0
+  ],
+  "/Group_Outputs/1/Buss_Trim/tube_meter/left": [],
+  "/Group_Outputs/1/Buss_Trim/tube_meter/right": [],
+  "/Group_Outputs/1/CGs_level": [
+    0.0
+  ],
+  "/Group_Outputs/1/CGs_mute": [
+    0.0
+  ],
+  "/Group_Outputs/1/Channel_Delay/delay": [
+    0.0
+  ],
+  "/Group_Outputs/1/Channel_Delay/delay_on": [
+    0.0
+  ],
+  "/Group_Outputs/1/Channel_Delay/fine_delay": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/GR_meter_1": [],
+  "/Group_Outputs/1/Dynamics/GR_meter_2": [],
+  "/Group_Outputs/1/Dynamics/GR_meter_3": [],
+  "/Group_Outputs/1/Dynamics/GR_meter_4": [],
+  "/Group_Outputs/1/Dynamics/comp-multiband-desser": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_HP_crossover": [
+    1000.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_LP_crossover": [
+    130.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_all_gain": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_all_thresh": [
+    -20.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_attack_1": [
+    0.009999999776482582
+  ],
+  "/Group_Outputs/1/Dynamics/comp_attack_2": [
+    0.004999999888241291
+  ],
+  "/Group_Outputs/1/Dynamics/comp_attack_3": [
+    0.02500000037252903
+  ],
+  "/Group_Outputs/1/Dynamics/comp_auto-gain_1": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_auto-gain_2": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_auto-gain_3": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_auto-gain_4": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_band_in_1": [
+    1.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_band_in_2": [
+    1.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_band_in_3": [
+    1.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_gain_1": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_gain_2": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_gain_3": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_gain_4": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_in": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_knee_1": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_knee_2": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_knee_3": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_knee_4": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_listen_1": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_listen_2": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_listen_3": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_ratio_1": [
+    3.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_ratio_2": [
+    2.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_ratio_3": [
+    2.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_ratio_4": [
+    3.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_release_1": [
+    0.5
+  ],
+  "/Group_Outputs/1/Dynamics/comp_release_2": [
+    0.20000000298023224
+  ],
+  "/Group_Outputs/1/Dynamics/comp_release_3": [
+    0.4000000059604645
+  ],
+  "/Group_Outputs/1/Dynamics/comp_thresh_1": [
+    -20.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_thresh_2": [
+    -20.0
+  ],
+  "/Group_Outputs/1/Dynamics/comp_thresh_3": [
+    -20.0
+  ],
+  "/Group_Outputs/1/Dynamics/desser_centre_freq": [
+    127.0
+  ],
+  "/Group_Outputs/1/Dynamics/desser_freq_width": [
+    255.0
+  ],
+  "/Group_Outputs/1/Dynamics/gate_attack": [
+    0.0020000000949949026
+  ],
+  "/Group_Outputs/1/Dynamics/gate_centre_freq": [
+    127.0
+  ],
+  "/Group_Outputs/1/Dynamics/gate_freq_width": [
+    255.0
+  ],
+  "/Group_Outputs/1/Dynamics/gate_in": [
+    0.0
+  ],
+  "/Group_Outputs/1/Dynamics/gate_release": [
+    0.14000000059604645
+  ],
+  "/Group_Outputs/1/Dynamics/gate_thresh": [
+    -20.0
+  ],
+  "/Group_Outputs/1/Dynamics/input_meter/left": [],
+  "/Group_Outputs/1/Dynamics/input_meter/right": [],
+  "/Group_Outputs/1/Dynamics/key_solo": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/GR_meter_1": [],
+  "/Group_Outputs/1/EQ/GR_meter_2": [],
+  "/Group_Outputs/1/EQ/GR_meter_3": [],
+  "/Group_Outputs/1/EQ/GR_meter_4": [],
+  "/Group_Outputs/1/EQ/dynamic_eq_on_1": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/dynamic_eq_on_2": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/dynamic_eq_on_3": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/dynamic_eq_on_4": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_Q_1": [
+    0.7099999785423279
+  ],
+  "/Group_Outputs/1/EQ/eq_Q_2": [
+    0.7099999785423279
+  ],
+  "/Group_Outputs/1/EQ/eq_Q_3": [
+    0.7099999785423279
+  ],
+  "/Group_Outputs/1/EQ/eq_Q_4": [
+    0.7099999785423279
+  ],
+  "/Group_Outputs/1/EQ/eq_Q_5": [
+    0.7099999785423279
+  ],
+  "/Group_Outputs/1/EQ/eq_Q_6": [
+    0.7099999785423279
+  ],
+  "/Group_Outputs/1/EQ/eq_Q_7": [
+    0.7099999785423279
+  ],
+  "/Group_Outputs/1/EQ/eq_Q_8": [
+    0.7099999785423279
+  ],
+  "/Group_Outputs/1/EQ/eq_attack_1": [
+    0.009999999776482582
+  ],
+  "/Group_Outputs/1/EQ/eq_attack_2": [
+    0.014999999664723873
+  ],
+  "/Group_Outputs/1/EQ/eq_attack_3": [
+    0.02500000037252903
+  ],
+  "/Group_Outputs/1/EQ/eq_attack_4": [
+    0.05000000074505806
+  ],
+  "/Group_Outputs/1/EQ/eq_curve_1": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_curve_2": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_curve_3": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_curve_4": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_curve_5": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_curve_6": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_curve_7": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_curve_8": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_freq_1": [
+    8000.0
+  ],
+  "/Group_Outputs/1/EQ/eq_freq_2": [
+    4000.0
+  ],
+  "/Group_Outputs/1/EQ/eq_freq_3": [
+    100.0
+  ],
+  "/Group_Outputs/1/EQ/eq_freq_4": [
+    50.0
+  ],
+  "/Group_Outputs/1/EQ/eq_freq_5": [
+    2000.0
+  ],
+  "/Group_Outputs/1/EQ/eq_freq_6": [
+    1000.0
+  ],
+  "/Group_Outputs/1/EQ/eq_freq_7": [
+    500.0
+  ],
+  "/Group_Outputs/1/EQ/eq_freq_8": [
+    250.0
+  ],
+  "/Group_Outputs/1/EQ/eq_gain_1": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_gain_2": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_gain_3": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_gain_4": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_gain_5": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_gain_6": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_gain_7": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_gain_8": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_in": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_on_1": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_on_2": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_on_3": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_on_4": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_on_5": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_on_6": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_on_7": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_on_8": [
+    1.0
+  ],
+  "/Group_Outputs/1/EQ/eq_over-under_1": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_over-under_2": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_over-under_3": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_over-under_4": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_pre-ins": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_ratio_1": [
+    2.0
+  ],
+  "/Group_Outputs/1/EQ/eq_ratio_2": [
+    2.0
+  ],
+  "/Group_Outputs/1/EQ/eq_ratio_3": [
+    2.0
+  ],
+  "/Group_Outputs/1/EQ/eq_ratio_4": [
+    2.0
+  ],
+  "/Group_Outputs/1/EQ/eq_release_1": [
+    0.30000001192092896
+  ],
+  "/Group_Outputs/1/EQ/eq_release_2": [
+    0.3499999940395355
+  ],
+  "/Group_Outputs/1/EQ/eq_release_3": [
+    0.4000000059604645
+  ],
+  "/Group_Outputs/1/EQ/eq_release_4": [
+    0.6000000238418579
+  ],
+  "/Group_Outputs/1/EQ/eq_symm_Q_1": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_symm_Q_2": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_symm_Q_3": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_symm_Q_4": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_symm_Q_5": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_symm_Q_6": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_symm_Q_7": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_symm_Q_8": [
+    0.0
+  ],
+  "/Group_Outputs/1/EQ/eq_thresh_1": [
+    -36.0
+  ],
+  "/Group_Outputs/1/EQ/eq_thresh_2": [
+    -36.0
+  ],
+  "/Group_Outputs/1/EQ/eq_thresh_3": [
+    -36.0
+  ],
+  "/Group_Outputs/1/EQ/eq_thresh_4": [
+    -36.0
+  ],
+  "/Group_Outputs/1/Group_Send/1/group": [
+    0.0
+  ],
+  "/Group_Outputs/1/Group_Send/2/group": [
+    0.0
+  ],
+  "/Group_Outputs/1/Group_Send/3/group": [
+    0.0
+  ],
+  "/Group_Outputs/1/Insert/insert_A_in": [
+    0.0
+  ],
+  "/Group_Outputs/1/Insert/insert_B_in": [
+    0.0
+  ],
+  "/Group_Outputs/1/Output/dir_meter/left": [],
+  "/Group_Outputs/1/Output/dir_meter/right": [],
+  "/Group_Outputs/1/Output/meter/LFE": [],
+  "/Group_Outputs/1/Output/meter/SL": [],
+  "/Group_Outputs/1/Output/meter/SR": [],
+  "/Group_Outputs/1/Output/meter/centre": [],
+  "/Group_Outputs/1/Output/meter/left": [],
+  "/Group_Outputs/1/Output/meter/right": [],
+  "/Group_Outputs/1/Output/meter2": [],
+  "/Group_Outputs/1/Output/meter4": [],
+  "/Group_Outputs/1/alternate_solo": [
+    0.0
+  ],
+  "/Group_Outputs/1/auto_solo": [
+    0.0
+  ],
+  "/Group_Outputs/1/fader": [
+    -150.0
+  ],
+  "/Group_Outputs/1/fader_meter/left": [],
+  "/Group_Outputs/1/fader_meter/right": [],
+  "/Group_Outputs/1/hard_mute": [
+    0.0
+  ],
+  "/Group_Outputs/1/mute": [
+    0.0
+  ],
+  "/Group_Outputs/1/sends_to_faders": [
+    0.0
+  ],
+  "/Group_Outputs/1/sends_to_rotaries": [
+    0.0
+  ],
+  "/Group_Outputs/1/solo": [
+    0.0
+  ],
+  "/Group_Outputs/1/solo_1_or_2": [
+    0.0
+  ],
+  "/Input_Channels/1/Aux_Send/1/send_level": [
+    -5.670000076293945
+  ],
+  "/Input_Channels/1/Aux_Send/1/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/1/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/10/send_level": [
+    -34.540000915527344
+  ],
+  "/Input_Channels/1/Aux_Send/10/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/10/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/11/send_level": [
+    -42.220001220703125
+  ],
+  "/Input_Channels/1/Aux_Send/11/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/11/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/12/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/12/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/12/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/13/send_level": [
+    -54.16667556762695
+  ],
+  "/Input_Channels/1/Aux_Send/13/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/13/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/14/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/14/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/14/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/15/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/15/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/15/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/16/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/16/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/16/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/17/send_level": [
+    -66.60150146484375
+  ],
+  "/Input_Channels/1/Aux_Send/17/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/17/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/18/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/18/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/18/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/19/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/19/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/19/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/2/send_level": [
+    -21.81218147277832
+  ],
+  "/Input_Channels/1/Aux_Send/2/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/2/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/20/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/20/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/20/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/21/send_level": [
+    0.004999999888241291
+  ],
+  "/Input_Channels/1/Aux_Send/21/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/21/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/22/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/22/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/22/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/23/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/23/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/23/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/24/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/24/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/24/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/25/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/25/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/25/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/26/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/26/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/26/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/27/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/27/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/27/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/28/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/28/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/28/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/29/send_level": [
+    -29.65517234802246
+  ],
+  "/Input_Channels/1/Aux_Send/29/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/29/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/3/send_level": [
+    -16.9999942779541
+  ],
+  "/Input_Channels/1/Aux_Send/3/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/3/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/30/send_level": [
+    -150.0
+  ],
+  "/Input_Channels/1/Aux_Send/30/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/30/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/4/send_level": [
+    4.483275890350342
+  ],
+  "/Input_Channels/1/Aux_Send/4/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/4/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/5/send_level": [
+    3.75
+  ],
+  "/Input_Channels/1/Aux_Send/5/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/5/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/6/send_level": [
+    -24.137929916381836
+  ],
+  "/Input_Channels/1/Aux_Send/6/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/6/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/7/send_level": [
+    -42.220001220703125
+  ],
+  "/Input_Channels/1/Aux_Send/7/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/7/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/8/send_level": [
+    -3.7423412799835205
+  ],
+  "/Input_Channels/1/Aux_Send/8/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/8/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/Aux_Send/9/send_level": [
+    -5.499999046325684
+  ],
+  "/Input_Channels/1/Aux_Send/9/send_on": [
+    1.0
+  ],
+  "/Input_Channels/1/Aux_Send/9/send_pan": [
+    0.5
+  ],
+  "/Input_Channels/1/CGs_level": [
+    0.5217241048812866
+  ],
+  "/Input_Channels/1/CGs_mute": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Delay/delay": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Delay/delay_on": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Delay/fine_delay": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Input/alt_analog_gain": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Input/alt_input_pad": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Input/alt_phantom": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Input/analog_gain": [
+    20.0
+  ],
+  "/Input_Channels/1/Channel_Input/input_pad": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Input/input_type": [
+    2.0
+  ],
+  "/Input_Channels/1/Channel_Input/main/alt_in": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Input/name": [
+    "KICK"
+  ],
+  "/Input_Channels/1/Channel_Input/phantom": [
+    1.0
+  ],
+  "/Input_Channels/1/Channel_Input/phase": [
+    0.0
+  ],
+  "/Input_Channels/1/Channel_Input/post_meter/left": [],
+  "/Input_Channels/1/Channel_Input/post_meter/right": [],
+  "/Input_Channels/1/Channel_Input/pre_meter/left": [],
+  "/Input_Channels/1/Channel_Input/pre_meter/right": [],
+  "/Input_Channels/1/Channel_Input/stereo_mode": [
+    1.0
+  ],
+  "/Input_Channels/1/Channel_Input/trim": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/GR_meter_1": [],
+  "/Input_Channels/1/Dynamics/GR_meter_2": [],
+  "/Input_Channels/1/Dynamics/GR_meter_3": [],
+  "/Input_Channels/1/Dynamics/GR_meter_4": [],
+  "/Input_Channels/1/Dynamics/comp-multiband-desser": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_HP_crossover": [
+    1000.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_LP_crossover": [
+    130.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_all_gain": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_all_thresh": [
+    -25.176437377929688
+  ],
+  "/Input_Channels/1/Dynamics/comp_attack_1": [
+    0.049162182956933975
+  ],
+  "/Input_Channels/1/Dynamics/comp_attack_2": [
+    0.004999999888241291
+  ],
+  "/Input_Channels/1/Dynamics/comp_attack_3": [
+    0.02500000037252903
+  ],
+  "/Input_Channels/1/Dynamics/comp_auto-gain_1": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_auto-gain_2": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_auto-gain_3": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_auto-gain_4": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_band_in_1": [
+    1.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_band_in_2": [
+    1.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_band_in_3": [
+    1.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_gain_1": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_gain_2": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_gain_3": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_gain_4": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_in": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_knee_1": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_knee_2": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_knee_3": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_knee_4": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_listen_1": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_listen_2": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_listen_3": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_ratio_1": [
+    4.930753231048584
+  ],
+  "/Input_Channels/1/Dynamics/comp_ratio_2": [
+    2.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_ratio_3": [
+    2.0
+  ],
+  "/Input_Channels/1/Dynamics/comp_ratio_4": [
+    8.56579875946045
+  ],
+  "/Input_Channels/1/Dynamics/comp_release_1": [
+    0.06719738245010376
+  ],
+  "/Input_Channels/1/Dynamics/comp_release_2": [
+    0.20000000298023224
+  ],
+  "/Input_Channels/1/Dynamics/comp_release_3": [
+    0.4000000059604645
+  ],
+  "/Input_Channels/1/Dynamics/comp_thresh_1": [
+    -25.176437377929688
+  ],
+  "/Input_Channels/1/Dynamics/comp_thresh_2": [
+    -22.3529052734375
+  ],
+  "/Input_Channels/1/Dynamics/comp_thresh_3": [
+    -22.3529052734375
+  ],
+  "/Input_Channels/1/Dynamics/desser_centre_freq": [
+    127.0
+  ],
+  "/Input_Channels/1/Dynamics/desser_freq_width": [
+    255.0
+  ],
+  "/Input_Channels/1/Dynamics/gate_attack": [
+    0.0019596272613853216
+  ],
+  "/Input_Channels/1/Dynamics/gate_centre_freq": [
+    127.0
+  ],
+  "/Input_Channels/1/Dynamics/gate_freq_width": [
+    255.0
+  ],
+  "/Input_Channels/1/Dynamics/gate_in": [
+    0.0
+  ],
+  "/Input_Channels/1/Dynamics/gate_release": [
+    0.017051173374056816
+  ],
+  "/Input_Channels/1/Dynamics/gate_thresh": [
+    -9.41171646118164
+  ],
+  "/Input_Channels/1/Dynamics/input_meter/left": [],
+  "/Input_Channels/1/Dynamics/input_meter/right": [],
+  "/Input_Channels/1/Dynamics/key_solo": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/GR_meter_1": [],
+  "/Input_Channels/1/EQ/GR_meter_2": [],
+  "/Input_Channels/1/EQ/GR_meter_3": [],
+  "/Input_Channels/1/EQ/GR_meter_4": [],
+  "/Input_Channels/1/EQ/dynamic_eq_on_1": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/dynamic_eq_on_2": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/dynamic_eq_on_3": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/dynamic_eq_on_4": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_Q_1": [
+    2.9718434810638428
+  ],
+  "/Input_Channels/1/EQ/eq_Q_2": [
+    1.9472477436065674
+  ],
+  "/Input_Channels/1/EQ/eq_Q_3": [
+    0.5792046785354614
+  ],
+  "/Input_Channels/1/EQ/eq_Q_4": [
+    4.229623317718506
+  ],
+  "/Input_Channels/1/EQ/eq_attack_1": [
+    0.009999999776482582
+  ],
+  "/Input_Channels/1/EQ/eq_attack_2": [
+    0.014999999664723873
+  ],
+  "/Input_Channels/1/EQ/eq_attack_3": [
+    0.02500000037252903
+  ],
+  "/Input_Channels/1/EQ/eq_attack_4": [
+    0.05000000074505806
+  ],
+  "/Input_Channels/1/EQ/eq_curve_1": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_curve_2": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_curve_3": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_curve_4": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_freq_1": [
+    6410.8017578125
+  ],
+  "/Input_Channels/1/EQ/eq_freq_2": [
+    1332.1693115234375
+  ],
+  "/Input_Channels/1/EQ/eq_freq_3": [
+    415.6014404296875
+  ],
+  "/Input_Channels/1/EQ/eq_freq_4": [
+    24.83977508544922
+  ],
+  "/Input_Channels/1/EQ/eq_gain_1": [
+    4.588225364685059
+  ],
+  "/Input_Channels/1/EQ/eq_gain_2": [
+    0.21175390481948853
+  ],
+  "/Input_Channels/1/EQ/eq_gain_3": [
+    -12.211774826049805
+  ],
+  "/Input_Channels/1/EQ/eq_gain_4": [
+    10.658814430236816
+  ],
+  "/Input_Channels/1/EQ/eq_in": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_on_1": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_on_2": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_on_3": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_on_4": [
+    1.0
+  ],
+  "/Input_Channels/1/EQ/eq_over-under_1": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_over-under_2": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_over-under_3": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_over-under_4": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_ratio_1": [
+    2.0
+  ],
+  "/Input_Channels/1/EQ/eq_ratio_2": [
+    2.0
+  ],
+  "/Input_Channels/1/EQ/eq_ratio_3": [
+    2.0
+  ],
+  "/Input_Channels/1/EQ/eq_ratio_4": [
+    2.0
+  ],
+  "/Input_Channels/1/EQ/eq_release_1": [
+    0.30000001192092896
+  ],
+  "/Input_Channels/1/EQ/eq_release_2": [
+    0.3499999940395355
+  ],
+  "/Input_Channels/1/EQ/eq_release_3": [
+    0.4000000059604645
+  ],
+  "/Input_Channels/1/EQ/eq_release_4": [
+    0.6000000238418579
+  ],
+  "/Input_Channels/1/EQ/eq_symm_Q_1": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_symm_Q_2": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_symm_Q_3": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_symm_Q_4": [
+    0.0
+  ],
+  "/Input_Channels/1/EQ/eq_thresh_1": [
+    -36.0
+  ],
+  "/Input_Channels/1/EQ/eq_thresh_2": [
+    -36.0
+  ],
+  "/Input_Channels/1/EQ/eq_thresh_3": [
+    -36.0
+  ],
+  "/Input_Channels/1/EQ/eq_thresh_4": [
+    -36.0
+  ],
+  "/Input_Channels/1/Filters/hi_filter_freq": [
+    2768.257568359375
+  ],
+  "/Input_Channels/1/Filters/hi_filter_in": [
+    1.0
+  ],
+  "/Input_Channels/1/Filters/lo_filter_freq": [
+    45.078678131103516
+  ],
+  "/Input_Channels/1/Filters/lo_filter_in": [
+    0.0
+  ],
+  "/Input_Channels/1/Group_Send/1/group": [
+    1.0
+  ],
+  "/Input_Channels/1/Group_Send/2/group": [
+    1.0
+  ],
+  "/Input_Channels/1/Group_Send/3/group": [
+    0.0
+  ],
+  "/Input_Channels/1/Insert/insert_A_analog_gain": [
+    0.0
+  ],
+  "/Input_Channels/1/Insert/insert_A_in": [
+    0.0
+  ],
+  "/Input_Channels/1/Insert/insert_A_input_pad": [
+    0.0
+  ],
+  "/Input_Channels/1/Insert/insert_A_phantom": [
+    0.0
+  ],
+  "/Input_Channels/1/Insert/insert_B_analog_gain": [
+    0.0
+  ],
+  "/Input_Channels/1/Insert/insert_B_in": [
+    0.0
+  ],
+  "/Input_Channels/1/Insert/insert_B_input_pad": [
+    0.0
+  ],
+  "/Input_Channels/1/Insert/insert_B_phantom": [
+    0.0
+  ],
+  "/Input_Channels/1/Output/meter/LFE": [],
+  "/Input_Channels/1/Output/meter/SL": [],
+  "/Input_Channels/1/Output/meter/SR": [],
+  "/Input_Channels/1/Output/meter/centre": [],
+  "/Input_Channels/1/Output/meter/left": [],
+  "/Input_Channels/1/Output/meter/right": [],
+  "/Input_Channels/1/Output/meter2": [],
+  "/Input_Channels/1/Output/meter4": [],
+  "/Input_Channels/1/Panner/LFE_level": [
+    0.0
+  ],
+  "/Input_Channels/1/Panner/LFE_off-only-all": [
+    0.0
+  ],
+  "/Input_Channels/1/Panner/f-b": [
+    0.0
+  ],
+  "/Input_Channels/1/Panner/pan": [
+    0.5
+  ],
+  "/Input_Channels/1/fader": [
+    -4.44444465637207
+  ],
+  "/Input_Channels/1/fader_meter/left": [],
+  "/Input_Channels/1/fader_meter/right": [],
+  "/Input_Channels/1/mute": [
+    0.0
+  ],
+  "/Input_Channels/1/solo": [
+    0.0
+  ],
+  "/Layout/Layout/Banks": [
+    "CHOIR",
+    "R",
+    2,
+    0,
+    "Input_Channels",
+    58,
+    "Input_Channels",
+    59,
+    "Input_Channels",
+    60,
+    "Input_Channels",
+    61,
+    "Input_Channels",
+    62,
+    "Input_Channels",
+    63,
+    "Input_Channels",
+    64,
+    "",
+    0,
+    "Input_Channels",
+    55,
+    "Input_Channels",
+    56,
+    "",
+    0,
+    "",
+    0
+  ],
+  "/Matrix_Inputs/1/Channel_Input/name": [
+    "Master L"
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/1/send_level": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/1/send_on": [
+    1.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/10/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/10/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/11/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/11/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/12/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/12/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/2/send_level": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/2/send_on": [
+    1.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/3/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/3/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/4/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/4/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/5/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/5/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/6/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/6/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/7/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/7/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/8/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/8/send_on": [
+    0.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/9/send_level": [
+    -150.0
+  ],
+  "/Matrix_Inputs/1/Matrix_Send/9/send_on": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Buss_Trim/name": [
+    "MAIN L"
+  ],
+  "/Matrix_Outputs/1/Buss_Trim/phase": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Buss_Trim/post_meter": [],
+  "/Matrix_Outputs/1/Buss_Trim/post_meter/right": [],
+  "/Matrix_Outputs/1/Buss_Trim/pre_meter": [],
+  "/Matrix_Outputs/1/Buss_Trim/pre_meter/right": [],
+  "/Matrix_Outputs/1/Buss_Trim/trim": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Buss_Trim/tube_meter/left": [],
+  "/Matrix_Outputs/1/Buss_Trim/tube_meter/right": [],
+  "/Matrix_Outputs/1/CGs_level": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/CGs_mute": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Channel_Delay/delay": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Channel_Delay/delay_on": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Channel_Delay/fine_delay": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/GR_meter_1": [],
+  "/Matrix_Outputs/1/Dynamics/GR_meter_2": [],
+  "/Matrix_Outputs/1/Dynamics/GR_meter_3": [],
+  "/Matrix_Outputs/1/Dynamics/GR_meter_4": [],
+  "/Matrix_Outputs/1/Dynamics/comp-multiband-desser": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_HP_crossover": [
+    1000.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_LP_crossover": [
+    130.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_all_gain": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_all_thresh": [
+    -16.235252380371094
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_attack_1": [
+    0.009999999776482582
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_attack_2": [
+    0.004999999888241291
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_attack_3": [
+    0.02500000037252903
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_auto-gain_1": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_auto-gain_2": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_auto-gain_3": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_auto-gain_4": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_band_in_1": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_band_in_2": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_band_in_3": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_gain_1": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_gain_2": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_gain_3": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_gain_4": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_in": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_knee_1": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_knee_2": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_knee_3": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_knee_4": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_listen_1": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_listen_2": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_listen_3": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_ratio_1": [
+    3.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_ratio_2": [
+    2.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_ratio_3": [
+    2.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_ratio_4": [
+    3.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_release_1": [
+    0.5
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_release_2": [
+    0.20000000298023224
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_release_3": [
+    0.4000000059604645
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_thresh_1": [
+    -16.235252380371094
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_thresh_2": [
+    -16.235252380371094
+  ],
+  "/Matrix_Outputs/1/Dynamics/comp_thresh_3": [
+    -16.235252380371094
+  ],
+  "/Matrix_Outputs/1/Dynamics/desser_centre_freq": [
+    127.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/desser_freq_width": [
+    255.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/gate_attack": [
+    0.0020000000949949026
+  ],
+  "/Matrix_Outputs/1/Dynamics/gate_centre_freq": [
+    127.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/gate_freq_width": [
+    255.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/gate_in": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/gate_release": [
+    0.14000000059604645
+  ],
+  "/Matrix_Outputs/1/Dynamics/gate_thresh": [
+    -20.0
+  ],
+  "/Matrix_Outputs/1/Dynamics/input_meter/left": [],
+  "/Matrix_Outputs/1/Dynamics/input_meter/right": [],
+  "/Matrix_Outputs/1/Dynamics/key_solo": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/GR_meter_1": [],
+  "/Matrix_Outputs/1/EQ/GR_meter_2": [],
+  "/Matrix_Outputs/1/EQ/GR_meter_3": [],
+  "/Matrix_Outputs/1/EQ/GR_meter_4": [],
+  "/Matrix_Outputs/1/EQ/dynamic_eq_on_1": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/dynamic_eq_on_2": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/dynamic_eq_on_3": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/dynamic_eq_on_4": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_Q_1": [
+    0.7099999785423279
+  ],
+  "/Matrix_Outputs/1/EQ/eq_Q_2": [
+    0.7099999785423279
+  ],
+  "/Matrix_Outputs/1/EQ/eq_Q_3": [
+    0.7099999785423279
+  ],
+  "/Matrix_Outputs/1/EQ/eq_Q_4": [
+    0.7099999785423279
+  ],
+  "/Matrix_Outputs/1/EQ/eq_Q_5": [
+    0.7099999785423279
+  ],
+  "/Matrix_Outputs/1/EQ/eq_Q_6": [
+    0.7099999785423279
+  ],
+  "/Matrix_Outputs/1/EQ/eq_Q_7": [
+    0.7099999785423279
+  ],
+  "/Matrix_Outputs/1/EQ/eq_Q_8": [
+    0.7099999785423279
+  ],
+  "/Matrix_Outputs/1/EQ/eq_attack_1": [
+    0.009999999776482582
+  ],
+  "/Matrix_Outputs/1/EQ/eq_attack_2": [
+    0.014999999664723873
+  ],
+  "/Matrix_Outputs/1/EQ/eq_attack_3": [
+    0.02500000037252903
+  ],
+  "/Matrix_Outputs/1/EQ/eq_attack_4": [
+    0.05000000074505806
+  ],
+  "/Matrix_Outputs/1/EQ/eq_curve_1": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_curve_2": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_curve_3": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_curve_4": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_curve_5": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_curve_6": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_curve_7": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_curve_8": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_freq_1": [
+    8000.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_freq_2": [
+    4000.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_freq_3": [
+    100.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_freq_4": [
+    50.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_freq_5": [
+    2000.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_freq_6": [
+    1000.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_freq_7": [
+    500.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_freq_8": [
+    250.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_gain_1": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_gain_2": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_gain_3": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_gain_4": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_gain_5": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_gain_6": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_gain_7": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_gain_8": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_in": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_on_1": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_on_2": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_on_3": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_on_4": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_on_5": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_on_6": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_on_7": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_on_8": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_over-under_1": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_over-under_2": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_over-under_3": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_over-under_4": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_pre-ins": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_ratio_1": [
+    2.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_ratio_2": [
+    2.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_ratio_3": [
+    2.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_ratio_4": [
+    2.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_release_1": [
+    0.30000001192092896
+  ],
+  "/Matrix_Outputs/1/EQ/eq_release_2": [
+    0.3499999940395355
+  ],
+  "/Matrix_Outputs/1/EQ/eq_release_3": [
+    0.4000000059604645
+  ],
+  "/Matrix_Outputs/1/EQ/eq_release_4": [
+    0.6000000238418579
+  ],
+  "/Matrix_Outputs/1/EQ/eq_symm_Q_1": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_symm_Q_2": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_symm_Q_3": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_symm_Q_4": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_symm_Q_5": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_symm_Q_6": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_symm_Q_7": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_symm_Q_8": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_thresh_1": [
+    -36.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_thresh_2": [
+    -36.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_thresh_3": [
+    -36.0
+  ],
+  "/Matrix_Outputs/1/EQ/eq_thresh_4": [
+    -36.0
+  ],
+  "/Matrix_Outputs/1/Insert/insert_A_in": [
+    1.0
+  ],
+  "/Matrix_Outputs/1/Insert/insert_B_in": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/Output/dir_meter/left": [],
+  "/Matrix_Outputs/1/Output/dir_meter/right": [],
+  "/Matrix_Outputs/1/Output/meter/LFE": [],
+  "/Matrix_Outputs/1/Output/meter/SL": [],
+  "/Matrix_Outputs/1/Output/meter/SR": [],
+  "/Matrix_Outputs/1/Output/meter/centre": [],
+  "/Matrix_Outputs/1/Output/meter/left": [],
+  "/Matrix_Outputs/1/Output/meter/right": [],
+  "/Matrix_Outputs/1/Output/meter2": [],
+  "/Matrix_Outputs/1/Output/meter4": [],
+  "/Matrix_Outputs/1/alternate_solo": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/fader": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/fader_meter/left": [],
+  "/Matrix_Outputs/1/fader_meter/right": [],
+  "/Matrix_Outputs/1/hard_mute": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/mute": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/solo": [
+    0.0
+  ],
+  "/Matrix_Outputs/1/solo_1_or_2": [
+    0.0
+  ],
+  "/Multis/1/fader": [
+    0.693965494632721
+  ],
+  "/Multis/1/mute": [
+    0.0
+  ],
+  "/Multis/1/name": [
+    "FX"
+  ],
+  "/Multis/1/solo": [
+    0.0
+  ],
+  "/Snapshots/Current_Snapshot": [
+    3
+  ],
+  "/Snapshots/count": [
+    10
+  ]
+}

@@ -1,0 +1,947 @@
+address,category,generalized_pattern,sample_value,inferred_type
+/Aux_Outputs/1/Buss_Trim/name,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/name,"[""IEM 5""]",string
+/Aux_Outputs/1/Buss_Trim/phase,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/phase,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Buss_Trim/post_meter,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/post_meter,[],none (meter/empty)
+/Aux_Outputs/1/Buss_Trim/post_meter/right,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/post_meter/right,[],none (meter/empty)
+/Aux_Outputs/1/Buss_Trim/pre_meter,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/pre_meter,[],none (meter/empty)
+/Aux_Outputs/1/Buss_Trim/pre_meter/right,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/pre_meter/right,[],none (meter/empty)
+/Aux_Outputs/1/Buss_Trim/trim,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/trim,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Buss_Trim/tube_meter/left,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/tube_meter/left,[],none (meter/empty)
+/Aux_Outputs/1/Buss_Trim/tube_meter/right,Aux_Outputs,/Aux_Outputs/{n}/Buss_Trim/tube_meter/right,[],none (meter/empty)
+/Aux_Outputs/1/CGs_level,Aux_Outputs,/Aux_Outputs/{n}/CGs_level,[0.0],float (0/1 flag)
+/Aux_Outputs/1/CGs_mute,Aux_Outputs,/Aux_Outputs/{n}/CGs_mute,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Channel_Delay/delay,Aux_Outputs,/Aux_Outputs/{n}/Channel_Delay/delay,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Channel_Delay/delay_on,Aux_Outputs,/Aux_Outputs/{n}/Channel_Delay/delay_on,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Channel_Delay/fine_delay,Aux_Outputs,/Aux_Outputs/{n}/Channel_Delay/fine_delay,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/GR_meter_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Aux_Outputs/1/Dynamics/GR_meter_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Aux_Outputs/1/Dynamics/GR_meter_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Aux_Outputs/1/Dynamics/GR_meter_4,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Aux_Outputs/1/Dynamics/comp-multiband-desser,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp-multiband-desser,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_HP_crossover,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_HP_crossover,[1000.0],float
+/Aux_Outputs/1/Dynamics/comp_LP_crossover,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_LP_crossover,[130.0],float
+/Aux_Outputs/1/Dynamics/comp_all_gain,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_all_gain,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_all_thresh,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_all_thresh,[-20.0],float
+/Aux_Outputs/1/Dynamics/comp_attack_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_attack_{n},[0.009999999776482582],float
+/Aux_Outputs/1/Dynamics/comp_attack_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_attack_{n},[0.004999999888241291],float
+/Aux_Outputs/1/Dynamics/comp_attack_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_attack_{n},[0.02500000037252903],float
+/Aux_Outputs/1/Dynamics/comp_auto-gain_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_auto-gain_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_auto-gain_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_auto-gain_4,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_band_in_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_band_in_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_band_in_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_gain_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_gain_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_gain_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_gain_4,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_in,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_in,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_knee_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_knee_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_knee_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_knee_4,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_listen_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_listen_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_listen_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/comp_ratio_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_ratio_{n},[3.0],float
+/Aux_Outputs/1/Dynamics/comp_ratio_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_ratio_{n},[2.0],float
+/Aux_Outputs/1/Dynamics/comp_ratio_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_ratio_{n},[2.0],float
+/Aux_Outputs/1/Dynamics/comp_ratio_4,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_ratio_{n},[3.0],float
+/Aux_Outputs/1/Dynamics/comp_release_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_release_{n},[0.5],float
+/Aux_Outputs/1/Dynamics/comp_release_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_release_{n},[0.20000000298023224],float
+/Aux_Outputs/1/Dynamics/comp_release_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_release_{n},[0.4000000059604645],float
+/Aux_Outputs/1/Dynamics/comp_thresh_1,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_thresh_{n},[-20.0],float
+/Aux_Outputs/1/Dynamics/comp_thresh_2,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_thresh_{n},[-20.0],float
+/Aux_Outputs/1/Dynamics/comp_thresh_3,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/comp_thresh_{n},[-20.0],float
+/Aux_Outputs/1/Dynamics/desser_centre_freq,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/desser_centre_freq,[127.0],float
+/Aux_Outputs/1/Dynamics/desser_freq_width,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/desser_freq_width,[255.0],float
+/Aux_Outputs/1/Dynamics/gate_attack,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/gate_attack,[0.0020000000949949026],float
+/Aux_Outputs/1/Dynamics/gate_centre_freq,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/gate_centre_freq,[127.0],float
+/Aux_Outputs/1/Dynamics/gate_freq_width,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/gate_freq_width,[255.0],float
+/Aux_Outputs/1/Dynamics/gate_in,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/gate_in,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Dynamics/gate_release,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/gate_release,[0.14000000059604645],float
+/Aux_Outputs/1/Dynamics/gate_thresh,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/gate_thresh,[-20.0],float
+/Aux_Outputs/1/Dynamics/input_meter/left,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/input_meter/left,[],none (meter/empty)
+/Aux_Outputs/1/Dynamics/input_meter/right,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/input_meter/right,[],none (meter/empty)
+/Aux_Outputs/1/Dynamics/key_solo,Aux_Outputs,/Aux_Outputs/{n}/Dynamics/key_solo,[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/GR_meter_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Aux_Outputs/1/EQ/GR_meter_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Aux_Outputs/1/EQ/GR_meter_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Aux_Outputs/1/EQ/GR_meter_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Aux_Outputs/1/EQ/dynamic_eq_on_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/dynamic_eq_on_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/dynamic_eq_on_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/dynamic_eq_on_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_Q_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Aux_Outputs/1/EQ/eq_Q_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Aux_Outputs/1/EQ/eq_Q_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Aux_Outputs/1/EQ/eq_Q_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Aux_Outputs/1/EQ/eq_Q_5,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Aux_Outputs/1/EQ/eq_Q_6,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Aux_Outputs/1/EQ/eq_Q_7,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Aux_Outputs/1/EQ/eq_Q_8,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Aux_Outputs/1/EQ/eq_attack_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_attack_{n},[0.009999999776482582],float
+/Aux_Outputs/1/EQ/eq_attack_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_attack_{n},[0.014999999664723873],float
+/Aux_Outputs/1/EQ/eq_attack_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_attack_{n},[0.02500000037252903],float
+/Aux_Outputs/1/EQ/eq_attack_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_attack_{n},[0.05000000074505806],float
+/Aux_Outputs/1/EQ/eq_curve_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_curve_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_curve_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_curve_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_curve_5,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_curve_6,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_curve_7,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_curve_8,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_freq_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_freq_{n},[8000.0],float
+/Aux_Outputs/1/EQ/eq_freq_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_freq_{n},[4000.0],float
+/Aux_Outputs/1/EQ/eq_freq_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_freq_{n},[100.0],float
+/Aux_Outputs/1/EQ/eq_freq_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_freq_{n},[50.0],float
+/Aux_Outputs/1/EQ/eq_freq_5,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_freq_{n},[2000.0],float
+/Aux_Outputs/1/EQ/eq_freq_6,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_freq_{n},[1000.0],float
+/Aux_Outputs/1/EQ/eq_freq_7,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_freq_{n},[500.0],float
+/Aux_Outputs/1/EQ/eq_freq_8,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_freq_{n},[250.0],float
+/Aux_Outputs/1/EQ/eq_gain_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_gain_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_gain_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_gain_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_gain_5,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_gain_6,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_gain_7,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_gain_8,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_in,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_in,[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_on_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_on_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_on_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_on_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_on_5,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_on_6,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_on_7,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_on_8,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_over-under_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_over-under_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_over-under_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_over-under_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_pre-ins,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_pre-ins,[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_ratio_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Aux_Outputs/1/EQ/eq_ratio_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Aux_Outputs/1/EQ/eq_ratio_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Aux_Outputs/1/EQ/eq_ratio_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Aux_Outputs/1/EQ/eq_release_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_release_{n},[0.30000001192092896],float
+/Aux_Outputs/1/EQ/eq_release_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_release_{n},[0.3499999940395355],float
+/Aux_Outputs/1/EQ/eq_release_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_release_{n},[0.4000000059604645],float
+/Aux_Outputs/1/EQ/eq_release_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_release_{n},[0.6000000238418579],float
+/Aux_Outputs/1/EQ/eq_symm_Q_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_symm_Q_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_symm_Q_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_symm_Q_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_symm_Q_5,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_symm_Q_6,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_symm_Q_7,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_symm_Q_8,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Aux_Outputs/1/EQ/eq_thresh_1,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Aux_Outputs/1/EQ/eq_thresh_2,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Aux_Outputs/1/EQ/eq_thresh_3,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Aux_Outputs/1/EQ/eq_thresh_4,Aux_Outputs,/Aux_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Aux_Outputs/1/Insert/insert_A_in,Aux_Outputs,/Aux_Outputs/{n}/Insert/insert_A_in,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Insert/insert_B_in,Aux_Outputs,/Aux_Outputs/{n}/Insert/insert_B_in,[0.0],float (0/1 flag)
+/Aux_Outputs/1/Output/dir_meter/left,Aux_Outputs,/Aux_Outputs/{n}/Output/dir_meter/left,[],none (meter/empty)
+/Aux_Outputs/1/Output/dir_meter/right,Aux_Outputs,/Aux_Outputs/{n}/Output/dir_meter/right,[],none (meter/empty)
+/Aux_Outputs/1/Output/meter/LFE,Aux_Outputs,/Aux_Outputs/{n}/Output/meter/LFE,[],none (meter/empty)
+/Aux_Outputs/1/Output/meter/SL,Aux_Outputs,/Aux_Outputs/{n}/Output/meter/SL,[],none (meter/empty)
+/Aux_Outputs/1/Output/meter/SR,Aux_Outputs,/Aux_Outputs/{n}/Output/meter/SR,[],none (meter/empty)
+/Aux_Outputs/1/Output/meter/centre,Aux_Outputs,/Aux_Outputs/{n}/Output/meter/centre,[],none (meter/empty)
+/Aux_Outputs/1/Output/meter/left,Aux_Outputs,/Aux_Outputs/{n}/Output/meter/left,[],none (meter/empty)
+/Aux_Outputs/1/Output/meter/right,Aux_Outputs,/Aux_Outputs/{n}/Output/meter/right,[],none (meter/empty)
+/Aux_Outputs/1/Output/meter2,Aux_Outputs,/Aux_Outputs/{n}/Output/meter2,[],none (meter/empty)
+/Aux_Outputs/1/Output/meter4,Aux_Outputs,/Aux_Outputs/{n}/Output/meter4,[],none (meter/empty)
+/Aux_Outputs/1/alternate_solo,Aux_Outputs,/Aux_Outputs/{n}/alternate_solo,[0.0],float (0/1 flag)
+/Aux_Outputs/1/auto_solo,Aux_Outputs,/Aux_Outputs/{n}/auto_solo,[0.0],float (0/1 flag)
+/Aux_Outputs/1/fader,Aux_Outputs,/Aux_Outputs/{n}/fader,[0.17724137008190155],float
+/Aux_Outputs/1/fader_meter/left,Aux_Outputs,/Aux_Outputs/{n}/fader_meter/left,[],none (meter/empty)
+/Aux_Outputs/1/fader_meter/right,Aux_Outputs,/Aux_Outputs/{n}/fader_meter/right,[],none (meter/empty)
+/Aux_Outputs/1/hard_mute,Aux_Outputs,/Aux_Outputs/{n}/hard_mute,[0.0],float (0/1 flag)
+/Aux_Outputs/1/mute,Aux_Outputs,/Aux_Outputs/{n}/mute,[1.0],float (0/1 flag)
+/Aux_Outputs/1/sends_to_faders,Aux_Outputs,/Aux_Outputs/{n}/sends_to_faders,[0.0],float (0/1 flag)
+/Aux_Outputs/1/sends_to_rotaries,Aux_Outputs,/Aux_Outputs/{n}/sends_to_rotaries,[0.0],float (0/1 flag)
+/Aux_Outputs/1/solo,Aux_Outputs,/Aux_Outputs/{n}/solo,[0.0],float (0/1 flag)
+/Aux_Outputs/1/solo_1_or_2,Aux_Outputs,/Aux_Outputs/{n}/solo_1_or_{n},[0.0],float (0/1 flag)
+/Console/Name,Console,/Console/Name,"[""SD7Q-Q2""]",string
+/Control_Groups/1/auto-mute,Control_Groups,/Control_Groups/{n}/auto-mute,[0.0],float (0/1 flag)
+/Control_Groups/1/aux_send,Control_Groups,/Control_Groups/{n}/aux_send,[0.0],float (0/1 flag)
+/Control_Groups/1/fader,Control_Groups,/Control_Groups/{n}/fader,[0.5217241048812866],float
+/Control_Groups/1/mode,Control_Groups,/Control_Groups/{n}/mode,[1.0],float (0/1 flag)
+/Control_Groups/1/mute,Control_Groups,/Control_Groups/{n}/mute,[0.0],float (0/1 flag)
+/Control_Groups/1/name,Control_Groups,/Control_Groups/{n}/name,"[""DRUMS DCA""]",string
+/Control_Groups/1/solo,Control_Groups,/Control_Groups/{n}/solo,[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq__trim,Graphic_EQ,/Graphic_EQ/{n}/geq__trim,[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_1,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_10,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_11,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_12,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_13,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_14,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_15,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_16,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_17,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_18,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_19,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_2,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_20,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.47480309009552],float
+/Graphic_EQ/1/geq_gain_21,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_22,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_23,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_24,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.6622046232223511],float
+/Graphic_EQ/1/geq_gain_25,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_26,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_27,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_28,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_29,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_3,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_30,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_31,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_32,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_4,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_5,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_6,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_7,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_8,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_gain_9,Graphic_EQ,/Graphic_EQ/{n}/geq_gain_{n},[0.0],float (0/1 flag)
+/Graphic_EQ/1/geq_in,Graphic_EQ,/Graphic_EQ/{n}/geq_in,[1.0],float (0/1 flag)
+/Graphic_EQ/1/input_meter,Graphic_EQ,/Graphic_EQ/{n}/input_meter,[],none (meter/empty)
+/Graphic_EQ/1/name,Graphic_EQ,/Graphic_EQ/{n}/name,"[""""]",string
+/Graphic_EQ/1/output_meter,Graphic_EQ,/Graphic_EQ/{n}/output_meter,[],none (meter/empty)
+/Group_Outputs/1/Aux_Send/1/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/1/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/1/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/1/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/10/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/10/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/10/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/10/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/11/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/11/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/11/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/11/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/12/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/12/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/12/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/12/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/13/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/13/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/13/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/13/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/14/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/14/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/14/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/14/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/15/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/15/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/15/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/15/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/16/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/16/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/16/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/16/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/17/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/17/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/17/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/17/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/18/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/18/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/18/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/18/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/19/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/19/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/19/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/19/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/2/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/2/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/2/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/2/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/20/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/20/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/20/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/20/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/21/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/21/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/21/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/21/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/22/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/22/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/22/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/22/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/23/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/23/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/23/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/23/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/24/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/24/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/24/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/24/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/25/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/25/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/25/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/25/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/26/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/26/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/26/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/26/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/27/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/27/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/27/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/27/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/28/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/28/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/28/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/28/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/29/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/29/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/29/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/29/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/3/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/3/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/3/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/3/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/30/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/30/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/30/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/30/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/4/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/4/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/4/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/4/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/5/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/5/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/5/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/5/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/6/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/6/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/6/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/6/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/7/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/7/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/7/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/7/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/8/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/8/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/8/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/8/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/9/send_level,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Group_Outputs/1/Aux_Send/9/send_on,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Aux_Send/9/send_pan,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Group_Outputs/1/Aux_Send/9/send_pre-post,Group_Outputs,/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post,[0.0],float (0/1 flag)
+/Group_Outputs/1/Buss_Trim/name,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/name,"[""MASTER""]",string
+/Group_Outputs/1/Buss_Trim/phase,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/phase,[0.0],float (0/1 flag)
+/Group_Outputs/1/Buss_Trim/post_meter,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/post_meter,[],none (meter/empty)
+/Group_Outputs/1/Buss_Trim/post_meter/right,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/post_meter/right,[],none (meter/empty)
+/Group_Outputs/1/Buss_Trim/pre_meter,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/pre_meter,[],none (meter/empty)
+/Group_Outputs/1/Buss_Trim/pre_meter/right,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/pre_meter/right,[],none (meter/empty)
+/Group_Outputs/1/Buss_Trim/trim,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/trim,[0.0],float (0/1 flag)
+/Group_Outputs/1/Buss_Trim/tube_meter/left,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/tube_meter/left,[],none (meter/empty)
+/Group_Outputs/1/Buss_Trim/tube_meter/right,Group_Outputs,/Group_Outputs/{n}/Buss_Trim/tube_meter/right,[],none (meter/empty)
+/Group_Outputs/1/CGs_level,Group_Outputs,/Group_Outputs/{n}/CGs_level,[0.0],float (0/1 flag)
+/Group_Outputs/1/CGs_mute,Group_Outputs,/Group_Outputs/{n}/CGs_mute,[0.0],float (0/1 flag)
+/Group_Outputs/1/Channel_Delay/delay,Group_Outputs,/Group_Outputs/{n}/Channel_Delay/delay,[0.0],float (0/1 flag)
+/Group_Outputs/1/Channel_Delay/delay_on,Group_Outputs,/Group_Outputs/{n}/Channel_Delay/delay_on,[0.0],float (0/1 flag)
+/Group_Outputs/1/Channel_Delay/fine_delay,Group_Outputs,/Group_Outputs/{n}/Channel_Delay/fine_delay,[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/GR_meter_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Group_Outputs/1/Dynamics/GR_meter_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Group_Outputs/1/Dynamics/GR_meter_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Group_Outputs/1/Dynamics/GR_meter_4,Group_Outputs,/Group_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Group_Outputs/1/Dynamics/comp-multiband-desser,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp-multiband-desser,[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_HP_crossover,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_HP_crossover,[1000.0],float
+/Group_Outputs/1/Dynamics/comp_LP_crossover,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_LP_crossover,[130.0],float
+/Group_Outputs/1/Dynamics/comp_all_gain,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_all_gain,[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_all_thresh,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_all_thresh,[-20.0],float
+/Group_Outputs/1/Dynamics/comp_attack_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_attack_{n},[0.009999999776482582],float
+/Group_Outputs/1/Dynamics/comp_attack_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_attack_{n},[0.004999999888241291],float
+/Group_Outputs/1/Dynamics/comp_attack_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_attack_{n},[0.02500000037252903],float
+/Group_Outputs/1/Dynamics/comp_auto-gain_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_auto-gain_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_auto-gain_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_auto-gain_4,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_band_in_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_band_in_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_band_in_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_gain_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_gain_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_gain_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_gain_4,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_in,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_in,[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_knee_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_knee_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_knee_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_knee_4,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_listen_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_listen_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_listen_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/comp_ratio_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_ratio_{n},[3.0],float
+/Group_Outputs/1/Dynamics/comp_ratio_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_ratio_{n},[2.0],float
+/Group_Outputs/1/Dynamics/comp_ratio_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_ratio_{n},[2.0],float
+/Group_Outputs/1/Dynamics/comp_ratio_4,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_ratio_{n},[3.0],float
+/Group_Outputs/1/Dynamics/comp_release_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_release_{n},[0.5],float
+/Group_Outputs/1/Dynamics/comp_release_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_release_{n},[0.20000000298023224],float
+/Group_Outputs/1/Dynamics/comp_release_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_release_{n},[0.4000000059604645],float
+/Group_Outputs/1/Dynamics/comp_thresh_1,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_thresh_{n},[-20.0],float
+/Group_Outputs/1/Dynamics/comp_thresh_2,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_thresh_{n},[-20.0],float
+/Group_Outputs/1/Dynamics/comp_thresh_3,Group_Outputs,/Group_Outputs/{n}/Dynamics/comp_thresh_{n},[-20.0],float
+/Group_Outputs/1/Dynamics/desser_centre_freq,Group_Outputs,/Group_Outputs/{n}/Dynamics/desser_centre_freq,[127.0],float
+/Group_Outputs/1/Dynamics/desser_freq_width,Group_Outputs,/Group_Outputs/{n}/Dynamics/desser_freq_width,[255.0],float
+/Group_Outputs/1/Dynamics/gate_attack,Group_Outputs,/Group_Outputs/{n}/Dynamics/gate_attack,[0.0020000000949949026],float
+/Group_Outputs/1/Dynamics/gate_centre_freq,Group_Outputs,/Group_Outputs/{n}/Dynamics/gate_centre_freq,[127.0],float
+/Group_Outputs/1/Dynamics/gate_freq_width,Group_Outputs,/Group_Outputs/{n}/Dynamics/gate_freq_width,[255.0],float
+/Group_Outputs/1/Dynamics/gate_in,Group_Outputs,/Group_Outputs/{n}/Dynamics/gate_in,[0.0],float (0/1 flag)
+/Group_Outputs/1/Dynamics/gate_release,Group_Outputs,/Group_Outputs/{n}/Dynamics/gate_release,[0.14000000059604645],float
+/Group_Outputs/1/Dynamics/gate_thresh,Group_Outputs,/Group_Outputs/{n}/Dynamics/gate_thresh,[-20.0],float
+/Group_Outputs/1/Dynamics/input_meter/left,Group_Outputs,/Group_Outputs/{n}/Dynamics/input_meter/left,[],none (meter/empty)
+/Group_Outputs/1/Dynamics/input_meter/right,Group_Outputs,/Group_Outputs/{n}/Dynamics/input_meter/right,[],none (meter/empty)
+/Group_Outputs/1/Dynamics/key_solo,Group_Outputs,/Group_Outputs/{n}/Dynamics/key_solo,[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/GR_meter_1,Group_Outputs,/Group_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Group_Outputs/1/EQ/GR_meter_2,Group_Outputs,/Group_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Group_Outputs/1/EQ/GR_meter_3,Group_Outputs,/Group_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Group_Outputs/1/EQ/GR_meter_4,Group_Outputs,/Group_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Group_Outputs/1/EQ/dynamic_eq_on_1,Group_Outputs,/Group_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/dynamic_eq_on_2,Group_Outputs,/Group_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/dynamic_eq_on_3,Group_Outputs,/Group_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/dynamic_eq_on_4,Group_Outputs,/Group_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_Q_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Group_Outputs/1/EQ/eq_Q_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Group_Outputs/1/EQ/eq_Q_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Group_Outputs/1/EQ/eq_Q_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Group_Outputs/1/EQ/eq_Q_5,Group_Outputs,/Group_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Group_Outputs/1/EQ/eq_Q_6,Group_Outputs,/Group_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Group_Outputs/1/EQ/eq_Q_7,Group_Outputs,/Group_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Group_Outputs/1/EQ/eq_Q_8,Group_Outputs,/Group_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Group_Outputs/1/EQ/eq_attack_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_attack_{n},[0.009999999776482582],float
+/Group_Outputs/1/EQ/eq_attack_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_attack_{n},[0.014999999664723873],float
+/Group_Outputs/1/EQ/eq_attack_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_attack_{n},[0.02500000037252903],float
+/Group_Outputs/1/EQ/eq_attack_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_attack_{n},[0.05000000074505806],float
+/Group_Outputs/1/EQ/eq_curve_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_curve_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_curve_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_curve_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_curve_5,Group_Outputs,/Group_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_curve_6,Group_Outputs,/Group_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_curve_7,Group_Outputs,/Group_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_curve_8,Group_Outputs,/Group_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_freq_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_freq_{n},[8000.0],float
+/Group_Outputs/1/EQ/eq_freq_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_freq_{n},[4000.0],float
+/Group_Outputs/1/EQ/eq_freq_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_freq_{n},[100.0],float
+/Group_Outputs/1/EQ/eq_freq_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_freq_{n},[50.0],float
+/Group_Outputs/1/EQ/eq_freq_5,Group_Outputs,/Group_Outputs/{n}/EQ/eq_freq_{n},[2000.0],float
+/Group_Outputs/1/EQ/eq_freq_6,Group_Outputs,/Group_Outputs/{n}/EQ/eq_freq_{n},[1000.0],float
+/Group_Outputs/1/EQ/eq_freq_7,Group_Outputs,/Group_Outputs/{n}/EQ/eq_freq_{n},[500.0],float
+/Group_Outputs/1/EQ/eq_freq_8,Group_Outputs,/Group_Outputs/{n}/EQ/eq_freq_{n},[250.0],float
+/Group_Outputs/1/EQ/eq_gain_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_gain_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_gain_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_gain_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_gain_5,Group_Outputs,/Group_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_gain_6,Group_Outputs,/Group_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_gain_7,Group_Outputs,/Group_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_gain_8,Group_Outputs,/Group_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_in,Group_Outputs,/Group_Outputs/{n}/EQ/eq_in,[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_on_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_on_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_on_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_on_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_on_5,Group_Outputs,/Group_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_on_6,Group_Outputs,/Group_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_on_7,Group_Outputs,/Group_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_on_8,Group_Outputs,/Group_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_over-under_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_over-under_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_over-under_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_over-under_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_pre-ins,Group_Outputs,/Group_Outputs/{n}/EQ/eq_pre-ins,[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_ratio_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Group_Outputs/1/EQ/eq_ratio_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Group_Outputs/1/EQ/eq_ratio_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Group_Outputs/1/EQ/eq_ratio_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Group_Outputs/1/EQ/eq_release_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_release_{n},[0.30000001192092896],float
+/Group_Outputs/1/EQ/eq_release_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_release_{n},[0.3499999940395355],float
+/Group_Outputs/1/EQ/eq_release_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_release_{n},[0.4000000059604645],float
+/Group_Outputs/1/EQ/eq_release_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_release_{n},[0.6000000238418579],float
+/Group_Outputs/1/EQ/eq_symm_Q_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_symm_Q_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_symm_Q_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_symm_Q_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_symm_Q_5,Group_Outputs,/Group_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_symm_Q_6,Group_Outputs,/Group_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_symm_Q_7,Group_Outputs,/Group_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_symm_Q_8,Group_Outputs,/Group_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Group_Outputs/1/EQ/eq_thresh_1,Group_Outputs,/Group_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Group_Outputs/1/EQ/eq_thresh_2,Group_Outputs,/Group_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Group_Outputs/1/EQ/eq_thresh_3,Group_Outputs,/Group_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Group_Outputs/1/EQ/eq_thresh_4,Group_Outputs,/Group_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Group_Outputs/1/Group_Send/1/group,Group_Outputs,/Group_Outputs/{n}/Group_Send/{n}/group,[0.0],float (0/1 flag)
+/Group_Outputs/1/Group_Send/2/group,Group_Outputs,/Group_Outputs/{n}/Group_Send/{n}/group,[0.0],float (0/1 flag)
+/Group_Outputs/1/Group_Send/3/group,Group_Outputs,/Group_Outputs/{n}/Group_Send/{n}/group,[0.0],float (0/1 flag)
+/Group_Outputs/1/Insert/insert_A_in,Group_Outputs,/Group_Outputs/{n}/Insert/insert_A_in,[0.0],float (0/1 flag)
+/Group_Outputs/1/Insert/insert_B_in,Group_Outputs,/Group_Outputs/{n}/Insert/insert_B_in,[0.0],float (0/1 flag)
+/Group_Outputs/1/Output/dir_meter/left,Group_Outputs,/Group_Outputs/{n}/Output/dir_meter/left,[],none (meter/empty)
+/Group_Outputs/1/Output/dir_meter/right,Group_Outputs,/Group_Outputs/{n}/Output/dir_meter/right,[],none (meter/empty)
+/Group_Outputs/1/Output/meter/LFE,Group_Outputs,/Group_Outputs/{n}/Output/meter/LFE,[],none (meter/empty)
+/Group_Outputs/1/Output/meter/SL,Group_Outputs,/Group_Outputs/{n}/Output/meter/SL,[],none (meter/empty)
+/Group_Outputs/1/Output/meter/SR,Group_Outputs,/Group_Outputs/{n}/Output/meter/SR,[],none (meter/empty)
+/Group_Outputs/1/Output/meter/centre,Group_Outputs,/Group_Outputs/{n}/Output/meter/centre,[],none (meter/empty)
+/Group_Outputs/1/Output/meter/left,Group_Outputs,/Group_Outputs/{n}/Output/meter/left,[],none (meter/empty)
+/Group_Outputs/1/Output/meter/right,Group_Outputs,/Group_Outputs/{n}/Output/meter/right,[],none (meter/empty)
+/Group_Outputs/1/Output/meter2,Group_Outputs,/Group_Outputs/{n}/Output/meter2,[],none (meter/empty)
+/Group_Outputs/1/Output/meter4,Group_Outputs,/Group_Outputs/{n}/Output/meter4,[],none (meter/empty)
+/Group_Outputs/1/alternate_solo,Group_Outputs,/Group_Outputs/{n}/alternate_solo,[0.0],float (0/1 flag)
+/Group_Outputs/1/auto_solo,Group_Outputs,/Group_Outputs/{n}/auto_solo,[0.0],float (0/1 flag)
+/Group_Outputs/1/fader,Group_Outputs,/Group_Outputs/{n}/fader,[-150.0],float
+/Group_Outputs/1/fader_meter/left,Group_Outputs,/Group_Outputs/{n}/fader_meter/left,[],none (meter/empty)
+/Group_Outputs/1/fader_meter/right,Group_Outputs,/Group_Outputs/{n}/fader_meter/right,[],none (meter/empty)
+/Group_Outputs/1/hard_mute,Group_Outputs,/Group_Outputs/{n}/hard_mute,[0.0],float (0/1 flag)
+/Group_Outputs/1/mute,Group_Outputs,/Group_Outputs/{n}/mute,[0.0],float (0/1 flag)
+/Group_Outputs/1/sends_to_faders,Group_Outputs,/Group_Outputs/{n}/sends_to_faders,[0.0],float (0/1 flag)
+/Group_Outputs/1/sends_to_rotaries,Group_Outputs,/Group_Outputs/{n}/sends_to_rotaries,[0.0],float (0/1 flag)
+/Group_Outputs/1/solo,Group_Outputs,/Group_Outputs/{n}/solo,[0.0],float (0/1 flag)
+/Group_Outputs/1/solo_1_or_2,Group_Outputs,/Group_Outputs/{n}/solo_1_or_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/1/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-5.670000076293945],float
+/Input_Channels/1/Aux_Send/1/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/1/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/10/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-34.540000915527344],float
+/Input_Channels/1/Aux_Send/10/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/10/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/11/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-42.220001220703125],float
+/Input_Channels/1/Aux_Send/11/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/11/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/12/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/12/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/12/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/13/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-54.16667556762695],float
+/Input_Channels/1/Aux_Send/13/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/13/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/14/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/14/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/14/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/15/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/15/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/15/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/16/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/16/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/16/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/17/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-66.60150146484375],float
+/Input_Channels/1/Aux_Send/17/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/17/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/18/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/18/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/18/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/19/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/19/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/19/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/2/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-21.81218147277832],float
+/Input_Channels/1/Aux_Send/2/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/2/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/20/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/20/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/20/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/21/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[0.004999999888241291],float
+/Input_Channels/1/Aux_Send/21/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/21/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/22/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/22/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/22/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/23/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/23/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/23/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/24/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/24/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/24/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/25/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/25/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/25/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/26/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/26/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/26/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/27/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/27/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/27/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/28/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/28/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/28/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/29/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-29.65517234802246],float
+/Input_Channels/1/Aux_Send/29/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/29/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/3/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-16.9999942779541],float
+/Input_Channels/1/Aux_Send/3/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/3/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/30/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-150.0],float
+/Input_Channels/1/Aux_Send/30/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/30/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/4/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[4.483275890350342],float
+/Input_Channels/1/Aux_Send/4/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/4/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/5/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[3.75],float
+/Input_Channels/1/Aux_Send/5/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/5/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/6/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-24.137929916381836],float
+/Input_Channels/1/Aux_Send/6/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/6/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/7/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-42.220001220703125],float
+/Input_Channels/1/Aux_Send/7/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/7/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/8/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-3.7423412799835205],float
+/Input_Channels/1/Aux_Send/8/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/8/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/Aux_Send/9/send_level,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_level,[-5.499999046325684],float
+/Input_Channels/1/Aux_Send/9/send_on,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Input_Channels/1/Aux_Send/9/send_pan,Input_Channels,/Input_Channels/{n}/Aux_Send/{n}/send_pan,[0.5],float
+/Input_Channels/1/CGs_level,Input_Channels,/Input_Channels/{n}/CGs_level,[0.5217241048812866],float
+/Input_Channels/1/CGs_mute,Input_Channels,/Input_Channels/{n}/CGs_mute,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Delay/delay,Input_Channels,/Input_Channels/{n}/Channel_Delay/delay,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Delay/delay_on,Input_Channels,/Input_Channels/{n}/Channel_Delay/delay_on,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Delay/fine_delay,Input_Channels,/Input_Channels/{n}/Channel_Delay/fine_delay,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/alt_analog_gain,Input_Channels,/Input_Channels/{n}/Channel_Input/alt_analog_gain,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/alt_input_pad,Input_Channels,/Input_Channels/{n}/Channel_Input/alt_input_pad,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/alt_phantom,Input_Channels,/Input_Channels/{n}/Channel_Input/alt_phantom,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/analog_gain,Input_Channels,/Input_Channels/{n}/Channel_Input/analog_gain,[20.0],float
+/Input_Channels/1/Channel_Input/input_pad,Input_Channels,/Input_Channels/{n}/Channel_Input/input_pad,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/input_type,Input_Channels,/Input_Channels/{n}/Channel_Input/input_type,[2.0],float
+/Input_Channels/1/Channel_Input/main/alt_in,Input_Channels,/Input_Channels/{n}/Channel_Input/main/alt_in,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/name,Input_Channels,/Input_Channels/{n}/Channel_Input/name,"[""KICK""]",string
+/Input_Channels/1/Channel_Input/phantom,Input_Channels,/Input_Channels/{n}/Channel_Input/phantom,[1.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/phase,Input_Channels,/Input_Channels/{n}/Channel_Input/phase,[0.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/post_meter/left,Input_Channels,/Input_Channels/{n}/Channel_Input/post_meter/left,[],none (meter/empty)
+/Input_Channels/1/Channel_Input/post_meter/right,Input_Channels,/Input_Channels/{n}/Channel_Input/post_meter/right,[],none (meter/empty)
+/Input_Channels/1/Channel_Input/pre_meter/left,Input_Channels,/Input_Channels/{n}/Channel_Input/pre_meter/left,[],none (meter/empty)
+/Input_Channels/1/Channel_Input/pre_meter/right,Input_Channels,/Input_Channels/{n}/Channel_Input/pre_meter/right,[],none (meter/empty)
+/Input_Channels/1/Channel_Input/stereo_mode,Input_Channels,/Input_Channels/{n}/Channel_Input/stereo_mode,[1.0],float (0/1 flag)
+/Input_Channels/1/Channel_Input/trim,Input_Channels,/Input_Channels/{n}/Channel_Input/trim,[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/GR_meter_1,Input_Channels,/Input_Channels/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Input_Channels/1/Dynamics/GR_meter_2,Input_Channels,/Input_Channels/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Input_Channels/1/Dynamics/GR_meter_3,Input_Channels,/Input_Channels/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Input_Channels/1/Dynamics/GR_meter_4,Input_Channels,/Input_Channels/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Input_Channels/1/Dynamics/comp-multiband-desser,Input_Channels,/Input_Channels/{n}/Dynamics/comp-multiband-desser,[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_HP_crossover,Input_Channels,/Input_Channels/{n}/Dynamics/comp_HP_crossover,[1000.0],float
+/Input_Channels/1/Dynamics/comp_LP_crossover,Input_Channels,/Input_Channels/{n}/Dynamics/comp_LP_crossover,[130.0],float
+/Input_Channels/1/Dynamics/comp_all_gain,Input_Channels,/Input_Channels/{n}/Dynamics/comp_all_gain,[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_all_thresh,Input_Channels,/Input_Channels/{n}/Dynamics/comp_all_thresh,[-25.176437377929688],float
+/Input_Channels/1/Dynamics/comp_attack_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_attack_{n},[0.049162182956933975],float
+/Input_Channels/1/Dynamics/comp_attack_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_attack_{n},[0.004999999888241291],float
+/Input_Channels/1/Dynamics/comp_attack_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_attack_{n},[0.02500000037252903],float
+/Input_Channels/1/Dynamics/comp_auto-gain_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_auto-gain_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_auto-gain_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_auto-gain_4,Input_Channels,/Input_Channels/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_band_in_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_band_in_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_band_in_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_gain_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_gain_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_gain_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_gain_4,Input_Channels,/Input_Channels/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_in,Input_Channels,/Input_Channels/{n}/Dynamics/comp_in,[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_knee_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_knee_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_knee_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_knee_4,Input_Channels,/Input_Channels/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_listen_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_listen_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_listen_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/comp_ratio_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_ratio_{n},[4.930753231048584],float
+/Input_Channels/1/Dynamics/comp_ratio_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_ratio_{n},[2.0],float
+/Input_Channels/1/Dynamics/comp_ratio_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_ratio_{n},[2.0],float
+/Input_Channels/1/Dynamics/comp_ratio_4,Input_Channels,/Input_Channels/{n}/Dynamics/comp_ratio_{n},[8.56579875946045],float
+/Input_Channels/1/Dynamics/comp_release_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_release_{n},[0.06719738245010376],float
+/Input_Channels/1/Dynamics/comp_release_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_release_{n},[0.20000000298023224],float
+/Input_Channels/1/Dynamics/comp_release_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_release_{n},[0.4000000059604645],float
+/Input_Channels/1/Dynamics/comp_thresh_1,Input_Channels,/Input_Channels/{n}/Dynamics/comp_thresh_{n},[-25.176437377929688],float
+/Input_Channels/1/Dynamics/comp_thresh_2,Input_Channels,/Input_Channels/{n}/Dynamics/comp_thresh_{n},[-22.3529052734375],float
+/Input_Channels/1/Dynamics/comp_thresh_3,Input_Channels,/Input_Channels/{n}/Dynamics/comp_thresh_{n},[-22.3529052734375],float
+/Input_Channels/1/Dynamics/desser_centre_freq,Input_Channels,/Input_Channels/{n}/Dynamics/desser_centre_freq,[127.0],float
+/Input_Channels/1/Dynamics/desser_freq_width,Input_Channels,/Input_Channels/{n}/Dynamics/desser_freq_width,[255.0],float
+/Input_Channels/1/Dynamics/gate_attack,Input_Channels,/Input_Channels/{n}/Dynamics/gate_attack,[0.0019596272613853216],float
+/Input_Channels/1/Dynamics/gate_centre_freq,Input_Channels,/Input_Channels/{n}/Dynamics/gate_centre_freq,[127.0],float
+/Input_Channels/1/Dynamics/gate_freq_width,Input_Channels,/Input_Channels/{n}/Dynamics/gate_freq_width,[255.0],float
+/Input_Channels/1/Dynamics/gate_in,Input_Channels,/Input_Channels/{n}/Dynamics/gate_in,[0.0],float (0/1 flag)
+/Input_Channels/1/Dynamics/gate_release,Input_Channels,/Input_Channels/{n}/Dynamics/gate_release,[0.017051173374056816],float
+/Input_Channels/1/Dynamics/gate_thresh,Input_Channels,/Input_Channels/{n}/Dynamics/gate_thresh,[-9.41171646118164],float
+/Input_Channels/1/Dynamics/input_meter/left,Input_Channels,/Input_Channels/{n}/Dynamics/input_meter/left,[],none (meter/empty)
+/Input_Channels/1/Dynamics/input_meter/right,Input_Channels,/Input_Channels/{n}/Dynamics/input_meter/right,[],none (meter/empty)
+/Input_Channels/1/Dynamics/key_solo,Input_Channels,/Input_Channels/{n}/Dynamics/key_solo,[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/GR_meter_1,Input_Channels,/Input_Channels/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Input_Channels/1/EQ/GR_meter_2,Input_Channels,/Input_Channels/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Input_Channels/1/EQ/GR_meter_3,Input_Channels,/Input_Channels/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Input_Channels/1/EQ/GR_meter_4,Input_Channels,/Input_Channels/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Input_Channels/1/EQ/dynamic_eq_on_1,Input_Channels,/Input_Channels/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/dynamic_eq_on_2,Input_Channels,/Input_Channels/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/dynamic_eq_on_3,Input_Channels,/Input_Channels/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/dynamic_eq_on_4,Input_Channels,/Input_Channels/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_Q_1,Input_Channels,/Input_Channels/{n}/EQ/eq_Q_{n},[2.9718434810638428],float
+/Input_Channels/1/EQ/eq_Q_2,Input_Channels,/Input_Channels/{n}/EQ/eq_Q_{n},[1.9472477436065674],float
+/Input_Channels/1/EQ/eq_Q_3,Input_Channels,/Input_Channels/{n}/EQ/eq_Q_{n},[0.5792046785354614],float
+/Input_Channels/1/EQ/eq_Q_4,Input_Channels,/Input_Channels/{n}/EQ/eq_Q_{n},[4.229623317718506],float
+/Input_Channels/1/EQ/eq_attack_1,Input_Channels,/Input_Channels/{n}/EQ/eq_attack_{n},[0.009999999776482582],float
+/Input_Channels/1/EQ/eq_attack_2,Input_Channels,/Input_Channels/{n}/EQ/eq_attack_{n},[0.014999999664723873],float
+/Input_Channels/1/EQ/eq_attack_3,Input_Channels,/Input_Channels/{n}/EQ/eq_attack_{n},[0.02500000037252903],float
+/Input_Channels/1/EQ/eq_attack_4,Input_Channels,/Input_Channels/{n}/EQ/eq_attack_{n},[0.05000000074505806],float
+/Input_Channels/1/EQ/eq_curve_1,Input_Channels,/Input_Channels/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_curve_2,Input_Channels,/Input_Channels/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_curve_3,Input_Channels,/Input_Channels/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_curve_4,Input_Channels,/Input_Channels/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_freq_1,Input_Channels,/Input_Channels/{n}/EQ/eq_freq_{n},[6410.8017578125],float
+/Input_Channels/1/EQ/eq_freq_2,Input_Channels,/Input_Channels/{n}/EQ/eq_freq_{n},[1332.1693115234375],float
+/Input_Channels/1/EQ/eq_freq_3,Input_Channels,/Input_Channels/{n}/EQ/eq_freq_{n},[415.6014404296875],float
+/Input_Channels/1/EQ/eq_freq_4,Input_Channels,/Input_Channels/{n}/EQ/eq_freq_{n},[24.83977508544922],float
+/Input_Channels/1/EQ/eq_gain_1,Input_Channels,/Input_Channels/{n}/EQ/eq_gain_{n},[4.588225364685059],float
+/Input_Channels/1/EQ/eq_gain_2,Input_Channels,/Input_Channels/{n}/EQ/eq_gain_{n},[0.21175390481948853],float
+/Input_Channels/1/EQ/eq_gain_3,Input_Channels,/Input_Channels/{n}/EQ/eq_gain_{n},[-12.211774826049805],float
+/Input_Channels/1/EQ/eq_gain_4,Input_Channels,/Input_Channels/{n}/EQ/eq_gain_{n},[10.658814430236816],float
+/Input_Channels/1/EQ/eq_in,Input_Channels,/Input_Channels/{n}/EQ/eq_in,[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_on_1,Input_Channels,/Input_Channels/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_on_2,Input_Channels,/Input_Channels/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_on_3,Input_Channels,/Input_Channels/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_on_4,Input_Channels,/Input_Channels/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_over-under_1,Input_Channels,/Input_Channels/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_over-under_2,Input_Channels,/Input_Channels/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_over-under_3,Input_Channels,/Input_Channels/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_over-under_4,Input_Channels,/Input_Channels/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_ratio_1,Input_Channels,/Input_Channels/{n}/EQ/eq_ratio_{n},[2.0],float
+/Input_Channels/1/EQ/eq_ratio_2,Input_Channels,/Input_Channels/{n}/EQ/eq_ratio_{n},[2.0],float
+/Input_Channels/1/EQ/eq_ratio_3,Input_Channels,/Input_Channels/{n}/EQ/eq_ratio_{n},[2.0],float
+/Input_Channels/1/EQ/eq_ratio_4,Input_Channels,/Input_Channels/{n}/EQ/eq_ratio_{n},[2.0],float
+/Input_Channels/1/EQ/eq_release_1,Input_Channels,/Input_Channels/{n}/EQ/eq_release_{n},[0.30000001192092896],float
+/Input_Channels/1/EQ/eq_release_2,Input_Channels,/Input_Channels/{n}/EQ/eq_release_{n},[0.3499999940395355],float
+/Input_Channels/1/EQ/eq_release_3,Input_Channels,/Input_Channels/{n}/EQ/eq_release_{n},[0.4000000059604645],float
+/Input_Channels/1/EQ/eq_release_4,Input_Channels,/Input_Channels/{n}/EQ/eq_release_{n},[0.6000000238418579],float
+/Input_Channels/1/EQ/eq_symm_Q_1,Input_Channels,/Input_Channels/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_symm_Q_2,Input_Channels,/Input_Channels/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_symm_Q_3,Input_Channels,/Input_Channels/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_symm_Q_4,Input_Channels,/Input_Channels/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Input_Channels/1/EQ/eq_thresh_1,Input_Channels,/Input_Channels/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Input_Channels/1/EQ/eq_thresh_2,Input_Channels,/Input_Channels/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Input_Channels/1/EQ/eq_thresh_3,Input_Channels,/Input_Channels/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Input_Channels/1/EQ/eq_thresh_4,Input_Channels,/Input_Channels/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Input_Channels/1/Filters/hi_filter_freq,Input_Channels,/Input_Channels/{n}/Filters/hi_filter_freq,[2768.257568359375],float
+/Input_Channels/1/Filters/hi_filter_in,Input_Channels,/Input_Channels/{n}/Filters/hi_filter_in,[1.0],float (0/1 flag)
+/Input_Channels/1/Filters/lo_filter_freq,Input_Channels,/Input_Channels/{n}/Filters/lo_filter_freq,[45.078678131103516],float
+/Input_Channels/1/Filters/lo_filter_in,Input_Channels,/Input_Channels/{n}/Filters/lo_filter_in,[0.0],float (0/1 flag)
+/Input_Channels/1/Group_Send/1/group,Input_Channels,/Input_Channels/{n}/Group_Send/{n}/group,[1.0],float (0/1 flag)
+/Input_Channels/1/Group_Send/2/group,Input_Channels,/Input_Channels/{n}/Group_Send/{n}/group,[1.0],float (0/1 flag)
+/Input_Channels/1/Group_Send/3/group,Input_Channels,/Input_Channels/{n}/Group_Send/{n}/group,[0.0],float (0/1 flag)
+/Input_Channels/1/Insert/insert_A_analog_gain,Input_Channels,/Input_Channels/{n}/Insert/insert_A_analog_gain,[0.0],float (0/1 flag)
+/Input_Channels/1/Insert/insert_A_in,Input_Channels,/Input_Channels/{n}/Insert/insert_A_in,[0.0],float (0/1 flag)
+/Input_Channels/1/Insert/insert_A_input_pad,Input_Channels,/Input_Channels/{n}/Insert/insert_A_input_pad,[0.0],float (0/1 flag)
+/Input_Channels/1/Insert/insert_A_phantom,Input_Channels,/Input_Channels/{n}/Insert/insert_A_phantom,[0.0],float (0/1 flag)
+/Input_Channels/1/Insert/insert_B_analog_gain,Input_Channels,/Input_Channels/{n}/Insert/insert_B_analog_gain,[0.0],float (0/1 flag)
+/Input_Channels/1/Insert/insert_B_in,Input_Channels,/Input_Channels/{n}/Insert/insert_B_in,[0.0],float (0/1 flag)
+/Input_Channels/1/Insert/insert_B_input_pad,Input_Channels,/Input_Channels/{n}/Insert/insert_B_input_pad,[0.0],float (0/1 flag)
+/Input_Channels/1/Insert/insert_B_phantom,Input_Channels,/Input_Channels/{n}/Insert/insert_B_phantom,[0.0],float (0/1 flag)
+/Input_Channels/1/Output/meter/LFE,Input_Channels,/Input_Channels/{n}/Output/meter/LFE,[],none (meter/empty)
+/Input_Channels/1/Output/meter/SL,Input_Channels,/Input_Channels/{n}/Output/meter/SL,[],none (meter/empty)
+/Input_Channels/1/Output/meter/SR,Input_Channels,/Input_Channels/{n}/Output/meter/SR,[],none (meter/empty)
+/Input_Channels/1/Output/meter/centre,Input_Channels,/Input_Channels/{n}/Output/meter/centre,[],none (meter/empty)
+/Input_Channels/1/Output/meter/left,Input_Channels,/Input_Channels/{n}/Output/meter/left,[],none (meter/empty)
+/Input_Channels/1/Output/meter/right,Input_Channels,/Input_Channels/{n}/Output/meter/right,[],none (meter/empty)
+/Input_Channels/1/Output/meter2,Input_Channels,/Input_Channels/{n}/Output/meter2,[],none (meter/empty)
+/Input_Channels/1/Output/meter4,Input_Channels,/Input_Channels/{n}/Output/meter4,[],none (meter/empty)
+/Input_Channels/1/Panner/LFE_level,Input_Channels,/Input_Channels/{n}/Panner/LFE_level,[0.0],float (0/1 flag)
+/Input_Channels/1/Panner/LFE_off-only-all,Input_Channels,/Input_Channels/{n}/Panner/LFE_off-only-all,[0.0],float (0/1 flag)
+/Input_Channels/1/Panner/f-b,Input_Channels,/Input_Channels/{n}/Panner/f-b,[0.0],float (0/1 flag)
+/Input_Channels/1/Panner/pan,Input_Channels,/Input_Channels/{n}/Panner/pan,[0.5],float
+/Input_Channels/1/fader,Input_Channels,/Input_Channels/{n}/fader,[-4.44444465637207],float
+/Input_Channels/1/fader_meter/left,Input_Channels,/Input_Channels/{n}/fader_meter/left,[],none (meter/empty)
+/Input_Channels/1/fader_meter/right,Input_Channels,/Input_Channels/{n}/fader_meter/right,[],none (meter/empty)
+/Input_Channels/1/mute,Input_Channels,/Input_Channels/{n}/mute,[0.0],float (0/1 flag)
+/Input_Channels/1/solo,Input_Channels,/Input_Channels/{n}/solo,[0.0],float (0/1 flag)
+/Layout/Layout/Banks,Layout,/Layout/Layout/Banks,"[""CHOIR"", ""R"", 2, 0, ""Input_Channels"", 58, ""Input_Channels"", 59, ""Input_Channels"", 60, ""Input_Channels"", 61, ""Input_Channels"", 62, ""Input_Channels"", 63, ""Input_Channels"", 64, """", 0, ""Input_Channels"", 55, ""Input_Channels"", 56, """", 0, """", 0]",string
+/Matrix_Inputs/1/Channel_Input/name,Matrix_Inputs,/Matrix_Inputs/{n}/Channel_Input/name,"[""Master L""]",string
+/Matrix_Inputs/1/Matrix_Send/1/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/1/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/10/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/10/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/11/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/11/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/12/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/12/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/2/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/2/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[1.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/3/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/3/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/4/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/4/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/5/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/5/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/6/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/6/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/7/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/7/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/8/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/8/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Inputs/1/Matrix_Send/9/send_level,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level,[-150.0],float
+/Matrix_Inputs/1/Matrix_Send/9/send_on,Matrix_Inputs,/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Buss_Trim/name,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/name,"[""MAIN L""]",string
+/Matrix_Outputs/1/Buss_Trim/phase,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/phase,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Buss_Trim/post_meter,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/post_meter,[],none (meter/empty)
+/Matrix_Outputs/1/Buss_Trim/post_meter/right,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/post_meter/right,[],none (meter/empty)
+/Matrix_Outputs/1/Buss_Trim/pre_meter,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/pre_meter,[],none (meter/empty)
+/Matrix_Outputs/1/Buss_Trim/pre_meter/right,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/pre_meter/right,[],none (meter/empty)
+/Matrix_Outputs/1/Buss_Trim/trim,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/trim,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Buss_Trim/tube_meter/left,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/tube_meter/left,[],none (meter/empty)
+/Matrix_Outputs/1/Buss_Trim/tube_meter/right,Matrix_Outputs,/Matrix_Outputs/{n}/Buss_Trim/tube_meter/right,[],none (meter/empty)
+/Matrix_Outputs/1/CGs_level,Matrix_Outputs,/Matrix_Outputs/{n}/CGs_level,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/CGs_mute,Matrix_Outputs,/Matrix_Outputs/{n}/CGs_mute,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Channel_Delay/delay,Matrix_Outputs,/Matrix_Outputs/{n}/Channel_Delay/delay,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Channel_Delay/delay_on,Matrix_Outputs,/Matrix_Outputs/{n}/Channel_Delay/delay_on,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Channel_Delay/fine_delay,Matrix_Outputs,/Matrix_Outputs/{n}/Channel_Delay/fine_delay,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/GR_meter_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Matrix_Outputs/1/Dynamics/GR_meter_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Matrix_Outputs/1/Dynamics/GR_meter_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Matrix_Outputs/1/Dynamics/GR_meter_4,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/GR_meter_{n},[],none (meter/empty)
+/Matrix_Outputs/1/Dynamics/comp-multiband-desser,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp-multiband-desser,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_HP_crossover,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_HP_crossover,[1000.0],float
+/Matrix_Outputs/1/Dynamics/comp_LP_crossover,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_LP_crossover,[130.0],float
+/Matrix_Outputs/1/Dynamics/comp_all_gain,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_all_gain,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_all_thresh,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_all_thresh,[-16.235252380371094],float
+/Matrix_Outputs/1/Dynamics/comp_attack_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_attack_{n},[0.009999999776482582],float
+/Matrix_Outputs/1/Dynamics/comp_attack_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_attack_{n},[0.004999999888241291],float
+/Matrix_Outputs/1/Dynamics/comp_attack_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_attack_{n},[0.02500000037252903],float
+/Matrix_Outputs/1/Dynamics/comp_auto-gain_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_auto-gain_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_auto-gain_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_auto-gain_4,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_band_in_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_band_in_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_band_in_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_band_in_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_gain_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_gain_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_gain_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_gain_4,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_in,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_in,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_knee_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_knee_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_knee_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_knee_4,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_knee_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_listen_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_listen_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_listen_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_listen_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/comp_ratio_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_ratio_{n},[3.0],float
+/Matrix_Outputs/1/Dynamics/comp_ratio_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_ratio_{n},[2.0],float
+/Matrix_Outputs/1/Dynamics/comp_ratio_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_ratio_{n},[2.0],float
+/Matrix_Outputs/1/Dynamics/comp_ratio_4,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_ratio_{n},[3.0],float
+/Matrix_Outputs/1/Dynamics/comp_release_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_release_{n},[0.5],float
+/Matrix_Outputs/1/Dynamics/comp_release_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_release_{n},[0.20000000298023224],float
+/Matrix_Outputs/1/Dynamics/comp_release_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_release_{n},[0.4000000059604645],float
+/Matrix_Outputs/1/Dynamics/comp_thresh_1,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_thresh_{n},[-16.235252380371094],float
+/Matrix_Outputs/1/Dynamics/comp_thresh_2,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_thresh_{n},[-16.235252380371094],float
+/Matrix_Outputs/1/Dynamics/comp_thresh_3,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/comp_thresh_{n},[-16.235252380371094],float
+/Matrix_Outputs/1/Dynamics/desser_centre_freq,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/desser_centre_freq,[127.0],float
+/Matrix_Outputs/1/Dynamics/desser_freq_width,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/desser_freq_width,[255.0],float
+/Matrix_Outputs/1/Dynamics/gate_attack,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/gate_attack,[0.0020000000949949026],float
+/Matrix_Outputs/1/Dynamics/gate_centre_freq,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/gate_centre_freq,[127.0],float
+/Matrix_Outputs/1/Dynamics/gate_freq_width,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/gate_freq_width,[255.0],float
+/Matrix_Outputs/1/Dynamics/gate_in,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/gate_in,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Dynamics/gate_release,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/gate_release,[0.14000000059604645],float
+/Matrix_Outputs/1/Dynamics/gate_thresh,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/gate_thresh,[-20.0],float
+/Matrix_Outputs/1/Dynamics/input_meter/left,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/input_meter/left,[],none (meter/empty)
+/Matrix_Outputs/1/Dynamics/input_meter/right,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/input_meter/right,[],none (meter/empty)
+/Matrix_Outputs/1/Dynamics/key_solo,Matrix_Outputs,/Matrix_Outputs/{n}/Dynamics/key_solo,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/GR_meter_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Matrix_Outputs/1/EQ/GR_meter_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Matrix_Outputs/1/EQ/GR_meter_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Matrix_Outputs/1/EQ/GR_meter_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/GR_meter_{n},[],none (meter/empty)
+/Matrix_Outputs/1/EQ/dynamic_eq_on_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/dynamic_eq_on_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/dynamic_eq_on_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/dynamic_eq_on_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/dynamic_eq_on_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_Q_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Matrix_Outputs/1/EQ/eq_Q_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Matrix_Outputs/1/EQ/eq_Q_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Matrix_Outputs/1/EQ/eq_Q_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Matrix_Outputs/1/EQ/eq_Q_5,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Matrix_Outputs/1/EQ/eq_Q_6,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Matrix_Outputs/1/EQ/eq_Q_7,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Matrix_Outputs/1/EQ/eq_Q_8,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_Q_{n},[0.7099999785423279],float
+/Matrix_Outputs/1/EQ/eq_attack_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_attack_{n},[0.009999999776482582],float
+/Matrix_Outputs/1/EQ/eq_attack_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_attack_{n},[0.014999999664723873],float
+/Matrix_Outputs/1/EQ/eq_attack_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_attack_{n},[0.02500000037252903],float
+/Matrix_Outputs/1/EQ/eq_attack_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_attack_{n},[0.05000000074505806],float
+/Matrix_Outputs/1/EQ/eq_curve_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_curve_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_curve_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_curve_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_curve_5,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_curve_6,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_curve_7,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_curve_8,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_curve_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_freq_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_freq_{n},[8000.0],float
+/Matrix_Outputs/1/EQ/eq_freq_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_freq_{n},[4000.0],float
+/Matrix_Outputs/1/EQ/eq_freq_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_freq_{n},[100.0],float
+/Matrix_Outputs/1/EQ/eq_freq_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_freq_{n},[50.0],float
+/Matrix_Outputs/1/EQ/eq_freq_5,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_freq_{n},[2000.0],float
+/Matrix_Outputs/1/EQ/eq_freq_6,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_freq_{n},[1000.0],float
+/Matrix_Outputs/1/EQ/eq_freq_7,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_freq_{n},[500.0],float
+/Matrix_Outputs/1/EQ/eq_freq_8,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_freq_{n},[250.0],float
+/Matrix_Outputs/1/EQ/eq_gain_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_gain_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_gain_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_gain_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_gain_5,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_gain_6,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_gain_7,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_gain_8,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_gain_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_in,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_in,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_on_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_on_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_on_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_on_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_on_5,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_on_6,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_on_7,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_on_8,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_on_{n},[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_over-under_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_over-under_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_over-under_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_over-under_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_over-under_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_pre-ins,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_pre-ins,[1.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_ratio_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Matrix_Outputs/1/EQ/eq_ratio_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Matrix_Outputs/1/EQ/eq_ratio_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Matrix_Outputs/1/EQ/eq_ratio_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_ratio_{n},[2.0],float
+/Matrix_Outputs/1/EQ/eq_release_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_release_{n},[0.30000001192092896],float
+/Matrix_Outputs/1/EQ/eq_release_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_release_{n},[0.3499999940395355],float
+/Matrix_Outputs/1/EQ/eq_release_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_release_{n},[0.4000000059604645],float
+/Matrix_Outputs/1/EQ/eq_release_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_release_{n},[0.6000000238418579],float
+/Matrix_Outputs/1/EQ/eq_symm_Q_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_symm_Q_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_symm_Q_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_symm_Q_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_symm_Q_5,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_symm_Q_6,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_symm_Q_7,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_symm_Q_8,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n},[0.0],float (0/1 flag)
+/Matrix_Outputs/1/EQ/eq_thresh_1,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Matrix_Outputs/1/EQ/eq_thresh_2,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Matrix_Outputs/1/EQ/eq_thresh_3,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Matrix_Outputs/1/EQ/eq_thresh_4,Matrix_Outputs,/Matrix_Outputs/{n}/EQ/eq_thresh_{n},[-36.0],float
+/Matrix_Outputs/1/Insert/insert_A_in,Matrix_Outputs,/Matrix_Outputs/{n}/Insert/insert_A_in,[1.0],float (0/1 flag)
+/Matrix_Outputs/1/Insert/insert_B_in,Matrix_Outputs,/Matrix_Outputs/{n}/Insert/insert_B_in,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/Output/dir_meter/left,Matrix_Outputs,/Matrix_Outputs/{n}/Output/dir_meter/left,[],none (meter/empty)
+/Matrix_Outputs/1/Output/dir_meter/right,Matrix_Outputs,/Matrix_Outputs/{n}/Output/dir_meter/right,[],none (meter/empty)
+/Matrix_Outputs/1/Output/meter/LFE,Matrix_Outputs,/Matrix_Outputs/{n}/Output/meter/LFE,[],none (meter/empty)
+/Matrix_Outputs/1/Output/meter/SL,Matrix_Outputs,/Matrix_Outputs/{n}/Output/meter/SL,[],none (meter/empty)
+/Matrix_Outputs/1/Output/meter/SR,Matrix_Outputs,/Matrix_Outputs/{n}/Output/meter/SR,[],none (meter/empty)
+/Matrix_Outputs/1/Output/meter/centre,Matrix_Outputs,/Matrix_Outputs/{n}/Output/meter/centre,[],none (meter/empty)
+/Matrix_Outputs/1/Output/meter/left,Matrix_Outputs,/Matrix_Outputs/{n}/Output/meter/left,[],none (meter/empty)
+/Matrix_Outputs/1/Output/meter/right,Matrix_Outputs,/Matrix_Outputs/{n}/Output/meter/right,[],none (meter/empty)
+/Matrix_Outputs/1/Output/meter2,Matrix_Outputs,/Matrix_Outputs/{n}/Output/meter2,[],none (meter/empty)
+/Matrix_Outputs/1/Output/meter4,Matrix_Outputs,/Matrix_Outputs/{n}/Output/meter4,[],none (meter/empty)
+/Matrix_Outputs/1/alternate_solo,Matrix_Outputs,/Matrix_Outputs/{n}/alternate_solo,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/fader,Matrix_Outputs,/Matrix_Outputs/{n}/fader,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/fader_meter/left,Matrix_Outputs,/Matrix_Outputs/{n}/fader_meter/left,[],none (meter/empty)
+/Matrix_Outputs/1/fader_meter/right,Matrix_Outputs,/Matrix_Outputs/{n}/fader_meter/right,[],none (meter/empty)
+/Matrix_Outputs/1/hard_mute,Matrix_Outputs,/Matrix_Outputs/{n}/hard_mute,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/mute,Matrix_Outputs,/Matrix_Outputs/{n}/mute,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/solo,Matrix_Outputs,/Matrix_Outputs/{n}/solo,[0.0],float (0/1 flag)
+/Matrix_Outputs/1/solo_1_or_2,Matrix_Outputs,/Matrix_Outputs/{n}/solo_1_or_{n},[0.0],float (0/1 flag)
+/Multis/1/fader,Multis,/Multis/{n}/fader,[0.693965494632721],float
+/Multis/1/mute,Multis,/Multis/{n}/mute,[0.0],float (0/1 flag)
+/Multis/1/name,Multis,/Multis/{n}/name,"[""FX""]",string
+/Multis/1/solo,Multis,/Multis/{n}/solo,[0.0],float (0/1 flag)
+/Snapshots/Current_Snapshot,Snapshots,/Snapshots/Current_Snapshot,[3],int
+/Snapshots/count,Snapshots,/Snapshots/count,[10],int
