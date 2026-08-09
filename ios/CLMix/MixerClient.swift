@@ -9,13 +9,17 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidReceiveAuxes(_ auxes: [AuxBus])
     func mixerDidReceiveBanks(_ banks: [String])
     func mixerDidReceiveLevels(aux: Int, channels: [ChannelState])
+    func mixerDidReceivePresets(_ names: [String])
+    func mixerDidSavePreset(_ name: String)
+    func mixerDidLoadPreset(_ name: String)
 }
 
 /// Talks to the CLMix desktop app's RemoteServer
 /// (services/remote_server.py) over a WebSocket, using the same JSON
 /// protocol the Android app's MixerClient.kt speaks: login/list_auxes/
-/// list_banks/select_aux/select_bank/set_level/set_pan/set_mute out,
-/// login_result/auxes/banks/levels/error in.
+/// list_banks/select_aux/select_bank/set_level/set_pan/set_mute/
+/// list_presets/save_preset/load_preset out, login_result/auxes/banks/
+/// levels/presets/preset_saved/preset_loaded/error in.
 ///
 /// The server rejects every action until a successful "login" - callers
 /// must send credentials via login() and wait for a true
@@ -26,6 +30,11 @@ final class MixerClient: NSObject {
 
     weak var delegate: MixerClientDelegate?
     private(set) var isConnected = false
+
+    // Set from login_result - gates whether MixerView shows the Presets
+    // UI at all, mirroring the server's own per-user permission check
+    // (which still applies regardless of what the client shows).
+    private(set) var presetsAllowed = false
 
     private var task: URLSessionWebSocketTask?
     private lazy var session = URLSession(
@@ -52,6 +61,7 @@ final class MixerClient: NSObject {
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         isConnected = false
+        presetsAllowed = false
     }
 
     func login(username: String, password: String) {
@@ -84,6 +94,18 @@ final class MixerClient: NSObject {
 
     func setMute(channel: Int, muted: Bool) {
         send(["action": "set_mute", "channel": channel, "muted": muted])
+    }
+
+    func requestPresets() {
+        send(["action": "list_presets"])
+    }
+
+    func savePreset(name: String) {
+        send(["action": "save_preset", "name": name])
+    }
+
+    func loadPreset(name: String) {
+        send(["action": "load_preset", "name": name])
     }
 
     private func send(_ payload: [String: Any]) {
@@ -126,6 +148,7 @@ final class MixerClient: NSObject {
             switch type {
             case "login_result":
                 let ok = json["ok"] as? Bool ?? false
+                presetsAllowed = ok && (json["presets"] as? Bool ?? false)
                 delegate?.mixerDidReceiveLoginResult(ok: ok, message: json["message"] as? String)
 
             case "auxes":
@@ -160,6 +183,19 @@ final class MixerClient: NSObject {
                     )
                 }
                 delegate?.mixerDidReceiveLevels(aux: aux, channels: channels)
+
+            case "presets":
+                delegate?.mixerDidReceivePresets(json["presets"] as? [String] ?? [])
+
+            case "preset_saved":
+                if let name = json["name"] as? String {
+                    delegate?.mixerDidSavePreset(name)
+                }
+
+            case "preset_loaded":
+                if let name = json["name"] as? String {
+                    delegate?.mixerDidLoadPreset(name)
+                }
 
             case "error":
                 delegate?.mixerDidFail(message: json["message"] as? String ?? "Unknown error")

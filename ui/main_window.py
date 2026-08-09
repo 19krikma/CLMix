@@ -15,12 +15,14 @@ from pythonosc.osc_message_builder import OscMessageBuilder
 
 from services.log_store import log
 from services.network_info import get_ethernet_ip
+from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
 from services.update_checker import check_for_update
 from services.user_store import UserStore
 from ui.access_window import AccessWindow
 from ui.aux_window import AuxWindow
 from ui.logs_window import LogsWindow
+from ui.presets_window import PresetsWindow
 from version import VERSION
 
 SETTINGS_PATH = Path.home() / ".clmix.json"
@@ -1172,6 +1174,7 @@ class MainWindow:
         self.access_window = None
         self.aux_window = None
         self.logs_window = None
+        self.presets_window = None
         self.remote_server = None
 
         self.command_queue = queue.Queue()
@@ -1179,6 +1182,7 @@ class MainWindow:
 
         self.settings = self.load_settings()
         self.user_store = UserStore()
+        self.preset_store = PresetStore()
 
         self.apply_theme(self.settings["theme"], persist=False)
         self.build_ui()
@@ -1228,6 +1232,12 @@ class MainWindow:
             command=self.on_connect_button
         )
         self.connect_btn.pack(side="left")
+
+        ttk.Button(
+            top_bar,
+            text="Presets",
+            command=self.open_presets_window
+        ).pack(side="left", padx=(8, 0))
 
         ttk.Separator(top_bar, orient="vertical").pack(
             side="left", fill="y", padx=15
@@ -1531,7 +1541,8 @@ class MainWindow:
 
         self.remote_server = RemoteServer(
             lambda: self.worker, self.command_queue, int(remote_port),
-            self.user_store, self.get_hidden_auxes
+            self.user_store, self.preset_store,
+            get_hidden_auxes=self.get_hidden_auxes
         )
         self.remote_server.start()
 
@@ -1568,6 +1579,14 @@ class MainWindow:
             self.root, self.settings, self.save_settings, lambda: self.worker,
             on_change=self.aux_panel.refresh_aux_list
         )
+
+    def open_presets_window(self):
+
+        if self.presets_window and self.presets_window.window.winfo_exists():
+            self.presets_window.window.lift()
+            return
+
+        self.presets_window = PresetsWindow(self.root, self.preset_store)
 
     def open_logs_window(self):
 

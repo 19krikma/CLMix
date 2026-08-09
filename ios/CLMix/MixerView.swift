@@ -6,6 +6,8 @@ struct MixerView: View {
 
     @State private var selectedBank: String?
     @State private var showAuxSwitcher = false
+    @State private var showPresetSave = false
+    @State private var showPresetLoad = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,6 +50,19 @@ struct MixerView: View {
         .navigationTitle(aux.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Only accounts with Preset Access (Setup > Accounts on
+            // desktop) get this at all - the server enforces the same
+            // check independently, but there's no point showing an
+            // action that would just come back as an error.
+            if model.presetsAllowed {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu("Presets") {
+                        Button("Save") { showPresetSave = true }
+                        Button("Load") { showPresetLoad = true }
+                    }
+                }
+            }
+
             ToolbarItem(placement: .cancellationAction) {
                 Button("Log Out") { model.logout() }
             }
@@ -64,6 +79,14 @@ struct MixerView: View {
                 }
                 .navigationTitle("Switch Aux")
             }
+        }
+        .sheet(isPresented: $showPresetSave) {
+            PresetSaveSheet()
+                .presentationDetents([.height(260)])
+        }
+        .sheet(isPresented: $showPresetLoad) {
+            PresetLoadSheet()
+                .presentationDetents([.medium, .large])
         }
     }
 }

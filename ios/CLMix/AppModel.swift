@@ -19,9 +19,18 @@ final class AppModel: NSObject, ObservableObject {
     @Published var banks: [String] = []
     @Published var channels: [ChannelState] = []
     @Published var fineMode = false
+    @Published var presetsAllowed = false
+    @Published var presetNames: [String] = []
 
     private var pendingUsername = ""
     private var pendingPassword = ""
+
+    // Fulfilled once the matching preset_saved/preset_loaded reply
+    // arrives, so the sheet that requested it can dismiss/confirm itself -
+    // mirrors Android's PresetSaveBottomSheet/PresetLoadBottomSheet
+    // dismissing from MixerActivity's onPresetSaved/onPresetLoaded.
+    private var pendingPresetSaveCompletion: (() -> Void)?
+    private var pendingPresetLoadCompletion: (() -> Void)?
 
     override init() {
         super.init()
@@ -59,10 +68,26 @@ final class AppModel: NSObject, ObservableObject {
         MixerClient.shared.setMute(channel: channel, muted: muted)
     }
 
+    func requestPresets() {
+        MixerClient.shared.requestPresets()
+    }
+
+    func savePreset(name: String, onSaved: @escaping () -> Void) {
+        pendingPresetSaveCompletion = onSaved
+        MixerClient.shared.savePreset(name: name)
+    }
+
+    func loadPreset(name: String, onLoaded: @escaping () -> Void) {
+        pendingPresetLoadCompletion = onLoaded
+        MixerClient.shared.loadPreset(name: name)
+    }
+
     func logout() {
         MixerClient.shared.disconnect()
         channels = []
         auxes = []
+        presetsAllowed = false
+        presetNames = []
         isConnecting = false
         screen = .connect
     }
@@ -95,6 +120,7 @@ extension AppModel: MixerClientDelegate {
         if ok {
             isConnecting = false
             statusMessage = "Connected"
+            presetsAllowed = MixerClient.shared.presetsAllowed
             MixerClient.shared.requestAuxes()
         } else {
             isConnecting = false
@@ -115,5 +141,19 @@ extension AppModel: MixerClientDelegate {
     func mixerDidReceiveLevels(aux: Int, channels: [ChannelState]) {
         guard case .mixer(let currentAux) = screen, currentAux.index == aux else { return }
         self.channels = channels
+    }
+
+    func mixerDidReceivePresets(_ names: [String]) {
+        presetNames = names
+    }
+
+    func mixerDidSavePreset(_ name: String) {
+        pendingPresetSaveCompletion?()
+        pendingPresetSaveCompletion = nil
+    }
+
+    func mixerDidLoadPreset(_ name: String) {
+        pendingPresetLoadCompletion?()
+        pendingPresetLoadCompletion = nil
     }
 }

@@ -62,4 +62,6 @@ live testing, so expect to need some hands-on adjustment there.
 | `LevelFaderView.swift` | `ChannelAdapter.kt`'s fine-drag handling | Vertical fader with Fine-mode precision drag |
 | `LevelRulerView.swift` | `LevelRulerView.kt` | dB scale beside the fader, ticks packed tight near -infinity |
 | `PanSheetView.swift` | `PanBottomSheet.kt` + `PanTrackDrawable.kt` | Full-width pan control, center-anchored fill |
+| `PresetSaveSheet.swift` | `PresetSaveBottomSheet.kt` | Name a preset and capture the active aux's levels+pans |
+| `PresetLoadSheet.swift` | `PresetLoadBottomSheet.kt` | Pick a saved preset and apply it to the active aux |
 | `CLMixApp.swift` | n/a (Activities) | App entry point |

@@ -24,22 +24,24 @@ class AccessWindow:
 
         self.window = tk.Toplevel(master)
         self.window.title("Accounts")
-        self.window.geometry("440x360")
+        self.window.geometry("530x360")
 
         self.build_ui()
         self.refresh_list()
 
     def build_ui(self):
-        columns = ("username", "snapshot", "aux")
+        columns = ("username", "snapshot", "aux", "presets")
         self.tree = ttk.Treeview(
             self.window, columns=columns, show="headings", height=10
         )
         self.tree.heading("username", text="Username")
         self.tree.heading("snapshot", text="Snapshot Access")
         self.tree.heading("aux", text="Aux Access")
+        self.tree.heading("presets", text="Preset Access")
         self.tree.column("username", width=140)
         self.tree.column("snapshot", width=150)
         self.tree.column("aux", width=110)
+        self.tree.column("presets", width=90, anchor="center")
         self.tree.pack(fill="both", expand=True, padx=10, pady=10)
         self.tree.bind("<Double-1>", lambda event: self.edit_user())
 
@@ -59,7 +61,10 @@ class AccessWindow:
         for username, record in self.user_store.list_users():
             self.tree.insert(
                 "", "end", iid=username,
-                values=(username, record["snapshot"], format_aux(record["aux"]))
+                values=(
+                    username, record["snapshot"], format_aux(record["aux"]),
+                    "Yes" if record.get("presets", False) else "No",
+                )
             )
 
     def _known_snapshots(self):
@@ -190,8 +195,13 @@ class UserEditDialog:
             checkbutton.grid(row=row, column=column, sticky="w", padx=(0, 12), pady=2)
             self.aux_checkbuttons[name] = checkbutton
 
+        self.presets_var = tk.BooleanVar(value=record.get("presets", False) if record else False)
+        ttk.Checkbutton(
+            frame, text="Preset Access", variable=self.presets_var
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 0))
+
         btn_bar = ttk.Frame(frame)
-        btn_bar.grid(row=5, column=0, columnspan=2, pady=(15, 0))
+        btn_bar.grid(row=6, column=0, columnspan=2, pady=(15, 0))
 
         ttk.Button(btn_bar, text="Save", command=self.save).pack(side="left", padx=5)
         ttk.Button(
@@ -235,7 +245,9 @@ class UserEditDialog:
                 )
                 return
 
-        self.user_store.save_user(username, password, snapshot, aux)
+        self.user_store.save_user(
+            username, password, snapshot, aux, presets=self.presets_var.get()
+        )
 
         if self.on_saved:
             self.on_saved()

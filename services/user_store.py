@@ -55,7 +55,7 @@ class UserStore:
     def get(self, username):
         return self.users.get(username)
 
-    def save_user(self, username, password, snapshot, aux):
+    def save_user(self, username, password, snapshot, aux, presets=False):
         record = dict(self.users.get(username, {}))
         salt = record.get("salt") or secrets.token_hex(16)
 
@@ -67,6 +67,7 @@ class UserStore:
 
         record["snapshot"] = snapshot
         record["aux"] = aux
+        record["presets"] = presets
 
         self.users[username] = record
         self._save()
@@ -82,7 +83,11 @@ class UserStore:
         if not record or self._hash(password, record["salt"]) != record["password_hash"]:
             return None
 
-        return {"snapshot": record["snapshot"], "aux": record["aux"]}
+        return {
+            "snapshot": record["snapshot"],
+            "aux": record["aux"],
+            "presets": record.get("presets", False),
+        }
 
     @staticmethod
     def _hash(password, salt):

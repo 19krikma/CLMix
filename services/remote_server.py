@@ -27,11 +27,12 @@ class RemoteServer:
     """
 
     def __init__(self, get_worker, command_queue, port, user_store,
-                 get_hidden_auxes=None):
+                 preset_store, get_hidden_auxes=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
         self.user_store = user_store
+        self.preset_store = preset_store
         self.get_hidden_auxes = get_hidden_auxes or (lambda: set())
 
         self._thread = None
@@ -163,6 +164,42 @@ class RemoteServer:
         elif action == "set_mute":
             self._set_mute(msg.get("channel"), msg.get("muted"))
 
+        elif action == "list_presets":
+            if not entry.get("presets", False):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for presets"}
+                )
+                return
+
+            await self._send(websocket, {
+                "type": "presets",
+                "presets": [name for name, _ in self.preset_store.list_presets()],
+            })
+
+        elif action == "save_preset":
+            if not entry.get("presets", False):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for presets"}
+                )
+                return
+
+            await self._save_preset(websocket, worker, state, msg.get("name"))
+
+        elif action == "load_preset":
+            if not entry.get("presets", False):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for presets"}
+                )
+                return
+
+            if not self._aux_allowed(worker, entry, state.get("aux")):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for this aux"}
+                )
+                return
+
+            await self._load_preset(websocket, state, msg.get("name"))
+
         else:
             await self._send(
                 websocket, {"type": "error", "message": f"unknown action {action!r}"}
@@ -194,6 +231,7 @@ class RemoteServer:
             "ok": True,
             "snapshot": entry["snapshot"],
             "aux": entry["aux"],
+            "presets": entry.get("presets", False),
         })
 
     @staticmethod
@@ -288,6 +326,67 @@ class RemoteServer:
         self.command_queue.put(
             f"/Input_Channels/{channel}/mute {1.0 if muted else 0.0}"
         )
+
+    async def _save_preset(self, websocket, worker, state, name):
+        name = (name or "").strip()
+
+        if not name:
+            await self._send(
+                websocket, {"type": "error", "message": "Preset name required"}
+            )
+            return
+
+        aux = state.get("aux")
+
+        if aux is None:
+            await self._send(
+                websocket, {"type": "error", "message": "No aux selected"}
+            )
+            return
+
+        channel_count = int(worker.cache["/Console/Input_Channels"][0])
+        channels = []
+
+        for channel in range(1, channel_count + 1):
+            level_key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level"
+            level = round(worker.cache[level_key][0], 2) \
+                if level_key in worker.cache else None
+
+            pan_key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan"
+            pan = self._wire_pan_to_ui(worker.cache[pan_key][0]) \
+                if pan_key in worker.cache else None
+
+            channels.append({"channel": channel, "level": level, "pan": pan})
+
+        self.preset_store.save_preset(name, channels)
+        await self._send(websocket, {"type": "preset_saved", "name": name})
+
+    async def _load_preset(self, websocket, state, name):
+        preset = self.preset_store.get(name)
+
+        if preset is None:
+            await self._send(
+                websocket, {"type": "error", "message": "Preset not found"}
+            )
+            return
+
+        # Reuses _set_level/_set_pan (the same path a fader/pan drag takes)
+        # so a loaded preset is enqueued as ordinary OSC set commands -
+        # the console (and every other connected client) sees it exactly
+        # like a live mix move, not a special bulk-apply operation.
+        for entry in preset.get("channels", []):
+            channel = entry.get("channel")
+
+            if channel is None:
+                continue
+
+            if entry.get("level") is not None:
+                self._set_level(state, channel, entry["level"])
+
+            if entry.get("pan") is not None:
+                self._set_pan(state, channel, entry["pan"])
+
+        await self._send(websocket, {"type": "preset_loaded", "name": name})
 
     def _aux_list(self, worker, entry=None):
         aux_modes = worker.cache.get("/Console/Aux_Outputs/modes", [])

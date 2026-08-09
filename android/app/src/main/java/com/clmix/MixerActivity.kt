@@ -3,8 +3,10 @@ package com.clmix
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
+import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
@@ -22,6 +24,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     private val draggingChannels = mutableSetOf<Int>()
     private val dragReleasedAt = mutableMapOf<Int, Long>()
     private var panSheet: PanBottomSheet? = null
+    private var presetSaveSheet: PresetSaveBottomSheet? = null
+    private var presetLoadSheet: PresetLoadBottomSheet? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,6 +84,15 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.drawerAuxRecycler.layoutManager = LinearLayoutManager(this)
         binding.drawerAuxRecycler.adapter = AuxAdapter(auxes) { aux -> switchAux(aux) }
 
+        // Only accounts with Preset Access (Setup > Accounts on desktop)
+        // get this button at all - the server enforces the same check
+        // independently, but there's no point showing an action that
+        // would just come back as an error.
+        binding.presetsButton.visibility = if (MixerClient.presetsAllowed) View.VISIBLE else View.GONE
+        binding.presetsButton.setOnClickListener { togglePresetsExpanded() }
+        binding.presetSaveButton.setOnClickListener { showPresetSaveSheet() }
+        binding.presetLoadButton.setOnClickListener { showPresetLoadSheet() }
+
         binding.logoutButton.setOnClickListener { logout() }
 
         binding.smoothButton.setOnClickListener {
@@ -133,14 +146,46 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         sheet.show()
     }
 
+    private fun togglePresetsExpanded() {
+        binding.presetsExpanded.visibility =
+            if (binding.presetsExpanded.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+    }
+
+    private fun showPresetSaveSheet() {
+        val sheet = PresetSaveBottomSheet(this) { name -> MixerClient.savePreset(name) }
+
+        sheet.setOnDismissListener {
+            if (presetSaveSheet === sheet) presetSaveSheet = null
+        }
+
+        presetSaveSheet = sheet
+        sheet.show()
+    }
+
+    private fun showPresetLoadSheet() {
+        val sheet = PresetLoadBottomSheet(this) { name -> MixerClient.loadPreset(name) }
+
+        sheet.setOnDismissListener {
+            if (presetLoadSheet === sheet) presetLoadSheet = null
+        }
+
+        presetLoadSheet = sheet
+        sheet.show()
+
+        // The sheet starts empty until this reply arrives (see onPresets),
+        // rather than blocking show() on a round-trip to the server.
+        MixerClient.requestPresets()
+    }
+
     private fun switchAux(aux: AuxBus) {
         binding.drawerLayout.closeDrawer(GravityCompat.START)
 
         if (aux.index == auxIndex) return
 
-        // Pan is per-aux-send, so a sheet left open from the previous aux
-        // would otherwise keep sending pan updates against the new one.
+        // Pan/presets are per-aux-send, so sheets left open from the
+        // previous aux would otherwise keep acting against the new one.
         dismissPanSheet()
+        dismissPresetSheets()
 
         auxIndex = aux.index
         title = aux.name
@@ -152,15 +197,24 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         panSheet = null
     }
 
+    private fun dismissPresetSheets() {
+        presetSaveSheet?.dismiss()
+        presetSaveSheet = null
+        presetLoadSheet?.dismiss()
+        presetLoadSheet = null
+    }
+
     private fun logout() {
         MixerClient.disconnect()
         returnToLogin()
     }
 
     private fun returnToLogin() {
-        // A pan sheet left showing would otherwise leak its window once
-        // this activity is torn down by the task-clearing navigation below.
+        // A pan/preset sheet left showing would otherwise leak its window
+        // once this activity is torn down by the task-clearing navigation
+        // below.
         dismissPanSheet()
+        dismissPresetSheets()
 
         val intent = Intent(this, ConnectActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -196,5 +250,21 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         panSheet?.let { sheet ->
             channels.firstOrNull { it.channel == sheet.channel }?.pan?.let(sheet::updateIfIdle)
         }
+    }
+
+    override fun onPresets(names: List<String>) {
+        presetLoadSheet?.setPresets(names)
+    }
+
+    override fun onPresetSaved(name: String) {
+        presetSaveSheet?.dismiss()
+        presetSaveSheet = null
+        Toast.makeText(this, "Saved preset \"$name\"", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onPresetLoaded(name: String) {
+        presetLoadSheet?.dismiss()
+        presetLoadSheet = null
+        Toast.makeText(this, "Loaded preset \"$name\"", Toast.LENGTH_SHORT).show()
     }
 }
