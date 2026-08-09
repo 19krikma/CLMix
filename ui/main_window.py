@@ -111,13 +111,7 @@ class MixerWorker(threading.Thread):
             while self.running:
                 self.receive_osc()
                 self._check_heartbeat()
-
-                try:
-                    command = self.command_queue.get_nowait()
-                    self.send_command(command)
-
-                except queue.Empty:
-                    pass
+                self._drain_commands()
 
         except Exception as ex:
             log("error", f"Worker error: {ex!r}")
@@ -296,6 +290,38 @@ class MixerWorker(threading.Thread):
             builder.build().dgram,
             (self.mixer_ip, self.send_port)
         )
+
+    def _drain_commands(self):
+        # Pulling only one queued command per loop iteration (the old
+        # behavior) capped outgoing throughput at roughly one command per
+        # receive_osc() timeout (~0.1s) whenever the console was quiet -
+        # nothing about the wire or the console actually limits this, it
+        # was purely this loop's own pacing. Draining everything that's
+        # piled up and coalescing by address means a burst of fader-drag
+        # ticks for the same channel only sends its final value instead
+        # of working through every stale intermediate one - queries
+        # ("/address/?") are kept in their own bucket per address so one
+        # landing between two drag ticks can never cause a set to that
+        # same address to be silently dropped.
+        pending = {}
+        order = []
+
+        while True:
+            try:
+                command = self.command_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            address = command.split(maxsplit=1)[0]
+            key = (address, address.endswith("/?"))
+
+            if key not in pending:
+                order.append(key)
+
+            pending[key] = command
+
+        for key in order:
+            self.send_command(pending[key])
 
     def send_command(self, command):
         parts = command.split()
