@@ -41,7 +41,6 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
 
         adapter = ChannelAdapter(
             onLevelChanged = { channel, db -> MixerClient.setLevel(channel, db) },
-            onMuteToggled = { channel, muted -> MixerClient.setMute(channel, muted) },
             onDragStart = { channel -> draggingChannels.add(channel) },
             onDragEnd = { channel ->
                 draggingChannels.remove(channel)

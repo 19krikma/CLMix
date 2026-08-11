@@ -14,7 +14,6 @@ import kotlin.math.roundToInt
 
 class ChannelAdapter(
     private val onLevelChanged: (Int, Double) -> Unit,
-    private val onMuteToggled: (Int, Boolean) -> Unit,
     private val onDragStart: (Int) -> Unit,
     private val onDragEnd: (Int) -> Unit,
     private val onPanButtonClicked: (ChannelState) -> Unit
@@ -103,6 +102,12 @@ class ChannelAdapter(
             syncFaderWidth(binding, bottom - top)
         }
 
+        // Mute is server/mixer-driven only - the button is a status
+        // indicator (text + color), not a control, so it never registers
+        // taps or steals focus from the actually-interactive controls.
+        binding.muteButton.isClickable = false
+        binding.muteButton.isFocusable = false
+
         return ViewHolder(binding)
     }
 
@@ -182,14 +187,6 @@ class ChannelAdapter(
             val adapterPosition = holder.bindingAdapterPosition
             if (adapterPosition != RecyclerView.NO_POSITION) {
                 onPanButtonClicked(channels[adapterPosition])
-            }
-        }
-
-        holder.binding.muteButton.setOnClickListener {
-            val adapterPosition = holder.bindingAdapterPosition
-            if (adapterPosition != RecyclerView.NO_POSITION) {
-                val current = channels[adapterPosition]
-                onMuteToggled(current.channel, !current.muted)
             }
         }
 

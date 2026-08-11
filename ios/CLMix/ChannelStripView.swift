@@ -33,12 +33,17 @@ struct ChannelStripView: View {
             .buttonStyle(.bordered)
             .frame(maxWidth: .infinity)
 
-            Button(channel.muted ? "Muted" : "Mute") {
-                model.setMute(channel: channel.channel, muted: !channel.muted)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(channel.muted ? .red : .gray)
-            .frame(maxWidth: .infinity)
+            // Status indicator only, driven entirely by channel.muted from
+            // the mixer - mute is never toggled from a phone, so this is a
+            // plain Text (not a Button, which would stay VoiceOver-
+            // actionable even with allowsHitTesting(false)), styled by
+            // hand to match the borderedProminent look it replaces.
+            Text(channel.muted ? "Muted" : "Mute")
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(channel.muted ? Color.red : Color.gray)
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .frame(width: 118)
         .sheet(isPresented: $showPanSheet) {

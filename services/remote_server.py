@@ -161,9 +161,6 @@ class RemoteServer:
 
             self._set_pan(state, msg.get("channel"), msg.get("pan"))
 
-        elif action == "set_mute":
-            self._set_mute(msg.get("channel"), msg.get("muted"))
-
         elif action == "list_presets":
             if not entry.get("presets", False):
                 await self._send(
@@ -317,14 +314,6 @@ class RemoteServer:
         wire_pan = self._ui_pan_to_wire(float(pan))
         self.command_queue.put(
             f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {wire_pan}"
-        )
-
-    def _set_mute(self, channel, muted):
-        if channel is None or muted is None:
-            return
-
-        self.command_queue.put(
-            f"/Input_Channels/{channel}/mute {1.0 if muted else 0.0}"
         )
 
     async def _save_preset(self, websocket, worker, state, name):

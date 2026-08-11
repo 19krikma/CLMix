@@ -17,7 +17,7 @@ protocol MixerClientDelegate: AnyObject {
 /// Talks to the CLMix desktop app's RemoteServer
 /// (services/remote_server.py) over a WebSocket, using the same JSON
 /// protocol the Android app's MixerClient.kt speaks: login/list_auxes/
-/// list_banks/select_aux/select_bank/set_level/set_pan/set_mute/
+/// list_banks/select_aux/select_bank/set_level/set_pan/
 /// list_presets/save_preset/load_preset out, login_result/auxes/banks/
 /// levels/presets/preset_saved/preset_loaded/error in.
 ///
@@ -90,10 +90,6 @@ final class MixerClient: NSObject {
 
     func setPan(channel: Int, pan: Double) {
         send(["action": "set_pan", "channel": channel, "pan": pan])
-    }
-
-    func setMute(channel: Int, muted: Bool) {
-        send(["action": "set_mute", "channel": channel, "muted": muted])
     }
 
     func requestPresets() {

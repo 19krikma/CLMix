@@ -64,10 +64,6 @@ final class AppModel: NSObject, ObservableObject {
         MixerClient.shared.setPan(channel: channel, pan: pan)
     }
 
-    func setMute(channel: Int, muted: Bool) {
-        MixerClient.shared.setMute(channel: channel, muted: muted)
-    }
-
     func requestPresets() {
         MixerClient.shared.requestPresets()
     }
