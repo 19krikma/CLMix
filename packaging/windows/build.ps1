@@ -35,6 +35,23 @@ if (-not (Test-Path ".venv-build")) {
 }
 $VenvPython = Join-Path $RepoRoot ".venv-build\Scripts\python.exe"
 
+# `python -m venv` above is a native exe, not a PowerShell cmdlet - a
+# failure there doesn't trip $ErrorActionPreference = "Stop" (that only
+# catches terminating PowerShell errors), so without this check a missing
+# Python silently falls through to a confusing "python.exe is not
+# recognized" failure several lines later instead of the real cause.
+if (-not (Test-Path $VenvPython)) {
+    if (Test-Path ".venv-build") { Remove-Item -Recurse -Force ".venv-build" }
+    throw "No working Python found on PATH. If the message above says " +
+        "'Python was not found; run without arguments to install from the " +
+        "Microsoft Store', that's Windows' App Execution Alias placeholder, " +
+        "not a real install. Fix it one of two ways: (1) install Python " +
+        "3.10+ from https://www.python.org/downloads/ with 'Add python.exe " +
+        "to PATH' checked, or (2) turn off the placeholder at Settings > " +
+        "Apps > Advanced app settings > App execution aliases > python.exe " +
+        "/ python3.exe. Then re-run this script."
+}
+
 & $VenvPython -m pip install --upgrade pip
 & $VenvPython -m pip install -r requirements.txt pyinstaller
 
