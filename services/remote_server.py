@@ -1,5 +1,6 @@
 import asyncio
 import json
+import secrets
 import threading
 
 import websockets
@@ -24,6 +25,13 @@ class RemoteServer:
     mute updates for that selection, and can push level/mute changes
     back - both translated to/from the same OSC commands the desktop
     UI uses via MixerWorker's cache and command_queue.
+
+    A successful username/password login also mints an opaque session
+    token, so a phone app that was killed and relaunched can resend just
+    that token instead of asking the user to retype their password. The
+    token table lives only in memory - it's intentionally wiped on every
+    RemoteServer restart (desktop app reconnect/relaunch), at which point
+    a resuming client just falls back to a normal password login.
     """
 
     def __init__(self, get_worker, command_queue, port, user_store,
@@ -38,6 +46,7 @@ class RemoteServer:
         self._thread = None
         self._loop = None
         self._stop_event = None
+        self._sessions = {}
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -67,7 +76,9 @@ class RemoteServer:
 
     async def _handle_client(self, websocket):
         log("info", f"Client connected: {websocket.remote_address}")
-        state = {"aux": None, "bank": None, "user": None, "permission": None}
+        state = {
+            "aux": None, "bank": None, "user": None, "permission": None, "token": None
+        }
 
         push_task = asyncio.create_task(self._push_loop(websocket, state))
 
@@ -91,6 +102,13 @@ class RemoteServer:
 
         if action == "login":
             await self._handle_login(websocket, state, msg)
+            return
+
+        if action == "logout":
+            self._sessions.pop(state.get("token"), None)
+            state["user"] = None
+            state["permission"] = None
+            state["token"] = None
             return
 
         if state["user"] is None:
@@ -203,6 +221,12 @@ class RemoteServer:
             )
 
     async def _handle_login(self, websocket, state, msg):
+        token = msg.get("token")
+
+        if token is not None:
+            await self._handle_token_login(websocket, state, token)
+            return
+
         username = msg.get("username")
         password = msg.get("password")
 
@@ -217,8 +241,12 @@ class RemoteServer:
             )
             return
 
+        new_token = secrets.token_urlsafe(32)
+        self._sessions[new_token] = {"username": username, "entry": entry}
+
         state["user"] = username
         state["permission"] = entry
+        state["token"] = new_token
 
         log("info", f"User {username!r} logged in "
             f"(snapshot={entry['snapshot']!r}, aux={entry['aux']!r})")
@@ -229,6 +257,39 @@ class RemoteServer:
             "snapshot": entry["snapshot"],
             "aux": entry["aux"],
             "presets": entry.get("presets", False),
+            "token": new_token,
+        })
+
+    async def _handle_token_login(self, websocket, state, token):
+        session = self._sessions.get(token)
+
+        if session is None:
+            # Most commonly: the desktop app (and with it, RemoteServer's
+            # whole in-memory session table) restarted since this token
+            # was issued. Not a wrong-password error - the client should
+            # fall back to its normal login form, not show one.
+            await self._send(
+                websocket,
+                {"type": "login_result", "ok": False, "message": "Session expired"}
+            )
+            return
+
+        username = session["username"]
+        entry = session["entry"]
+
+        state["user"] = username
+        state["permission"] = entry
+        state["token"] = token
+
+        log("info", f"User {username!r} resumed session via token")
+
+        await self._send(websocket, {
+            "type": "login_result",
+            "ok": True,
+            "snapshot": entry["snapshot"],
+            "aux": entry["aux"],
+            "presets": entry.get("presets", False),
+            "token": token,
         })
 
     @staticmethod

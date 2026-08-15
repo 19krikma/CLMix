@@ -204,6 +204,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun logout() {
+        MixerClient.logout(SessionStore.getToken(this))
+        SessionStore.clear(this)
         MixerClient.disconnect()
         returnToLogin()
     }

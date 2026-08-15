@@ -85,4 +85,6 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.drawerlayout:drawerlayout:1.2.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Keystore-backed encryption at rest for the persisted session token.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

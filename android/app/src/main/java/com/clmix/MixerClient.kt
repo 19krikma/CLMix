@@ -1,5 +1,6 @@
 package com.clmix
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import okhttp3.OkHttpClient
@@ -21,7 +22,11 @@ interface MixerClientListener {
     fun onConnectionFailed(message: String) {}
 
     fun onError(message: String) {}
-    fun onLoginResult(ok: Boolean, message: String?) {}
+
+    // token is set whenever ok is true (both a fresh username/password
+    // login and a resumed one) - see SessionStore for what callers should
+    // do with it. Null when ok is false.
+    fun onLoginResult(ok: Boolean, message: String?, token: String? = null) {}
     fun onAuxes(auxes: List<AuxBus>) {}
     fun onBanks(banks: List<String>) {}
     fun onLevels(aux: Int, channels: List<ChannelState>) {}
@@ -33,14 +38,15 @@ interface MixerClientListener {
 /**
  * Talks to the CLMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
- * protocol: login/list_auxes/list_banks/select_aux/select_bank/set_level/
- * set_pan/list_presets/save_preset/load_preset out,
+ * protocol: login/logout/list_auxes/list_banks/select_aux/select_bank/
+ * set_level/set_pan/list_presets/save_preset/load_preset out,
  * login_result/auxes/banks/levels/presets/preset_saved/preset_loaded/error
  * in.
  *
  * The server rejects every action until a successful "login" - callers
- * must send credentials via login() and wait for onLoginResult(true)
- * before calling requestAuxes() or anything else.
+ * must send credentials via login() (or a saved token via
+ * loginWithToken()) and wait for onLoginResult(true) before calling
+ * requestAuxes() or anything else.
  */
 object MixerClient {
     private val httpClient = OkHttpClient.Builder()
@@ -50,6 +56,7 @@ object MixerClient {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var webSocket: WebSocket? = null
+    private var appContext: Context? = null
 
     var listener: MixerClientListener? = null
     var isConnected: Boolean = false
@@ -61,8 +68,17 @@ object MixerClient {
     var presetsAllowed: Boolean = false
         private set
 
+    // Called once from CLMixApplication.onCreate() - gives this singleton
+    // an application Context (never an Activity one, to avoid leaking it)
+    // so it can start/stop MixerConnectionService itself.
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
     fun connect(host: String, port: Int) {
         disconnect()
+
+        appContext?.let(MixerConnectionService::start)
 
         val request = Request.Builder()
             .url("ws://$host:$port")
@@ -95,6 +111,7 @@ object MixerClient {
         webSocket = null
         isConnected = false
         presetsAllowed = false
+        appContext?.let(MixerConnectionService::stop)
     }
 
     fun login(username: String, password: String) = send(
@@ -103,6 +120,24 @@ object MixerClient {
             .put("username", username)
             .put("password", password)
     )
+
+    // Resumes a previously-issued session (see SessionStore) instead of
+    // sending the password again - the server replies with the same
+    // login_result shape either way (RemoteServer._handle_token_login).
+    fun loginWithToken(token: String) = send(
+        JSONObject()
+            .put("action", "login")
+            .put("token", token)
+    )
+
+    // Explicit logout: revokes the token server-side (RemoteServer pops it
+    // from _sessions) before the socket closes, so a copy of the token
+    // sitting on disk elsewhere can no longer resume this account.
+    fun logout(token: String?) {
+        if (token != null) {
+            send(JSONObject().put("action", "logout").put("token", token))
+        }
+    }
 
     fun requestAuxes() = send(JSONObject().put("action", "list_auxes"))
 
@@ -156,8 +191,9 @@ object MixerClient {
             "login_result" -> {
                 val ok = json.optBoolean("ok", false)
                 val message = json.optString("message").takeIf { it.isNotEmpty() }
+                val token = json.optString("token").takeIf { it.isNotEmpty() }
                 presetsAllowed = ok && json.optBoolean("presets", false)
-                onMain { listener?.onLoginResult(ok, message) }
+                onMain { listener?.onLoginResult(ok, message, token) }
             }
 
             "auxes" -> {
