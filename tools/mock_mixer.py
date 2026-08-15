@@ -7,16 +7,20 @@ to let the desktop app (and, through it, phone clients via RemoteServer)
 be exercised end-to-end. Simulates:
 
     - 5 aux buses  ("Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send")
-    - 4 banks      ("Band", "Drums", "Vocals", "Horns"), 5 channels each
-    - 20 channels  (see CHANNEL_NAMES)
+    - 5 banks      (see BANK_NAMES), each with a random channel count
+    - N channels   (see CHANNEL_NAMES, built from however many channels
+                    the random banks add up to)
 
 Replies are sent to a fixed --client-host/--client-port rather than to
 each query's source port, matching how CLMix expects a mixer to behave
 (it queries from an ephemeral socket but only ever listens on the port
 configured as "Rec Port").
 
+Console shape is randomized on every run - pass --seed for a reproducible
+layout across runs.
+
 Usage:
-    python tools/mock_mixer.py
+    python tools/mock_mixer.py [--seed N]
 
 Then in CLMix's Setup window:
     Mixer IP Address: 127.0.0.1
@@ -24,25 +28,47 @@ Then in CLMix's Setup window:
     Rec Port:         10024  (default - matches --client-port default)
 """
 import argparse
+import random
 import socket
 
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
-CHANNEL_NAMES = [
-    "Guitar 1", "Guitar 2", "Bass", "Keys 1", "Keys 2",
-    "Kick", "Snare", "Hi-Hat", "Toms", "Overheads",
-    "Vocal 1", "Vocal 2", "Vocal 3", "BGV 1", "BGV 2",
-    "Sax", "Trumpet", "Trombone", "Perc", "Click",
+BANK_NAMES = ["Band", "Drums", "Vocals", "Horns", "Percussion"]
+MIN_CHANNELS_PER_BANK = 3
+MAX_CHANNELS_PER_BANK = 10
+
+# Cycled (and repeated, once exhausted) to name however many channels
+# each randomized bank ends up with.
+INSTRUMENT_POOL = [
+    "Kick", "Snare", "Hi-Hat", "Toms", "Overheads", "Guitar 1", "Guitar 2",
+    "Bass", "Keys 1", "Keys 2", "Vocal 1", "Vocal 2", "Vocal 3", "BGV 1",
+    "BGV 2", "Sax", "Trumpet", "Trombone", "Perc", "Click", "DI 1", "DI 2",
+    "Synth", "Pad", "Strings", "Loop",
 ]
+
 AUX_NAMES = ["Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send"]
-BANKS = {
-    "Band": [1, 2, 3, 4, 5],
-    "Drums": [6, 7, 8, 9, 10],
-    "Vocals": [11, 12, 13, 14, 15],
-    "Horns": [16, 17, 18, 19, 20],
-}
 SNAPSHOT_NAME = "Show 1"
+
+# Populated by build_banks() in main(), after any --seed is applied.
+BANKS = {}
+CHANNEL_NAMES = []
+
+
+def build_banks():
+    banks = {}
+    channel_names = []
+    next_channel = 1
+
+    for bank_name in BANK_NAMES:
+        count = random.randint(MIN_CHANNELS_PER_BANK, MAX_CHANNELS_PER_BANK)
+        banks[bank_name] = list(range(next_channel, next_channel + count))
+        next_channel += count
+
+        for _ in range(count):
+            channel_names.append(INSTRUMENT_POOL[len(channel_names) % len(INSTRUMENT_POOL)])
+
+    return banks, channel_names
 
 
 class MockMixer:
@@ -166,7 +192,20 @@ def main():
     parser.add_argument("--listen-port", type=int, default=10023)
     parser.add_argument("--client-host", default="127.0.0.1")
     parser.add_argument("--client-port", type=int, default=10024)
+    parser.add_argument("--seed", type=int, default=None,
+                         help="Random seed for a reproducible bank/channel layout")
     args = parser.parse_args()
+
+    if args.seed is not None:
+        random.seed(args.seed)
+
+    global BANKS, CHANNEL_NAMES
+    BANKS, CHANNEL_NAMES = build_banks()
+
+    print(f"Simulated console: {len(CHANNEL_NAMES)} channels, "
+          f"{len(AUX_NAMES)} aux sends")
+    for bank_name, channels in BANKS.items():
+        print(f"  {bank_name}: {len(channels)} channels {channels}")
 
     MockMixer(args.listen_port, args.client_host, args.client_port).run()
 
