@@ -47,51 +47,65 @@
             android:layout_marginBottom="18dp"
             android:visibility="gone" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/manual_button"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:layout_marginBottom="14dp"
-            android:text="Manual"
-            android:textSize="16sp"
-            app:cornerRadius="12dp" />
-
         <LinearLayout
-            android:id="@+id/manual_fields"
+            android:id="@+id/manual_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:visibility="gone">
+            android:background="@drawable/manual_fields_border"
+            android:padding="12dp"
+            android:layout_marginBottom="18dp">
 
-            <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/manual_button"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Manual"
+                android:textSize="16sp"
+                android:textColor="@android:color/white"
+                app:backgroundTint="@android:color/transparent"
+                app:rippleColor="#33FFFFFF"
+                app:elevation="0dp"
+                app:cornerRadius="8dp" />
+
+            <LinearLayout
+                android:id="@+id/manual_fields"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Server Address"
-                android:layout_marginBottom="14dp">
+                android:orientation="vertical"
+                android:layout_marginTop="12dp"
+                android:visibility="gone">
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/host_input"
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="textNoSuggestions" />
+                    android:hint="Server Address"
+                    android:layout_marginBottom="14dp">
 
-            </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/host_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textNoSuggestions" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Port"
-                android:layout_marginBottom="14dp">
+                </com.google.android.material.textfield.TextInputLayout>
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/port_input"
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="number" />
+                    android:hint="Port">
 
-            </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/port_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+            </LinearLayout>
 
         </LinearLayout>
 
