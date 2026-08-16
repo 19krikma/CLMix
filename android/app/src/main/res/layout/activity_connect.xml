@@ -6,6 +6,7 @@
     android:fillViewport="true">
 
     <LinearLayout
+        android:id="@+id/content"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -48,12 +49,12 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/manual_button"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="start"
-            android:layout_marginBottom="8dp"
-            android:text="Manual" />
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginBottom="14dp"
+            android:text="Manual"
+            android:textSize="16sp"
+            app:cornerRadius="12dp" />
 
         <LinearLayout
             android:id="@+id/manual_fields"

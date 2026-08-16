@@ -6,6 +6,8 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.transition.AutoTransition
+import android.transition.TransitionManager
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -56,8 +58,10 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         setCredentialsEnabled(false)
 
         binding.manualButton.setOnClickListener {
-            revealManualFields()
-            binding.hostInput.requestFocus()
+            val expanding = binding.manualFields.visibility != View.VISIBLE
+            setManualFieldsExpanded(expanding)
+            setCredentialsEnabled(expanding)
+            if (expanding) binding.hostInput.requestFocus()
         }
 
         binding.connectButton.setOnClickListener { attemptConnect() }
@@ -80,10 +84,13 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         }
     }
 
-    private fun revealManualFields() {
-        binding.manualFields.visibility = View.VISIBLE
-        binding.manualButton.visibility = View.GONE
-        setCredentialsEnabled(true)
+    // The button stays put (unlike the old design, which hid it once
+    // tapped) - it's now a fold/unfold toggle, so it needs to stick
+    // around to fold the fields back again.
+    private fun setManualFieldsExpanded(expanded: Boolean) {
+        if ((binding.manualFields.visibility == View.VISIBLE) == expanded) return
+        TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
+        binding.manualFields.visibility = if (expanded) View.VISIBLE else View.GONE
     }
 
     private fun setCredentialsEnabled(enabled: Boolean) {
@@ -238,6 +245,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
             isClickable = true
             setOnClickListener {
                 val tagged = tag as? DiscoveredServer ?: return@setOnClickListener
+                setManualFieldsExpanded(false)
                 binding.hostInput.setText(tagged.host)
                 binding.portInput.setText(tagged.port.toString())
                 setCredentialsEnabled(true)

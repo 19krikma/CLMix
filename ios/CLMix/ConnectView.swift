@@ -9,9 +9,10 @@ struct ConnectView: View {
     @State private var password = ""
 
     // Both start closed/disabled - there's nothing to type credentials
-    // for until a server has actually been picked, either by tapping
-    // "Manual" (which also reveals the host/port fields) or a discovered
-    // server row (which fills them in directly, so they stay hidden).
+    // for until a server has actually been picked, either by expanding
+    // "Manual" (which reveals the host/port fields) or tapping a
+    // discovered server row (which fills them in directly, so they stay
+    // hidden).
     @State private var showManualFields = false
     @State private var credentialsEnabled = false
 
@@ -21,12 +22,25 @@ struct ConnectView: View {
                 Section("Found on this network") {
                     ForEach(model.discoveredServers) { server in
                         Button(server.id) {
+                            // Picking a discovered server always folds the
+                            // manual section back down if it was open -
+                            // the two are alternative ways to pick a
+                            // server, not meant to be used together.
+                            withAnimation { showManualFields = false }
                             host = server.host
                             port = String(server.port)
                             credentialsEnabled = true
                         }
                     }
                 }
+            }
+
+            // A toggle, not a one-shot reveal - tapping again folds the
+            // fields back and disables Login, matching a discovered-server
+            // pick unwinding itself if the user changes their mind.
+            Button("Manual") {
+                withAnimation { showManualFields.toggle() }
+                credentialsEnabled = showManualFields
             }
 
             if showManualFields {
@@ -37,11 +51,6 @@ struct ConnectView: View {
                         .autocorrectionDisabled()
                     TextField("Port", text: $port)
                         .keyboardType(.numberPad)
-                }
-            } else {
-                Button("Manual") {
-                    showManualFields = true
-                    credentialsEnabled = true
                 }
             }
 
