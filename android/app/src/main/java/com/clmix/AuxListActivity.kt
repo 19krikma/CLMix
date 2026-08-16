@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -25,6 +26,16 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
 
         binding.auxRecycler.layoutManager = LinearLayoutManager(this)
         binding.auxRecycler.adapter = AuxAdapter(auxes) { aux -> openMixer(aux) }
+
+        // This is the last screen standing between here and ConnectActivity
+        // (still sitting underneath in the back stack, still showing
+        // itself as connected) - back-navigating past it without logging
+        // out would land the user on a login screen that's silently still
+        // logged in behind the scenes. Covers both the back button and the
+        // gesture-nav swipe, unlike overriding onBackPressed().
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = logout()
+        })
     }
 
     override fun onResume() {
@@ -44,6 +55,17 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
         val intent = Intent(this, ConnectActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
+    }
+
+    // Mirrors MixerActivity.logout() - revokes the session server-side and
+    // drops the locally saved token before returning, so ConnectActivity
+    // comes back as a genuine logged-out login screen instead of one that
+    // silently still holds a live session underneath.
+    private fun logout() {
+        MixerClient.logout(SessionStore.getToken(this))
+        SessionStore.clear(this)
+        MixerClient.disconnect()
+        returnToLogin()
     }
 
     override fun onDisconnected() {
