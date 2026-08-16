@@ -10,6 +10,17 @@ struct ConnectView: View {
 
     var body: some View {
         Form {
+            if !model.discoveredServers.isEmpty {
+                Section("Found on this network") {
+                    ForEach(model.discoveredServers) { server in
+                        Button(server.id) {
+                            host = server.host
+                            port = String(server.port)
+                        }
+                    }
+                }
+            }
+
             Section("Server") {
                 TextField("Host", text: $host)
                     .keyboardType(.URL)
@@ -41,5 +52,7 @@ struct ConnectView: View {
             )
         }
         .navigationTitle("CLMix")
+        .onAppear { model.startDiscovery() }
+        .onDisappear { model.stopDiscovery() }
     }
 }

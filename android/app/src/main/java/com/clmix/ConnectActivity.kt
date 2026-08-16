@@ -6,15 +6,22 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.clmix.databinding.ActivityConnectBinding
+import com.google.android.material.chip.Chip
 
-class ConnectActivity : AppCompatActivity(), MixerClientListener {
+class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryListener {
     private lateinit var binding: ActivityConnectBinding
     private lateinit var prefs: SharedPreferences
+    private lateinit var mdnsDiscovery: MdnsDiscovery
+
+    // Keyed by mDNS service name so a re-announcement updates the existing
+    // chip in place instead of piling up duplicates.
+    private val discoveredChips = mutableMapOf<String, Chip>()
 
     // Stashed from the form (or a saved session) at connect time so
     // onConnected() knows how to log in once the socket is open, without
@@ -43,6 +50,8 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
         binding.usernameInput.setText(prefs.getString("username", ""))
 
         binding.connectButton.setOnClickListener { attemptConnect() }
+
+        mdnsDiscovery = MdnsDiscovery(this)
 
         requestNotificationPermission()
 
@@ -75,6 +84,12 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
     override fun onResume() {
         super.onResume()
         MixerClient.listener = this
+        mdnsDiscovery.start(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mdnsDiscovery.stop()
     }
 
     private fun attemptConnect() {
@@ -178,5 +193,46 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
         val intent = Intent(this, AuxListActivity::class.java)
         intent.putExtra("auxes", ArrayList(auxes))
         startActivity(intent)
+    }
+
+    // Tapping a chip only fills in the address fields (not username/
+    // password, which the server never advertises) and leaves it to the
+    // user to press Connect - mirrors how the manual fields already work,
+    // and avoids auto-connecting to a server the user didn't explicitly
+    // choose when more than one is on the network.
+    override fun onServerFound(server: DiscoveredServer) {
+        val existing = discoveredChips[server.name]
+
+        if (existing != null) {
+            existing.text = server.name
+            existing.tag = server
+            return
+        }
+
+        val chip = Chip(this).apply {
+            text = server.name
+            tag = server
+            isClickable = true
+            setOnClickListener {
+                val tagged = tag as? DiscoveredServer ?: return@setOnClickListener
+                binding.hostInput.setText(tagged.host)
+                binding.portInput.setText(tagged.port.toString())
+            }
+        }
+
+        discoveredChips[server.name] = chip
+        binding.discoveredServers.addView(chip)
+        binding.discoveredServers.visibility = View.VISIBLE
+        binding.discoveredLabel.visibility = View.VISIBLE
+    }
+
+    override fun onServerLost(name: String) {
+        val chip = discoveredChips.remove(name) ?: return
+        binding.discoveredServers.removeView(chip)
+
+        if (discoveredChips.isEmpty()) {
+            binding.discoveredServers.visibility = View.GONE
+            binding.discoveredLabel.visibility = View.GONE
+        }
     }
 }

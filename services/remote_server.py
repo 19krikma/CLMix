@@ -1,14 +1,23 @@
 import asyncio
 import json
 import secrets
+import socket
 import threading
 
+import ifaddr
 import websockets
+from zeroconf import ServiceInfo
+from zeroconf.asyncio import AsyncZeroconf
 
 from services.log_store import log
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
 PUSH_INTERVAL_SECONDS = 0.15
+
+# Advertised over mDNS/DNS-SD so phone apps can find this server on the
+# local network instead of the user typing in an IP - Android's NsdManager
+# and iOS's NWBrowser both browse for this exact service type.
+MDNS_SERVICE_TYPE = "_clmix._tcp.local."
 
 
 class RemoteServer:
@@ -47,6 +56,8 @@ class RemoteServer:
         self._loop = None
         self._stop_event = None
         self._sessions = {}
+        self._aiozc = None
+        self._service_info = None
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -72,7 +83,82 @@ class RemoteServer:
     async def _serve(self):
         async with websockets.serve(self._handle_client, "0.0.0.0", self.port):
             log("info", f"Remote server listening on port {self.port}")
-            await self._stop_event.wait()
+            await self._advertise_mdns()
+            try:
+                await self._stop_event.wait()
+            finally:
+                await self._stop_mdns()
+
+    async def _advertise_mdns(self):
+        hostname = socket.gethostname()
+        addresses = self._local_ipv4_addresses()
+
+        if not addresses:
+            log("warning", "No local IPv4 address found - skipping mDNS advertisement")
+            return
+
+        self._service_info = ServiceInfo(
+            MDNS_SERVICE_TYPE,
+            f"CLMix on {hostname}.{MDNS_SERVICE_TYPE}",
+            port=self.port,
+            parsed_addresses=addresses,
+            server=f"{hostname}.local.",
+        )
+
+        self._aiozc = AsyncZeroconf()
+
+        try:
+            await self._aiozc.async_register_service(self._service_info)
+            log("info", f"Advertising on local network via mDNS as "
+                f"{self._service_info.name!r} ({', '.join(addresses)}:{self.port})")
+        except Exception as ex:
+            # Best-effort - a phone can still connect by typing in the IP
+            # manually, so a broken mDNS responder (blocked multicast,
+            # port conflict with another local service, ...) shouldn't
+            # take down the rest of the server.
+            log("warning", f"mDNS advertisement failed: {ex!r}")
+            await self._aiozc.async_close()
+            self._aiozc = None
+            self._service_info = None
+
+    async def _stop_mdns(self):
+        if self._aiozc is None:
+            return
+
+        try:
+            # async_close() unregisters (and, unlike
+            # async_unregister_service() on its own, actually awaits the
+            # "goodbye" broadcast that tells the network the service is
+            # gone) before shutting the engine down.
+            await self._aiozc.async_close()
+        except Exception as ex:
+            log("warning", f"mDNS shutdown failed: {ex!r}")
+        finally:
+            self._aiozc = None
+            self._service_info = None
+
+    # Every adapter's non-loopback, non-link-local IPv4 address - deliberately
+    # not restricted to Ethernet (unlike services/network_info.py's
+    # get_ethernet_ip, used for the "your computer's IP" display) since phones
+    # discovering this server are just as likely to be on the same Wi-Fi
+    # network as the desktop.
+    @staticmethod
+    def _local_ipv4_addresses():
+        addresses = []
+
+        for adapter in ifaddr.get_adapters():
+            for ip in adapter.ips:
+                if not ip.is_IPv4:
+                    continue
+
+                address = ip.ip
+
+                if address == "127.0.0.1" or address.startswith("169.254."):
+                    continue
+
+                addresses.append(address)
+
+        return addresses
 
     async def _handle_client(self, websocket):
         log("info", f"Client connected: {websocket.remote_address}")

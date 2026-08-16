@@ -21,9 +21,11 @@ final class AppModel: NSObject, ObservableObject {
     @Published var fineMode = false
     @Published var presetsAllowed = false
     @Published var presetNames: [String] = []
+    @Published var discoveredServers: [DiscoveredServer] = []
 
     private var pendingUsername = ""
     private var pendingPassword = ""
+    private let mdnsDiscovery = MdnsDiscovery()
 
     // Fulfilled once the matching preset_saved/preset_loaded reply
     // arrives, so the sheet that requested it can dismiss/confirm itself -
@@ -43,6 +45,15 @@ final class AppModel: NSObject, ObservableObject {
         isConnecting = true
         statusMessage = "Connecting..."
         MixerClient.shared.connect(host: host, port: port)
+    }
+
+    func startDiscovery() {
+        mdnsDiscovery.start(delegate: self)
+    }
+
+    func stopDiscovery() {
+        mdnsDiscovery.stop()
+        discoveredServers = []
     }
 
     func selectAux(_ aux: AuxBus) {
@@ -151,5 +162,19 @@ extension AppModel: MixerClientDelegate {
     func mixerDidLoadPreset(_ name: String) {
         pendingPresetLoadCompletion?()
         pendingPresetLoadCompletion = nil
+    }
+}
+
+extension AppModel: MdnsDiscoveryDelegate {
+    func mdnsDidFindServer(_ server: DiscoveredServer) {
+        if let index = discoveredServers.firstIndex(where: { $0.id == server.id }) {
+            discoveredServers[index] = server
+        } else {
+            discoveredServers.append(server)
+        }
+    }
+
+    func mdnsDidLoseServer(id: String) {
+        discoveredServers.removeAll { $0.id == id }
     }
 }

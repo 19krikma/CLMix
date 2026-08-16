@@ -29,6 +29,23 @@
             android:textColor="?attr/colorOnSurfaceVariant"
             android:layout_marginBottom="28dp" />
 
+        <TextView
+            android:id="@+id/discovered_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Found on this network"
+            android:textSize="12sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:layout_marginBottom="6dp"
+            android:visibility="gone" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/discovered_servers"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="18dp"
+            android:visibility="gone" />
+
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"

@@ -31,9 +31,23 @@ too likely to produce a corrupt project file.
    addresses (matching how this app is actually used - connecting to a
    desktop CLMix instance on the same LAN), rather than disabling ATS
    globally with `NSAllowsArbitraryLoads`.
-5. If running on a physical device rather than the Simulator, add an
-   `NSLocalNetworkUsageDescription` string too - iOS 14+ prompts for
-   permission the first time an app talks to the local network.
+5. If running on a physical device rather than the Simulator, add
+   `NSLocalNetworkUsageDescription` and `NSBonjourServices` too - iOS
+   14+ silently refuses to browse for a custom Bonjour service type
+   (`MdnsDiscovery.swift`'s search for the desktop app, advertised as
+   `_clmix._tcp.` by `RemoteServer._advertise_mdns` in
+   `services/remote_server.py`) unless that type is declared up front,
+   and prompts for local-network permission the first time the app
+   either opens a socket to a LAN address or browses for services.
+
+```xml
+<key>NSLocalNetworkUsageDescription</key>
+<string>CLMix finds and connects to the desktop mixer app on your local network.</string>
+<key>NSBonjourServices</key>
+<array>
+    <string>_clmix._tcp.</string>
+</array>
+```
 
 ## Status
 
@@ -54,6 +68,7 @@ live testing, so expect to need some hands-on adjustment there.
 | `AuxTaper.swift` | `AuxTaper.kt` | dB <-> fader-fraction taper math |
 | `PanFormat.swift` | `PanFormat.kt` | Pan value <-> "C"/"L35"/"R20" labels |
 | `MixerClient.swift` | `MixerClient.kt` | WebSocket client, JSON protocol |
+| `MdnsDiscovery.swift` | `MdnsDiscovery.kt` | Finds CLMix servers on the LAN via Bonjour/mDNS |
 | `AppModel.swift` | `ConnectActivity`/`AuxListActivity`/`MixerActivity` | Navigation + mixer state |
 | `ConnectView.swift` | `ConnectActivity` | Login screen |
 | `AuxListView.swift` | `AuxListActivity` | Aux bus picker |
