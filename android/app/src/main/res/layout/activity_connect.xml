@@ -30,22 +30,33 @@
             android:textColor="?attr/colorOnSurfaceVariant"
             android:layout_marginBottom="28dp" />
 
-        <TextView
-            android:id="@+id/discovered_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Found on this network"
-            android:textSize="12sp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="6dp"
-            android:visibility="gone" />
-
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/discovered_servers"
+        <LinearLayout
+            android:id="@+id/discovered_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="18dp"
-            android:visibility="gone" />
+            android:orientation="vertical"
+            android:background="@drawable/manual_fields_border"
+            android:padding="12dp"
+            android:layout_marginBottom="18dp">
+
+            <TextView
+                android:id="@+id/discovered_label"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:gravity="center"
+                android:text="Discovered"
+                android:textSize="16sp"
+                android:textColor="@android:color/white" />
+
+            <LinearLayout
+                android:id="@+id/discovered_servers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="12dp"
+                android:visibility="gone" />
+
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/manual_container"
