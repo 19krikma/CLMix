@@ -49,17 +49,11 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         binding.portInput.setText(port)
         binding.usernameInput.setText(prefs.getString("username", ""))
 
-        // Username/password stay disabled until the user has actually
-        // picked a server (manually or via discovery), so there's nothing
-        // to type credentials for yet - except for a returning user who
-        // already has a remembered address, who'd otherwise have to
-        // re-tap Manual every single launch just to get back to where
-        // they left off.
-        if (host.isNotEmpty()) {
-            revealManualFields()
-        } else {
-            setCredentialsEnabled(false)
-        }
+        // Username/password stay disabled, and the address fields hidden
+        // behind Manual, until the user has actually picked a server
+        // (manually or via discovery) - always, even for a returning user
+        // with a remembered host, so Manual is never unexpectedly missing.
+        setCredentialsEnabled(false)
 
         binding.manualButton.setOnClickListener {
             revealManualFields()

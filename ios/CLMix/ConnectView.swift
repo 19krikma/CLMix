@@ -69,16 +69,7 @@ struct ConnectView: View {
             )
         }
         .navigationTitle("CLMix")
-        .onAppear {
-            model.startDiscovery()
-
-            // Returning user with a remembered address - skip straight
-            // past "Manual" instead of making them re-tap it every launch.
-            if !host.isEmpty {
-                showManualFields = true
-                credentialsEnabled = true
-            }
-        }
+        .onAppear { model.startDiscovery() }
         .onDisappear { model.stopDiscovery() }
     }
 }
