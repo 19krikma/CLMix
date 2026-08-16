@@ -49,6 +49,23 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         binding.portInput.setText(port)
         binding.usernameInput.setText(prefs.getString("username", ""))
 
+        // Username/password stay disabled until the user has actually
+        // picked a server (manually or via discovery), so there's nothing
+        // to type credentials for yet - except for a returning user who
+        // already has a remembered address, who'd otherwise have to
+        // re-tap Manual every single launch just to get back to where
+        // they left off.
+        if (host.isNotEmpty()) {
+            revealManualFields()
+        } else {
+            setCredentialsEnabled(false)
+        }
+
+        binding.manualButton.setOnClickListener {
+            revealManualFields()
+            binding.hostInput.requestFocus()
+        }
+
         binding.connectButton.setOnClickListener { attemptConnect() }
 
         mdnsDiscovery = MdnsDiscovery(this)
@@ -67,6 +84,17 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
             binding.statusLabel.text = "Reconnecting..."
             MixerClient.connect(host, port.toIntOrNull() ?: return)
         }
+    }
+
+    private fun revealManualFields() {
+        binding.manualFields.visibility = View.VISIBLE
+        binding.manualButton.visibility = View.GONE
+        setCredentialsEnabled(true)
+    }
+
+    private fun setCredentialsEnabled(enabled: Boolean) {
+        binding.usernameInput.isEnabled = enabled
+        binding.passwordInput.isEnabled = enabled
     }
 
     private fun requestNotificationPermission() {
@@ -195,11 +223,12 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         startActivity(intent)
     }
 
-    // Tapping a chip only fills in the address fields (not username/
-    // password, which the server never advertises) and leaves it to the
-    // user to press Connect - mirrors how the manual fields already work,
-    // and avoids auto-connecting to a server the user didn't explicitly
-    // choose when more than one is on the network.
+    // Tapping a chip fills in the (still-hidden) address fields, unlocks
+    // username/password now that there's actually a server to log into,
+    // and leaves it to the user to type credentials and press Connect -
+    // it doesn't auto-connect, since that'd log in without the user
+    // explicitly choosing this server when more than one is on the
+    // network.
     override fun onServerFound(server: DiscoveredServer) {
         val existing = discoveredChips[server.name]
 
@@ -217,6 +246,8 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
                 val tagged = tag as? DiscoveredServer ?: return@setOnClickListener
                 binding.hostInput.setText(tagged.host)
                 binding.portInput.setText(tagged.port.toString())
+                setCredentialsEnabled(true)
+                binding.usernameInput.requestFocus()
             }
         }
 
