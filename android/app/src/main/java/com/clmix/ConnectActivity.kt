@@ -4,17 +4,29 @@ import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
+import android.transition.AutoTransition
+import android.transition.TransitionManager
+import android.view.Gravity
+import android.view.View
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.clmix.databinding.ActivityConnectBinding
+import com.google.android.material.button.MaterialButton
 
-class ConnectActivity : AppCompatActivity(), MixerClientListener {
+class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryListener {
     private lateinit var binding: ActivityConnectBinding
     private lateinit var prefs: SharedPreferences
+    private lateinit var mdnsDiscovery: MdnsDiscovery
+
+    // Keyed by mDNS service name so a re-announcement updates the existing
+    // row in place instead of piling up duplicates.
+    private val discoveredRows = mutableMapOf<String, MaterialButton>()
 
     // Stashed from the form (or a saved session) at connect time so
     // onConnected() knows how to log in once the socket is open, without
@@ -42,7 +54,22 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
         binding.portInput.setText(port)
         binding.usernameInput.setText(prefs.getString("username", ""))
 
+        // Username/password stay disabled, and the address fields hidden
+        // behind Manual, until the user has actually picked a server
+        // (manually or via discovery) - always, even for a returning user
+        // with a remembered host, so Manual is never unexpectedly missing.
+        setCredentialsEnabled(false)
+
+        binding.manualButton.setOnClickListener {
+            val expanding = binding.manualFields.visibility != View.VISIBLE
+            setManualFieldsExpanded(expanding)
+            setCredentialsEnabled(expanding)
+            if (expanding) binding.hostInput.requestFocus()
+        }
+
         binding.connectButton.setOnClickListener { attemptConnect() }
+
+        mdnsDiscovery = MdnsDiscovery(this)
 
         requestNotificationPermission()
 
@@ -60,6 +87,20 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
         }
     }
 
+    // The button stays put (unlike the old design, which hid it once
+    // tapped) - it's now a fold/unfold toggle, so it needs to stick
+    // around to fold the fields back again.
+    private fun setManualFieldsExpanded(expanded: Boolean) {
+        if ((binding.manualFields.visibility == View.VISIBLE) == expanded) return
+        TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
+        binding.manualFields.visibility = if (expanded) View.VISIBLE else View.GONE
+    }
+
+    private fun setCredentialsEnabled(enabled: Boolean) {
+        binding.usernameInput.isEnabled = enabled
+        binding.passwordInput.isEnabled = enabled
+    }
+
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
 
@@ -75,6 +116,12 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
     override fun onResume() {
         super.onResume()
         MixerClient.listener = this
+        mdnsDiscovery.start(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mdnsDiscovery.stop()
     }
 
     private fun attemptConnect() {
@@ -179,4 +226,71 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener {
         intent.putExtra("auxes", ArrayList(auxes))
         startActivity(intent)
     }
+
+    // Tapping a row fills in the (still-hidden) address fields, unlocks
+    // username/password now that there's actually a server to log into,
+    // and leaves it to the user to type credentials and press Connect -
+    // it doesn't auto-connect, since that'd log in without the user
+    // explicitly choosing this server when more than one is on the
+    // network.
+    override fun onServerFound(server: DiscoveredServer) {
+        val existing = discoveredRows[server.name]
+
+        if (existing != null) {
+            existing.text = server.name
+            existing.tag = server
+            return
+        }
+
+        // Filled with the app's blue accent (colorPrimary, via its
+        // day/night color resources) rather than transparent like
+        // manual_button/discovered_label - a found server is something to
+        // tap, and needs to stand out against those against the rest of
+        // the (otherwise all-transparent) bordered box.
+        val row = MaterialButton(this).apply {
+            text = server.name
+            tag = server
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(context, R.color.on_primary))
+            backgroundTintList = ColorStateList.valueOf(
+                ContextCompat.getColor(context, R.color.primary)
+            )
+            elevation = 0f
+            cornerRadius = dpToPx(8)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dpToPx(8) }
+            setOnClickListener {
+                val tagged = tag as? DiscoveredServer ?: return@setOnClickListener
+                setManualFieldsExpanded(false)
+                binding.hostInput.setText(tagged.host)
+                binding.portInput.setText(tagged.port.toString())
+                setCredentialsEnabled(true)
+                binding.usernameInput.requestFocus()
+            }
+        }
+
+        // "Discovered" itself is always on screen - only the list under it
+        // (and so the border wrapping both) grows/shrinks as servers come
+        // and go.
+        TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
+        discoveredRows[server.name] = row
+        binding.discoveredServers.addView(row)
+        binding.discoveredServers.visibility = View.VISIBLE
+    }
+
+    override fun onServerLost(name: String) {
+        val row = discoveredRows.remove(name) ?: return
+
+        TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
+        binding.discoveredServers.removeView(row)
+
+        if (discoveredRows.isEmpty()) {
+            binding.discoveredServers.visibility = View.GONE
+        }
+    }
+
+    private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
 }
