@@ -20,6 +20,7 @@ from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
 from services.update_checker import check_for_update
 from services.user_store import UserStore
+from ui.app_icon import ICON_PNG_BASE64
 from ui.access_window import AccessWindow
 from ui.aux_window import AuxWindow
 from ui.logs_window import LogsWindow
@@ -1225,6 +1226,12 @@ class MainWindow:
         self.root = tk.Tk()
         self.root.title("CLMix")
         self.root.geometry("800x500")
+
+        # Keep a reference on root itself - iconphoto doesn't retain the
+        # PhotoImage, so a local-only reference gets garbage collected and
+        # the icon silently reverts to the Tk default.
+        self.root.icon_image = tk.PhotoImage(data=ICON_PNG_BASE64)
+        self.root.iconphoto(True, self.root.icon_image)
 
         self.worker = None
         self.access_window = None
