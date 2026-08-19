@@ -28,12 +28,12 @@ if (hasKeystoreProperties) {
 
 android {
     namespace = "com.clmix"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.clmix.myapp"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = verMajor * 10000 + verMinor * 100 + verPatch
         versionName = "$verMajor.$verMinor.$verPatch"
     }
@@ -74,6 +74,16 @@ android {
 
     kotlinOptions {
         jvmTarget = "1.8"
+    }
+}
+
+// AGP 8.10 requires a JDK 17+ toolchain to run the compiler; the machine's
+// default JVM here is a JRE with no javac, so pin compilation to a JDK
+// Gradle can auto-detect (or auto-download) instead of relying on whichever
+// JVM happens to launch the Gradle daemon.
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
     }
 }
 
