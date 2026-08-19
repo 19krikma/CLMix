@@ -3,3 +3,4 @@ websockets
 sv-ttk
 certifi
 zeroconf
+ifaddr
