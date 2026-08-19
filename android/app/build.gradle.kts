@@ -31,7 +31,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.clmix"
+        applicationId = "com.clmix.myapp"
         minSdk = 24
         targetSdk = 34
         versionCode = verMajor * 10000 + verMinor * 100 + verPatch
