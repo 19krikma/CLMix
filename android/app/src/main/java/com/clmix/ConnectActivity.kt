@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.transition.AutoTransition
@@ -27,6 +28,10 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     // Keyed by mDNS service name so a re-announcement updates the existing
     // row in place instead of piling up duplicates.
     private val discoveredRows = mutableMapOf<String, MaterialButton>()
+
+    // The row for whichever discovered server was last tapped - only this
+    // one is filled blue at a time, everything else stays outlined.
+    private var selectedRow: MaterialButton? = null
 
     // Stashed from the form (or a saved session) at connect time so
     // onConnected() knows how to log in once the socket is open, without
@@ -242,28 +247,29 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
             return
         }
 
-        // Filled with the app's blue accent (colorPrimary, via its
-        // day/night color resources) rather than transparent like
-        // manual_button/discovered_label - a found server is something to
-        // tap, and needs to stand out against those against the rest of
-        // the (otherwise all-transparent) bordered box.
+        // Outlined (transparent background, white border) like
+        // manual_button/discovered_label until tapped - only the row the
+        // user actually picks fills in with the app's blue accent, so the
+        // selection itself is what stands out rather than every row.
         val row = MaterialButton(this).apply {
             text = server.name
             tag = server
             textSize = 16f
             gravity = Gravity.CENTER
-            setTextColor(ContextCompat.getColor(context, R.color.on_primary))
-            backgroundTintList = ColorStateList.valueOf(
-                ContextCompat.getColor(context, R.color.primary)
-            )
             elevation = 0f
             cornerRadius = dpToPx(8)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dpToPx(8) }
+            setRowSelected(this, selected = false)
             setOnClickListener {
                 val tagged = tag as? DiscoveredServer ?: return@setOnClickListener
+
+                selectedRow?.let { setRowSelected(it, selected = false) }
+                setRowSelected(this, selected = true)
+                selectedRow = this
+
                 setManualFieldsExpanded(false)
                 binding.hostInput.setText(tagged.host)
                 binding.portInput.setText(tagged.port.toString())
@@ -284,11 +290,32 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     override fun onServerLost(name: String) {
         val row = discoveredRows.remove(name) ?: return
 
+        if (row === selectedRow) selectedRow = null
+
         TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
         binding.discoveredServers.removeView(row)
 
         if (discoveredRows.isEmpty()) {
             binding.discoveredServers.visibility = View.GONE
+        }
+    }
+
+    // Unselected: transparent fill with a white border, matching the
+    // discovered/manual boxes around it. Selected: filled with the app's
+    // blue accent (colorPrimary, via its day/night color resources) so the
+    // chosen server stands out.
+    private fun setRowSelected(row: MaterialButton, selected: Boolean) {
+        if (selected) {
+            row.strokeWidth = 0
+            row.backgroundTintList = ColorStateList.valueOf(
+                ContextCompat.getColor(row.context, R.color.primary)
+            )
+            row.setTextColor(ContextCompat.getColor(row.context, R.color.on_primary))
+        } else {
+            row.strokeWidth = dpToPx(1)
+            row.strokeColor = ColorStateList.valueOf(Color.WHITE)
+            row.backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+            row.setTextColor(Color.WHITE)
         }
     }
 
