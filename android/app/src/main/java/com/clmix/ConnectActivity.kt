@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.transition.AutoTransition
@@ -14,9 +15,12 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.clmix.databinding.ActivityConnectBinding
 import com.google.android.material.button.MaterialButton
 
@@ -49,8 +53,29 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         binding = ActivityConnectBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Android 15+ (targetSdk 35+) draws this activity edge-to-edge by
+        // default now - pad the scrolling content by the system bar insets
+        // (on top of its own 28dp padding) so the title isn't under the
+        // status bar and the status label isn't under the nav bar/gesture
+        // strip.
+        val contentBasePadding = Rect(
+            binding.content.paddingLeft, binding.content.paddingTop,
+            binding.content.paddingRight, binding.content.paddingBottom
+        )
+        ViewCompat.setOnApplyWindowInsetsListener(binding.content) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(
+                contentBasePadding.left + bars.left,
+                contentBasePadding.top + bars.top,
+                contentBasePadding.right + bars.right,
+                contentBasePadding.bottom + bars.bottom
+            )
+            insets
+        }
 
         prefs = getSharedPreferences("connection", MODE_PRIVATE)
         val host = prefs.getString("host", "") ?: ""

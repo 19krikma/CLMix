@@ -6,7 +6,10 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.clmix.databinding.ActivityAuxListBinding
@@ -18,8 +21,29 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         binding = ActivityAuxListBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Android 15+ (targetSdk 35+) draws this activity edge-to-edge by
+        // default now - keep the title clear of the status bar, and grow
+        // the recycler's existing bottom padding (it's already
+        // clipToPadding=false, for the last row to stay reachable above
+        // the nav bar/gesture strip) by the same amount.
+        val titleBaseTopPadding = binding.auxTitle.paddingTop
+        val recyclerBaseBottomPadding = binding.auxRecycler.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            binding.auxTitle.setPadding(
+                binding.auxTitle.paddingLeft, titleBaseTopPadding + bars.top,
+                binding.auxTitle.paddingRight, binding.auxTitle.paddingBottom
+            )
+            binding.auxRecycler.setPadding(
+                binding.auxRecycler.paddingLeft, binding.auxRecycler.paddingTop,
+                binding.auxRecycler.paddingRight, recyclerBaseBottomPadding + bars.bottom
+            )
+            insets
+        }
 
         @Suppress("UNCHECKED_CAST")
         auxes = intent.getSerializableExtra("auxes") as? ArrayList<AuxBus> ?: arrayListOf()
