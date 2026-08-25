@@ -33,6 +33,9 @@ class PresetStore:
         except OSError as ex:
             log("error", f"Failed to save presets: {ex!r}")
 
+    def reload(self):
+        self.presets = self._load()
+
     def list_presets(self):
         return sorted(self.presets.items())
 

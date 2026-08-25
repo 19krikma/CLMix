@@ -49,6 +49,9 @@ class UserStore:
         except OSError as ex:
             log("error", f"Failed to save users: {ex!r}")
 
+    def reload(self):
+        self.users = self._load()
+
     def list_users(self):
         return sorted(self.users.items())
 
