@@ -38,9 +38,18 @@ struct ConnectView: View {
                             credentialsEnabled = true
                             selectedServerID = server.id
                         }
-                        .foregroundStyle(selectedServerID == server.id ? .white : .accentColor)
+                        .foregroundStyle(.white)
                         .listRowBackground(
-                            selectedServerID == server.id ? Color.accentColor : nil
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selectedServerID == server.id ? Color.accentColor : Color.clear)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(
+                                            selectedServerID == server.id ? Color.clear : Color.white,
+                                            lineWidth: 1
+                                        )
+                                )
+                                .padding(.vertical, 2)
                         )
                     }
                 }
