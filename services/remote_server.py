@@ -3,6 +3,7 @@ import json
 import secrets
 import socket
 import threading
+import time
 
 import ifaddr
 import websockets
@@ -13,6 +14,14 @@ from services.log_store import log
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
 PUSH_INTERVAL_SECONDS = 0.15
+
+# How long a session token stays redeemable after it was last used. This
+# is a *sliding* window, refreshed on every successful token login, so an
+# app in active use through a long show day never expires mid-session -
+# only one left unused (a phone sitting in a drawer, or a lost/stolen one)
+# does. Tokens are bearer credentials with no password re-check behind
+# them, so they shouldn't stay valid indefinitely the way they did before.
+SESSION_TTL_SECONDS = 12 * 60 * 60
 
 # Advertised over mDNS/DNS-SD so phone apps can find this server on the
 # local network instead of the user typing in an IP - Android's NsdManager
@@ -41,6 +50,11 @@ class RemoteServer:
     token table lives only in memory - it's intentionally wiped on every
     RemoteServer restart (desktop app reconnect/relaunch), at which point
     a resuming client just falls back to a normal password login.
+
+    Tokens also age out on their own after SESSION_TTL_SECONDS of disuse
+    (see that constant), so one left on a phone that stops being used
+    can't be redeemed indefinitely just because the desktop app happens to
+    stay up.
     """
 
     def __init__(self, get_worker, command_queue, port, user_store,
@@ -328,7 +342,12 @@ class RemoteServer:
             return
 
         new_token = secrets.token_urlsafe(32)
-        self._sessions[new_token] = {"username": username, "entry": entry}
+        self._prune_expired_sessions()
+        self._sessions[new_token] = {
+            "username": username,
+            "entry": entry,
+            "expires_at": time.monotonic() + SESSION_TTL_SECONDS,
+        }
 
         state["user"] = username
         state["permission"] = entry
@@ -349,16 +368,28 @@ class RemoteServer:
     async def _handle_token_login(self, websocket, state, token):
         session = self._sessions.get(token)
 
+        # An expired token is dropped here rather than left to the next
+        # prune, so a token that's aged out can never be redeemed even if
+        # nothing else triggers a sweep first.
+        if session is not None and time.monotonic() >= session["expires_at"]:
+            del self._sessions[token]
+            session = None
+
         if session is None:
             # Most commonly: the desktop app (and with it, RemoteServer's
             # whole in-memory session table) restarted since this token
-            # was issued. Not a wrong-password error - the client should
-            # fall back to its normal login form, not show one.
+            # was issued, or the token aged past SESSION_TTL_SECONDS. Not
+            # a wrong-password error - the client should fall back to its
+            # normal login form, not show one.
             await self._send(
                 websocket,
                 {"type": "login_result", "ok": False, "message": "Session expired"}
             )
             return
+
+        # Sliding window: using a token renews it, so an app in continuous
+        # use never expires out from under the user mid-show.
+        session["expires_at"] = time.monotonic() + SESSION_TTL_SECONDS
 
         username = session["username"]
         entry = session["entry"]
@@ -377,6 +408,26 @@ class RemoteServer:
             "presets": entry.get("presets", False),
             "token": token,
         })
+
+    def _prune_expired_sessions(self):
+        """Drops aged-out tokens from the session table.
+
+        Called when minting a new token rather than on a timer - the table
+        only grows at that moment, and this server sees a handful of
+        logins a day at most, so there's nothing to gain from a background
+        sweep.
+        """
+        now = time.monotonic()
+        expired = [
+            token for token, session in self._sessions.items()
+            if now >= session["expires_at"]
+        ]
+
+        for token in expired:
+            del self._sessions[token]
+
+        if expired:
+            log("info", f"Pruned {len(expired)} expired session token(s)")
 
     @staticmethod
     def _snapshot_allowed(worker, entry):
