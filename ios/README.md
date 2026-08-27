@@ -68,6 +68,7 @@ live testing, so expect to need some hands-on adjustment there.
 | `AuxTaper.swift` | `AuxTaper.kt` | dB <-> fader-fraction taper math |
 | `PanFormat.swift` | `PanFormat.kt` | Pan value <-> "C"/"L35"/"R20" labels |
 | `MixerClient.swift` | `MixerClient.kt` | WebSocket client, JSON protocol |
+| `SessionStore.swift` | `SessionStore.kt` | Keychain-backed session token, so a relaunch resumes instead of asking for the password again |
 | `MdnsDiscovery.swift` | `MdnsDiscovery.kt` | Finds CLMix servers on the LAN via Bonjour/mDNS |
 | `AppModel.swift` | `ConnectActivity`/`AuxListActivity`/`MixerActivity` | Navigation + mixer state |
 | `ConnectView.swift` | `ConnectActivity` | Login screen |

@@ -98,7 +98,10 @@ struct ConnectView: View {
             )
         }
         .navigationTitle("CLMix")
-        .onAppear { model.startDiscovery() }
+        .onAppear {
+            model.startDiscovery()
+            model.resumeSessionIfPossible()
+        }
         .onDisappear { model.stopDiscovery() }
     }
 }
