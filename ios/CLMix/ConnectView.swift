@@ -16,6 +16,12 @@ struct ConnectView: View {
     @State private var showManualFields = false
     @State private var credentialsEnabled = false
 
+    // The id of whichever discovered server was last tapped - only that
+    // row fills with the accent color at a time, mirroring Android's
+    // ConnectActivity (setRowSelected): every other row stays in its
+    // plain, unselected appearance instead of every row being filled.
+    @State private var selectedServerID: String?
+
     var body: some View {
         Form {
             if !model.discoveredServers.isEmpty {
@@ -30,7 +36,21 @@ struct ConnectView: View {
                             host = server.host
                             port = String(server.port)
                             credentialsEnabled = true
+                            selectedServerID = server.id
                         }
+                        .foregroundStyle(.white)
+                        .listRowBackground(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selectedServerID == server.id ? Color.accentColor : Color.clear)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(
+                                            selectedServerID == server.id ? Color.clear : Color.white,
+                                            lineWidth: 1
+                                        )
+                                )
+                                .padding(.vertical, 2)
+                        )
                     }
                 }
             }
