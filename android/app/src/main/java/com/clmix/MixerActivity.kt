@@ -16,10 +16,22 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.clmix.databinding.ActivityMixerBinding
 
+private const val STATE_AUX_INDEX = "auxIndex"
+private const val STATE_AUX_NAME = "auxName"
+private const val STATE_BANK = "bank"
+
 class MixerActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerBinding
     private lateinit var adapter: ChannelAdapter
     private var auxIndex: Int = -1
+
+    // Null means "All". Tracked (rather than just read off the spinner)
+    // so it can be carried across the activity rebuild a light/dark
+    // switch causes - the spinner's own saved state can't restore it,
+    // since its adapter isn't populated until onBanks arrives well after
+    // the view hierarchy is restored.
+    private var selectedBank: String? = null
+
     private var smoothEnabled = false
     private val draggingChannels = mutableSetOf<Int>()
     private val dragReleasedAt = mutableMapOf<Int, Long>()
@@ -33,8 +45,16 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         setContentView(binding.root)
         enterFullScreen()
 
-        auxIndex = intent.getIntExtra("auxIndex", -1)
-        title = intent.getStringExtra("auxName") ?: "Aux"
+        // Prefer the saved state over the intent extras: switching aux
+        // from the drawer updates these fields but not the intent that
+        // started this activity, so a rebuild (a light/dark switch, or
+        // the phone's own at sunset) would otherwise silently drop the
+        // user back on whichever aux they first opened.
+        auxIndex = savedInstanceState?.getInt(STATE_AUX_INDEX)
+            ?: intent.getIntExtra("auxIndex", -1)
+        title = savedInstanceState?.getString(STATE_AUX_NAME)
+            ?: intent.getStringExtra("auxName") ?: "Aux"
+        selectedBank = savedInstanceState?.getString(STATE_BANK)
 
         @Suppress("UNCHECKED_CAST")
         val auxes = intent.getSerializableExtra("auxes") as? ArrayList<AuxBus> ?: arrayListOf()
@@ -46,7 +66,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
                 draggingChannels.remove(channel)
                 dragReleasedAt[channel] = System.currentTimeMillis()
             },
-            onPanButtonClicked = { channel -> showPanSheet(channel) }
+            onPanButtonClicked = { channel -> showPanSheet(channel) },
+            onMuteToggled = { channel, muted -> MixerClient.setMute(channel, muted) }
         )
 
         binding.channelRecycler.layoutManager =
@@ -70,7 +91,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
                 parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long
             ) {
                 val selected = parent?.getItemAtPosition(position) as? String ?: return
-                MixerClient.selectBank(if (selected == "All") null else selected)
+                selectedBank = if (selected == "All") null else selected
+                MixerClient.selectBank(selectedBank)
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -92,6 +114,20 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.presetSaveButton.setOnClickListener { showPresetSaveSheet() }
         binding.presetLoadButton.setOnClickListener { showPresetLoadSheet() }
 
+        // Checked state first, listener second - assigning isChecked
+        // fires the listener, which would otherwise save a "choice" the
+        // user never made and pin the app to whatever the system theme
+        // happened to be. The switch also carries saveEnabled="false" for
+        // the same reason: view-state restore runs after this, with the
+        // listener already attached, so a rebuild would replay its
+        // restored state as a fresh user choice - pinning someone who had
+        // never touched it. ThemeStore is the authority on what this
+        // shows, and it is read fresh on every create anyway.
+        binding.darkModeSwitch.isChecked = ThemeStore.isDarkMode(this)
+        binding.darkModeSwitch.setOnCheckedChangeListener { _, isChecked ->
+            ThemeStore.setDarkMode(this, isChecked)
+        }
+
         binding.logoutButton.setOnClickListener { logout() }
 
         binding.smoothButton.setOnClickListener {
@@ -100,6 +136,13 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             updateSmoothButtonAppearance()
         }
         updateSmoothButtonAppearance()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(STATE_AUX_INDEX, auxIndex)
+        outState.putString(STATE_AUX_NAME, title?.toString())
+        outState.putString(STATE_BANK, selectedBank)
     }
 
     private fun updateSmoothButtonAppearance() {
@@ -115,9 +158,14 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     override fun onResume() {
         super.onResume()
         enterFullScreen()
-        MixerClient.listener = this
+        MixerClient.claimListener(this)
         MixerClient.selectAux(auxIndex)
         MixerClient.requestBanks()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        MixerClient.releaseListener(this)
     }
 
     // Hide the status/navigation bars so the mixer screen - where every
@@ -244,6 +292,15 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         val items = listOf("All") + banks
         binding.bankSpinner.adapter =
             ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, items)
+
+        // Put the spinner back on the bank that was showing before a
+        // rebuild. Selecting it re-fires the listener, which re-sends
+        // select_bank for the same bank - harmless, and it means the
+        // server's idea of the filter always matches the spinner's.
+        val index = items.indexOf(selectedBank)
+        if (index > 0) {
+            binding.bankSpinner.setSelection(index)
+        }
     }
 
     override fun onLevels(aux: Int, channels: List<ChannelState>) {

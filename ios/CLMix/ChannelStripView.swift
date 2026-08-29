@@ -33,11 +33,15 @@ struct ChannelStripView: View {
             .buttonStyle(.bordered)
             .frame(maxWidth: .infinity)
 
-            // Status indicator only, driven entirely by channel.muted from
-            // the mixer - mute is never toggled from a phone, so this is a
-            // plain Text (not a Button, which would stay VoiceOver-
-            // actionable even with allowsHitTesting(false)), styled by
-            // hand to match the borderedProminent look it replaces.
+            // Status indicator only, driven entirely by channel.muted
+            // from the server - which now reports whether this channel is
+            // in *this aux's* mix (the console's per-send on/off flag),
+            // not the console-wide channel mute it used to. Toggling it
+            // is implemented on Android only so far; until this side
+            // catches up it stays a plain Text (not a Button, which would
+            // stay VoiceOver-actionable even with allowsHitTesting(false)),
+            // styled by hand to match the borderedProminent look it
+            // replaces.
             Text(channel.muted ? "Muted" : "Mute")
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)

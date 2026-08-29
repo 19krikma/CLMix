@@ -39,7 +39,7 @@ interface MixerClientListener {
  * Talks to the CLMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
  * protocol: login/logout/list_auxes/list_banks/select_aux/select_bank/
- * set_level/set_pan/list_presets/save_preset/load_preset out,
+ * set_level/set_pan/set_mute/list_presets/save_preset/load_preset out,
  * login_result/auxes/banks/levels/presets/preset_saved/preset_loaded/error
  * in.
  *
@@ -58,7 +58,30 @@ object MixerClient {
     private var webSocket: WebSocket? = null
     private var appContext: Context? = null
 
-    var listener: MixerClientListener? = null
+    // Screens claim this on resume and release it on pause. It is a
+    // stack rather than a single slot because a configuration change -
+    // the drawer's Dark mode switch, or the phone's own switchover at
+    // sunset - rebuilds every activity in the task, and the ones sitting
+    // in the back stack each run onResume as they relaunch, in an order
+    // Android does not guarantee. With one slot, whichever background
+    // screen happened to resume last captured the push stream: pushes
+    // went to ConnectActivity, which ignores them, and the mixer grid sat
+    // empty until the connection was rebuilt. Releasing removes only that
+    // claimant, so the foreground screen's claim is still underneath and
+    // takes over again the moment the transient one lets go.
+    private val listeners = mutableListOf<MixerClientListener>()
+
+    val listener: MixerClientListener?
+        get() = listeners.lastOrNull()
+
+    fun claimListener(listener: MixerClientListener) {
+        listeners.remove(listener)
+        listeners.add(listener)
+    }
+
+    fun releaseListener(listener: MixerClientListener) {
+        listeners.remove(listener)
+    }
     var isConnected: Boolean = false
         private set
 
@@ -67,6 +90,15 @@ object MixerClient {
     // check (which still applies regardless of what the client shows).
     var presetsAllowed: Boolean = false
         private set
+
+    // The one protocol error callers treat specially rather than just
+    // displaying: the account is scoped to a different snapshot than the
+    // one currently live on the console, which is a standing permissions
+    // problem rather than anything retrying will fix. Exposed as a
+    // constant so ConnectActivity can recognize it without re-hardcoding
+    // the wording that friendlyServerMessage below produces.
+    const val SNAPSHOT_DENIED =
+        "Access denied: not permitted for the current snapshot"
 
     // Called once from CLMixApplication.onCreate() - gives this singleton
     // an application Context (never an Activity one, to avoid leaking it)
@@ -166,6 +198,15 @@ object MixerClient {
             .put("pan", pan)
     )
 
+    // Mutes the channel in the selected aux mix only (the server writes
+    // the console's per-send on/off flag) - not a console-wide mute.
+    fun setMute(channel: Int, muted: Boolean) = send(
+        JSONObject()
+            .put("action", "set_mute")
+            .put("channel", channel)
+            .put("muted", muted)
+    )
+
     fun requestPresets() = send(JSONObject().put("action", "list_presets"))
 
     fun savePreset(name: String) = send(
@@ -261,7 +302,7 @@ object MixerClient {
 // they can't be mistaken for a network problem. Anything not recognized here is
 // already a plain sentence from the server, so it's passed through unchanged.
 private fun friendlyServerMessage(raw: String): String = when (raw) {
-    "Not permitted for the current snapshot" -> "Access denied: not permitted for the current snapshot"
+    "Not permitted for the current snapshot" -> MixerClient.SNAPSHOT_DENIED
     "Not permitted for this aux" -> "Access denied: not permitted for this aux"
     "Not permitted for presets" -> "Access denied: not permitted for presets"
     "Mixer not connected" -> "Mixer not connected - try again shortly"

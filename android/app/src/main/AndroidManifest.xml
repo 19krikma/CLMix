@@ -17,10 +17,18 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.CLMix">
 
+        <!-- uiMode is deliberately absent from every configChanges list
+             below: these screens colour a lot of their views from code
+             (mute/pan tints, the Fine button, discovered-server rows),
+             and those only re-read the day/night colours on a rebuild.
+             Handling a light/dark switch in-place would leave half the
+             UI wearing the old palette - so let the framework recreate
+             the activity instead, for the drawer's Dark mode switch and
+             for the phone's own sunset switchover alike. -->
         <activity
             android:name=".ConnectActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode|keyboardHidden">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -30,11 +38,11 @@
         <activity
             android:name=".AuxListActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode|keyboardHidden" />
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboardHidden" />
         <activity
             android:name=".MixerActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode|keyboardHidden" />
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboardHidden" />
 
         <service
             android:name=".MixerConnectionService"

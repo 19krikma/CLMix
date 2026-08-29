@@ -2,7 +2,8 @@
 
 Answers just enough of the OSC protocol MixerWorker (ui/main_window.py)
 speaks during its boot sequence and while connected - console/channel/aux
-discovery, snapshot info, and get/set of mute/level/pan per aux send -
+discovery, snapshot info, and get/set of channel mute plus per-aux-send
+level/pan/on -
 to let the desktop app (and, through it, phone clients via RemoteServer)
 be exercised end-to-end. Simulates:
 
@@ -83,6 +84,10 @@ class MockMixer:
         auxes = range(1, len(AUX_NAMES) + 1)
         self.levels = {(channel, aux): -10.0 for channel in channels for aux in auxes}
         self.pans = {(channel, aux): 0.5 for channel in channels for aux in auxes}
+        # Per-aux-send on/off (what the phone apps' Mute button drives),
+        # distinct from self.mutes below - the console-wide channel mute
+        # the desktop's own Mute buttons drive.
+        self.send_ons = {(channel, aux): 1.0 for channel in channels for aux in auxes}
         self.mutes = {channel: 0.0 for channel in channels}
 
     def run(self):
@@ -148,6 +153,9 @@ class MockMixer:
         elif address.endswith("/send_pan"):
             self.send(address, [self.pans[self._channel_aux_from(address)]])
 
+        elif address.endswith("/send_on"):
+            self.send(address, [self.send_ons[self._channel_aux_from(address)]])
+
     def handle_set(self, address, args):
         if not args:
             return
@@ -160,6 +168,8 @@ class MockMixer:
             self.levels[self._channel_aux_from(address)] = value
         elif address.endswith("/send_pan"):
             self.pans[self._channel_aux_from(address)] = value
+        elif address.endswith("/send_on"):
+            self.send_ons[self._channel_aux_from(address)] = value
         else:
             return
 

@@ -40,9 +40,16 @@ class RemoteServer:
 
     Once logged in, a client picks an aux bus (and optionally a bank to
     narrow the channel list) and from then on receives periodic level/
-    mute updates for that selection, and can push level/mute changes
-    back - both translated to/from the same OSC commands the desktop
-    UI uses via MixerWorker's cache and command_queue.
+    pan/mute updates for that selection, and can push level/pan/mute
+    changes back - all translated to/from the same OSC commands the
+    desktop UI uses via MixerWorker's cache and command_queue.
+
+    "Mute" here is deliberately the console's per-send on/off flag
+    (/Input_Channels/{n}/Aux_Send/{a}/send_on), not the channel mute the
+    desktop's own Mute buttons drive (/Input_Channels/{n}/mute). Accounts
+    are scoped to a single aux, so a phone muting a channel has to affect
+    only that operator's own mix - a channel mute would cut the source
+    everywhere at once, FOH and every other performer's wedge included.
 
     A successful username/password login also mints an opaque session
     token, so a phone app that was killed and relaunched can resend just
@@ -254,12 +261,11 @@ class RemoteServer:
                 return
 
             state["aux"] = aux
-            self._request_levels_and_pans(worker, state)
+            self._request_channel_states(worker, state)
 
         elif action == "select_bank":
             state["bank"] = msg.get("bank")
-            self._request_levels_and_pans(worker, state)
-            self._request_mutes(worker, state)
+            self._request_channel_states(worker, state)
 
         elif action == "set_level":
             if not self._aux_allowed(worker, entry, state.get("aux")):
@@ -278,6 +284,15 @@ class RemoteServer:
                 return
 
             self._set_pan(state, msg.get("channel"), msg.get("pan"))
+
+        elif action == "set_mute":
+            if not self._aux_allowed(worker, entry, state.get("aux")):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for this aux"}
+                )
+                return
+
+            self._set_mute(state, msg.get("channel"), msg.get("muted"))
 
         elif action == "list_presets":
             if not entry.get("presets", False):
@@ -474,23 +489,22 @@ class RemoteServer:
             except websockets.ConnectionClosed:
                 return
 
-    def _request_levels_and_pans(self, worker, state):
+    # Primes the cache for everything _channel_states reports. The
+    # console only broadcasts a parameter when it changes, so without an
+    # explicit query first a channel nobody has touched this session has
+    # no cached value at all - which is what used to leave every strip
+    # reading as unmuted until something happened to move.
+    def _request_channel_states(self, worker, state):
         aux = state.get("aux")
 
         if aux is None:
             return
 
         for channel in self._channels_for(worker, state.get("bank")):
-            self.command_queue.put(
-                f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level/?"
-            )
-            self.command_queue.put(
-                f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan/?"
-            )
-
-    def _request_mutes(self, worker, state):
-        for channel in self._channels_for(worker, state.get("bank")):
-            self.command_queue.put(f"/Input_Channels/{channel}/mute/?")
+            prefix = f"/Input_Channels/{channel}/Aux_Send/{aux}"
+            self.command_queue.put(f"{prefix}/send_level/?")
+            self.command_queue.put(f"{prefix}/send_pan/?")
+            self.command_queue.put(f"{prefix}/send_on/?")
 
     def _set_level(self, state, channel, level):
         aux = state.get("aux")
@@ -512,6 +526,22 @@ class RemoteServer:
         wire_pan = self._ui_pan_to_wire(float(pan))
         self.command_queue.put(
             f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {wire_pan}"
+        )
+
+    # send_on is the inverse of mute: 0.0 drops the channel out of this
+    # aux mix, 1.0 puts it back. Nothing is written to the cache here -
+    # the console echoes the change back like any other parameter move,
+    # and the push loop reports it from there, so the phone only ever
+    # shows state the console has actually confirmed.
+    def _set_mute(self, state, channel, muted):
+        aux = state.get("aux")
+
+        if aux is None or channel is None or muted is None:
+            return
+
+        send_on = 0.0 if muted else 1.0
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on {send_on}"
         )
 
     async def _save_preset(self, websocket, worker, state, name):
@@ -632,9 +662,13 @@ class RemoteServer:
             pan = cls._wire_pan_to_ui(worker.cache[pan_key][0]) \
                 if pan_key in worker.cache else None
 
-            mute_key = f"/Input_Channels/{channel}/mute"
-            muted = bool(worker.cache[mute_key][0]) \
-                if mute_key in worker.cache else False
+            # Per-aux, not the console-wide /Input_Channels/{n}/mute -
+            # see the class docstring for why. Absent from the cache
+            # (nothing has reported this send yet) reads as on, matching
+            # a console's own default.
+            send_on_key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on"
+            muted = not bool(worker.cache[send_on_key][0]) \
+                if send_on_key in worker.cache else False
 
             states.append({
                 "channel": channel,
