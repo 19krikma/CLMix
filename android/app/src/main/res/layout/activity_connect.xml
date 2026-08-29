@@ -6,6 +6,23 @@
     android:layout_height="match_parent"
     android:fillViewport="true">
 
+    <!-- The banner is a sibling *under* the content rather than the
+         content's first row: its fade has to run behind the Discovered
+         and Manual boxes, which only works if they're drawn on top of
+         it. Both scroll together, so the artwork stays pinned to the
+         top of the form rather than to the top of the window. -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <com.clmix.FadingBannerView
+            android:id="@+id/banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:src="@drawable/clmix_feature_graphic"
+            android:importantForAccessibility="no" />
+
     <LinearLayout
         android:id="@+id/content"
         android:layout_width="match_parent"
@@ -13,23 +30,6 @@
         android:orientation="vertical"
         android:padding="28dp"
         android:gravity="center_vertical">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textSize="28sp"
-            android:textStyle="bold"
-            android:textColor="?attr/colorOnBackground"
-            android:layout_marginBottom="4dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Remote Aux Control"
-            android:textSize="14sp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="28dp" />
 
         <LinearLayout
             android:id="@+id/discovered_container"
@@ -213,5 +213,7 @@
         </FrameLayout>
 
     </LinearLayout>
+
+    </FrameLayout>
 
 </ScrollView>
