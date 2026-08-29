@@ -1,5 +1,18 @@
 import SwiftUI
 
+/// Reports the Discovered/Manual boxes' top-edge Y positions (in the
+/// "connectBanner" coordinate space) up to ConnectView, so it can tell
+/// FadingBannerView exactly where its fade should start and end -
+/// mirrors Android's ConnectActivity reading
+/// discoveredContainer.top/manualContainer.top directly off the views.
+private struct BoxTopPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGFloat] = [:]
+
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 struct ConnectView: View {
     @EnvironmentObject var model: AppModel
 
@@ -22,42 +35,62 @@ struct ConnectView: View {
     // plain, unselected appearance instead of every row being filled.
     @State private var selectedServerID: String?
 
+    // Where the banner's fade should run, in the ScrollView's own content
+    // coordinates - kept live by the Discovered/Manual boxes' own
+    // preference reports below, so the fade always finishes exactly at
+    // Manual's top regardless of how many servers Discovered is showing.
+    @State private var discoveredTop: CGFloat = 0
+    @State private var manualTop: CGFloat = 1
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("CLMix")
-                    .font(.system(size: 28, weight: .bold))
-                    .padding(.bottom, 4)
-                Text("Remote Aux Control")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 28)
+        GeometryReader { outerGeo in
+            // The banner replaced the old "CLMix" / "Remote Aux Control"
+            // title block entirely - the form now starts right where the
+            // artwork's solid-black tail begins, same as Android's
+            // bannerOffsetFor.
+            let contentTopPadding = outerGeo.size.width
+                / FadingBannerView.aspectRatio * FadingBannerView.tailStart
 
-                discoveredBox
-                    .padding(.bottom, 18)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    discoveredBox
+                        .background(topReader("discovered"))
+                        .padding(.bottom, 18)
 
-                manualBox
-                    .padding(.bottom, 18)
+                    manualBox
+                        .background(topReader("manual"))
+                        .padding(.bottom, 18)
 
-                // Sits immediately above the credentials it refers to,
-                // rather than below the button - mirrors Android's
-                // message_label moving there in ConnectActivity.
-                if !model.statusMessage.isEmpty {
-                    Text(model.statusMessage)
-                        .font(.system(size: 14))
-                        .foregroundStyle(model.statusIsError ? Color.clmixMuteActive : Color.secondary)
-                        .padding(.bottom, 12)
+                    // Sits immediately above the credentials it refers to,
+                    // rather than below the button - mirrors Android's
+                    // message_label moving there in ConnectActivity.
+                    if !model.statusMessage.isEmpty {
+                        Text(model.statusMessage)
+                            .font(.system(size: 14))
+                            .foregroundStyle(model.statusIsError ? Color.clmixMuteActive : Color.secondary)
+                            .padding(.bottom, 12)
+                    }
+
+                    credentialField("Username", text: $username, isSecure: false)
+                        .padding(.bottom, 14)
+                    credentialField("Password", text: $password, isSecure: true)
+                        .padding(.bottom, 24)
+
+                    loginButton
                 }
-
-                credentialField("Username", text: $username, isSecure: false)
-                    .padding(.bottom, 14)
-                credentialField("Password", text: $password, isSecure: true)
-                    .padding(.bottom, 24)
-
-                loginButton
+                .padding(.horizontal, 28)
+                .padding(.top, contentTopPadding)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity)
+                .background(alignment: .top) {
+                    FadingBannerView(fadeStart: discoveredTop, fadeEnd: manualTop)
+                }
             }
-            .padding(28)
-            .frame(maxWidth: .infinity)
+            .coordinateSpace(name: "connectBanner")
+            .onPreferenceChange(BoxTopPreferenceKey.self) { tops in
+                if let top = tops["discovered"] { discoveredTop = top }
+                if let top = tops["manual"] { manualTop = top }
+            }
         }
         .background(Color.clmixBackground)
         .onAppear {
@@ -65,6 +98,15 @@ struct ConnectView: View {
             model.resumeSessionIfPossible()
         }
         .onDisappear { model.stopDiscovery() }
+    }
+
+    private func topReader(_ key: String) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: BoxTopPreferenceKey.self,
+                value: [key: proxy.frame(in: .named("connectBanner")).minY]
+            )
+        }
     }
 
     // Always on screen, like Android's discovered_container - only the
