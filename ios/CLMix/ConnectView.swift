@@ -93,6 +93,16 @@ struct ConnectView: View {
             }
         }
         .background(Color.clmixBackground)
+        // The banner runs to the very top of the screen, under the status
+        // bar/notch, same as Android's enableEdgeToEdge() - the clock and
+        // status icons sit over the artwork itself rather than over an
+        // opaque bar. Only the top edge: the bottom still respects the
+        // home indicator's safe area, same as before. Unlike Android,
+        // there's no separate call needed to pick light-vs-dark status
+        // bar content here - iOS already switches that automatically with
+        // the color scheme, which is also what picks which banner (dark
+        // artwork at night, light by day) is showing.
+        .ignoresSafeArea(edges: .top)
         .onAppear {
             model.startDiscovery()
             model.resumeSessionIfPossible()
