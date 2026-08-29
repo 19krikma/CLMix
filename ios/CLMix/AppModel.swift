@@ -14,7 +14,21 @@ enum AppScreen: Equatable {
 final class AppModel: NSObject, ObservableObject {
     @Published var screen: AppScreen = .connect
     @Published var statusMessage = ""
+    // True while statusMessage describes a failure rather than progress -
+    // ConnectView reads it to color the message red instead of secondary.
+    @Published var statusIsError = false
+    // True while the credentials on screen were rejected - the one thing
+    // typing into either field clears (see clearError()). Mirrors
+    // Android's ConnectActivity.credentialsRejected.
+    @Published var credentialsRejected = false
     @Published var isConnecting = false
+    // A failure reported on the Login button itself rather than the
+    // message line - "Can't Reach Server" (the socket never opened) or
+    // "No Snapshot Access" (a standing permissions problem). Holds for
+    // buttonResultHoldSeconds and then clears itself. Mirrors Android's
+    // ConnectActivity.showButtonResult/resetButton.
+    @Published var buttonResultLabel: String?
+    @Published var buttonResultIsRejection = false
     @Published var auxes: [AuxBus] = []
     @Published var banks: [String] = []
     @Published var channels: [ChannelState] = []
@@ -48,6 +62,25 @@ final class AppModel: NSObject, ObservableObject {
     private var pendingPresetSaveCompletion: (() -> Void)?
     private var pendingPresetLoadCompletion: (() -> Void)?
 
+    // How long a failure stays on the Login button before it turns back
+    // into "Login" - mirrors Android's ConnectActivity.RESULT_HOLD_MS.
+    private let buttonResultHoldSeconds: UInt64 = 5
+    private var buttonResultTask: Task<Void, Never>?
+
+    // Until a push agrees with what a mute tap asked for, pushes for that
+    // channel's mute are ignored, so an in-flight one describing the
+    // pre-tap state can't flip the button back and forth. After
+    // muteConfirmTimeout without agreement the request is assumed lost -
+    // the console's own state wins again. Resolved in
+    // mixerDidReceiveLevels, mirroring Android's
+    // ChannelAdapter.effectiveMuted (resolved on every push/rebind there).
+    private struct PendingMute {
+        let expected: Bool
+        let sentAt: Date
+    }
+    private var pendingMutes: [Int: PendingMute] = [:]
+    private let muteConfirmTimeout: TimeInterval = 2
+
     override init() {
         super.init()
         MixerClient.shared.delegate = self
@@ -57,9 +90,48 @@ final class AppModel: NSObject, ObservableObject {
         pendingToken = nil
         pendingUsername = username
         pendingPassword = password
+        resetButton()
         isConnecting = true
+        statusIsError = false
+        credentialsRejected = false
         statusMessage = "Connecting..."
         MixerClient.shared.connect(host: host, port: port)
+    }
+
+    /// Reports a failure on the Login button itself: the spinner gives
+    /// way to a short label, which holds briefly and then turns back into
+    /// "Login" so the user can just try again. Mirrors Android's
+    /// ConnectActivity.showButtonResult.
+    private func showButtonResult(_ label: String, isRejection: Bool) {
+        isConnecting = false
+        buttonResultTask?.cancel()
+
+        buttonResultLabel = label
+        buttonResultIsRejection = isRejection
+
+        buttonResultTask = Task { [weak self, buttonResultHoldSeconds] in
+            try? await Task.sleep(nanoseconds: buttonResultHoldSeconds * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.resetButton()
+        }
+    }
+
+    private func resetButton() {
+        buttonResultTask?.cancel()
+        buttonResultTask = nil
+        buttonResultLabel = nil
+        buttonResultIsRejection = false
+    }
+
+    /// The one thing typing into either credential field does while an
+    /// error is showing: clears both the message and the fields' rejected
+    /// styling, without otherwise touching connection state. Mirrors
+    /// Android's ConnectActivity.clearErrorOnType.
+    func clearError() {
+        guard credentialsRejected || statusIsError else { return }
+        statusMessage = ""
+        statusIsError = false
+        credentialsRejected = false
     }
 
     /// Silently resumes a previous session instead of making the user log
@@ -112,6 +184,19 @@ final class AppModel: NSObject, ObservableObject {
         MixerClient.shared.setPan(channel: channel, pan: pan)
     }
 
+    /// Flips the channel's mute button straight away rather than waiting
+    /// for the console's echo to travel back through the desktop app's
+    /// cache and the next push (~150ms at best, longer over a busy wifi) -
+    /// but the server stays the authority on what's actually muted.
+    /// Mirrors Android's ChannelAdapter mute-tap handling.
+    func setMute(channel: Int, muted: Bool) {
+        pendingMutes[channel] = PendingMute(expected: muted, sentAt: Date())
+        if let index = channels.firstIndex(where: { $0.channel == channel }) {
+            channels[index].muted = muted
+        }
+        MixerClient.shared.setMute(channel: channel, muted: muted)
+    }
+
     func requestPresets() {
         MixerClient.shared.requestPresets()
     }
@@ -143,7 +228,10 @@ final class AppModel: NSObject, ObservableObject {
         presetsAllowed = false
         presetNames = []
         isConnecting = false
+        statusIsError = false
+        credentialsRejected = false
         statusMessage = ""
+        resetButton()
         screen = .connect
     }
 }
@@ -160,20 +248,77 @@ extension AppModel: MixerClientDelegate {
     }
 
     func mixerDidDisconnect() {
+        // Don't talk over a failure that just closed this socket itself -
+        // the message line or the button is already reporting it, and
+        // this callback arrives right behind that close. Mirrors
+        // Android's ConnectActivity.onDisconnected.
+        if statusIsError || buttonResultLabel != nil { return }
+
+        let wasMidSession = screen != .connect
         isConnecting = false
-        statusMessage = "Disconnected"
+        statusMessage = wasMidSession ? "Disconnected" : ""
+        credentialsRejected = false
         screen = .connect
     }
 
     func mixerDidFail(message: String) {
-        isConnecting = false
-        statusMessage = "Error: \(message)"
+        // Still on the connect screen means this is part of the login
+        // flow rather than a mid-session hiccup on the mixer/aux list -
+        // mirrors Android's ConnectActivity owning onConnectionFailed/
+        // onError only until it navigates away.
+        let stillConnecting = screen == .connect
 
-        // Some errors are just protocol-level (e.g. "not permitted for
-        // this aux") and don't mean the socket itself dropped.
         if !MixerClient.shared.isConnected {
-            screen = .connect
+            if stillConnecting {
+                // The socket never opened at all - bad address, server not
+                // running, wrong network. The specific cause isn't
+                // actionable from here, so the button says so plainly for
+                // a moment and then offers itself again. Mirrors
+                // Android's onConnectionFailed.
+                statusMessage = ""
+                statusIsError = false
+                credentialsRejected = false
+                showButtonResult("Can't Reach Server", isRejection: false)
+            } else {
+                isConnecting = false
+                statusIsError = true
+                statusMessage = "Disconnected"
+                screen = .connect
+            }
+            return
         }
+
+        if stillConnecting {
+            // Connected and logged in, but the next step - fetching the
+            // aux list - came back rejected.
+            if message == MixerClient.snapshotDenied {
+                // A standing permissions problem, not a transient
+                // failure: this account is scoped to a different snapshot
+                // than the one live on the console right now. Called out
+                // on the button, since retrying as-is will fail the same
+                // way.
+                statusMessage = ""
+                statusIsError = false
+                credentialsRejected = false
+                showButtonResult("No Snapshot Access", isRejection: true)
+            } else {
+                // Anything else the server rejected is a full sentence
+                // already, and too long for the button - it goes on the
+                // message line instead.
+                isConnecting = false
+                statusIsError = true
+                credentialsRejected = false
+                statusMessage = message
+            }
+            MixerClient.shared.disconnect()
+            return
+        }
+
+        // A mid-session protocol error (e.g. "not permitted for this
+        // aux") - shown in place, without navigating away or dropping the
+        // connection.
+        statusIsError = true
+        statusMessage = message
     }
 
     func mixerDidReceiveLoginResult(ok: Bool, message: String?, token: String?) {
@@ -189,6 +334,8 @@ extension AppModel: MixerClientDelegate {
                 SessionStore.save(token)
             }
 
+            statusIsError = false
+            credentialsRejected = false
             statusMessage = "Connected"
             presetsAllowed = MixerClient.shared.presetsAllowed
             MixerClient.shared.requestAuxes()
@@ -201,13 +348,18 @@ extension AppModel: MixerClientDelegate {
         if wasTokenAttempt {
             // The saved session is no longer valid - it aged past the
             // server's SESSION_TTL_SECONDS, was revoked, or the desktop
-            // app restarted since it was issued. Drop it so the next
-            // launch doesn't keep retrying a dead token, and fall back to
-            // the ordinary login form already on screen.
+            // app restarted since it was issued. Nothing on screen for the
+            // user to correct, so this doesn't mark the fields - just
+            // drop the dead token and fall back to the ordinary login
+            // form already on screen.
             SessionStore.clear()
-            statusMessage = message ?? ""
+            statusIsError = false
+            credentialsRejected = false
+            statusMessage = ""
         } else {
-            statusMessage = "Login failed: \(message ?? "Invalid username or password")"
+            statusIsError = true
+            credentialsRejected = true
+            statusMessage = message ?? "Invalid username or password"
         }
 
         MixerClient.shared.disconnect()
@@ -224,7 +376,30 @@ extension AppModel: MixerClientDelegate {
 
     func mixerDidReceiveLevels(aux: Int, channels: [ChannelState]) {
         guard case .mixer(let currentAux) = screen, currentAux.index == aux else { return }
-        self.channels = channels
+
+        // A bank switch (or aux switch) can drop channels that still have
+        // a tap awaiting confirmation - without pruning, a stale entry
+        // would sit here suppressing that channel's real state if it ever
+        // came back. Mirrors Android's pendingMutes.retainAll.
+        let newChannelSet = Set(channels.map(\.channel))
+        pendingMutes = pendingMutes.filter { newChannelSet.contains($0.key) }
+
+        let now = Date()
+        self.channels = channels.map { channel in
+            guard let pending = pendingMutes[channel.channel] else { return channel }
+
+            let confirmed = channel.muted == pending.expected
+            let timedOut = now.timeIntervalSince(pending.sentAt) >= muteConfirmTimeout
+
+            if confirmed || timedOut {
+                pendingMutes.removeValue(forKey: channel.channel)
+                return channel
+            }
+
+            var held = channel
+            held.muted = pending.expected
+            return held
+        }
     }
 
     func mixerDidReceivePresets(_ names: [String]) {

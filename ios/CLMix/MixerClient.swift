@@ -39,6 +39,13 @@ final class MixerClient: NSObject {
     // (which still applies regardless of what the client shows).
     private(set) var presetsAllowed = false
 
+    // The one protocol error AppModel treats specially rather than just
+    // displaying: the account is scoped to a different snapshot than the
+    // one currently live on the console, which is a standing permissions
+    // problem rather than anything retrying will fix. Mirrors Android's
+    // MixerClient.SNAPSHOT_DENIED.
+    static let snapshotDenied = "Access denied: not permitted for the current snapshot"
+
     private var task: URLSessionWebSocketTask?
     private lazy var session = URLSession(
         configuration: .default, delegate: self, delegateQueue: nil
@@ -131,6 +138,12 @@ final class MixerClient: NSObject {
 
     func setPan(channel: Int, pan: Double) {
         send(["action": "set_pan", "channel": channel, "pan": pan])
+    }
+
+    /// Mutes the channel in the selected aux mix only (the server writes
+    /// the console's per-send on/off flag) - not a console-wide mute.
+    func setMute(channel: Int, muted: Bool) {
+        send(["action": "set_mute", "channel": channel, "muted": muted])
     }
 
     func requestPresets() {
@@ -249,12 +262,31 @@ final class MixerClient: NSObject {
                 }
 
             case "error":
-                delegate?.mixerDidFail(message: json["message"] as? String ?? "Unknown error")
+                let raw = json["message"] as? String ?? "Unknown error"
+                delegate?.mixerDidFail(message: friendlyServerMessage(raw))
 
             default:
                 break
             }
         }
+    }
+}
+
+// Translates RemoteServer's raw protocol error strings
+// (services/remote_server.py) into wording that reads as a plain
+// user-facing message rather than a log line - permission rejections in
+// particular get an explicit "Access denied" prefix so they can't be
+// mistaken for a network problem. Anything not recognized here is
+// already a plain sentence from the server, so it's passed through
+// unchanged. Mirrors Android's MixerClient.kt friendlyServerMessage.
+private func friendlyServerMessage(_ raw: String) -> String {
+    switch raw {
+    case "Not permitted for the current snapshot": return MixerClient.snapshotDenied
+    case "Not permitted for this aux": return "Access denied: not permitted for this aux"
+    case "Not permitted for presets": return "Access denied: not permitted for presets"
+    case "Mixer not connected": return "Mixer not connected - try again shortly"
+    case "Not authenticated": return "Not logged in"
+    default: return raw
     }
 }
 

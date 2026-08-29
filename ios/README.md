@@ -3,10 +3,19 @@
 A SwiftUI port of the Android remote-control app (`android/`), speaking
 the same WebSocket JSON protocol to the desktop app's `RemoteServer`
 (`services/remote_server.py`). Source-only - there is no `.xcodeproj`
-here, since generating one without Xcode to verify it opens correctly is
-too likely to produce a corrupt project file.
+checked in, since hand-typing one without a way to verify it opens
+correctly is too likely to produce a corrupt project file.
 
 ## Setting it up
+
+**With [XcodeGen](https://github.com/yonaskolb/XcodeGen):** run
+`xcodegen generate` from this directory. It reads `project.yml` and
+deterministically writes `CLMix.xcodeproj` (gitignored - regenerate it
+rather than committing it), wired to every `.swift` file here plus the
+Info.plist entries from the manual steps below. Open the generated
+project and run.
+
+**By hand, without XcodeGen:**
 
 1. In Xcode: **File > New > Project > iOS > App**, name it `CLMix`,
    interface **SwiftUI**, language **Swift**.
@@ -51,14 +60,13 @@ too likely to produce a corrupt project file.
 
 ## Status
 
-Every file here was written without an Xcode/macOS environment to
-compile or run it against - unlike the Android app, none of this has
-been built or tested. The networking and math layers (`MixerClient`,
-`AuxTaper`, `PanFormat`, `Models`) are plain Foundation and should be
-solid. The custom gesture-driven controls (`LevelFaderView`,
-`PanSheetView`'s `CenteredPanSlider`) are the highest-risk area - SwiftUI
-`DragGesture` geometry math is fiddly to get exactly right without
-live testing, so expect to need some hands-on adjustment there.
+Builds clean and has been run in the Simulator via the XcodeGen path
+above (connect screen and the light/dark toggle confirmed live). The
+custom gesture-driven controls (`LevelFaderView`, `PanSheetView`'s
+`CenteredPanSlider`) haven't been exercised against a real `RemoteServer`
+yet - SwiftUI `DragGesture` geometry math is fiddly to get exactly right
+without live testing against real fader input, so expect to need some
+hands-on adjustment there.
 
 ## Structure
 

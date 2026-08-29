@@ -17,25 +17,34 @@ struct PresetSaveSheet: View {
     var body: some View {
         VStack(spacing: 16) {
             Capsule()
-                .fill(Color.secondary.opacity(0.4))
+                .fill(Color.clmixTrackBackground)
                 .frame(width: 40, height: 4)
                 .padding(.top, 8)
 
             Text("Save Preset")
-                .font(.headline)
+                .font(.system(size: 16, weight: .bold))
 
             TextField("Preset Name", text: $name)
-                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 14)
+                .frame(height: 52)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.clmixOutline, lineWidth: 1))
                 .padding(.horizontal, 24)
 
-            Button(isSaving ? "Saving..." : "Save") {
+            Button {
                 isSaving = true
                 model.savePreset(name: trimmedName) {
                     isSaving = false
                     dismiss()
                 }
+            } label: {
+                Text(isSaving ? "Saving..." : "Save")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
             }
-            .buttonStyle(.borderedProminent)
+            .foregroundStyle(Color.clmixOnPrimary)
+            .background(Color.clmixPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .opacity(trimmedName.isEmpty || isSaving ? 0.5 : 1)
             .disabled(trimmedName.isEmpty || isSaving)
             .padding(.horizontal, 24)
 
