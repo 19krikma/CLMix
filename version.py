@@ -6,4 +6,11 @@
 #
 # Read by ui/main_window.py (shown in the title bar and Setup window) and
 # by packaging/windows/build.ps1 (stamped into the installer).
-VERSION = "1.0.0"
+#
+# This is the version of the desktop app *and* the remote server the phone
+# apps talk to (services/remote_server.py), so it needs bumping for a
+# protocol change just as much as for a visible UI one - it sat at 1.0.0
+# through several server releases while android/version.properties moved
+# four times. The two version numbers are independent (the phone apps ship
+# on their own schedule), but a change spanning both should bump both.
+VERSION = "1.1.0"

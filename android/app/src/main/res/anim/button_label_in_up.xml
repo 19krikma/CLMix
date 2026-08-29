@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Incoming label rises into place from below the button's lower edge.
+     Paired with button_label_out_up: the pair reads as one strip of text
+     rolling upward. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:anim/decelerate_interpolator">
+    <translate
+        android:fromYDelta="100%"
+        android:toYDelta="0%"
+        android:duration="220" />
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0"
+        android:duration="220" />
+</set>

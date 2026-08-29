@@ -64,7 +64,12 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
 
     override fun onResume() {
         super.onResume()
-        MixerClient.listener = this
+        MixerClient.claimListener(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        MixerClient.releaseListener(this)
     }
 
     private fun openMixer(aux: AuxBus) {

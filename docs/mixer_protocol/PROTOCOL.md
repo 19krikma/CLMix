@@ -46,6 +46,7 @@ For reference, these are the addresses `ui/main_window.py` already speaks - all 
 | `/Input_Channels/{n}/mute` (get/set) | Channel mute |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_level` (get/set) | Channel's send level to aux `a` |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_pan` (get/set) | Channel's send pan to aux `a` |
+| `/Input_Channels/{n}/Aux_Send/{a}/send_on` (get/set) | Whether channel `n` is in aux `a`'s mix at all (`0.0` = out). What the phone apps' per-channel Mute button drives, since it affects only that one aux mix - unlike `/Input_Channels/{n}/mute` above, which cuts the source everywhere. |
 | `/Snapshots/Current_Snapshot/?` | Currently recalled snapshot number |
 | `/Snapshots/names/?` | Broadcasts `/Snapshots/name [index, name]` per snapshot |
 | `/Snapshots/Rename_Snapshot/{n}` | Broadcast when a snapshot is renamed |

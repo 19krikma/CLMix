@@ -157,6 +157,23 @@
 
         </LinearLayout>
 
+        <!-- Sits under Presets rather than in a settings screen of its
+             own: this drawer is already where the mixer screen's
+             non-mixing actions live, and this is a one-tap preference.
+             Starts out matching whatever the phone itself is doing (see
+             ThemeStore.isDarkMode) and only overrides it once tapped. -->
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/dark_mode_switch"
+            style="@style/Widget.Material3.CompoundButton.MaterialSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="14dp"
+            android:layout_marginTop="16dp"
+            android:minHeight="48dp"
+            android:text="Dark mode"
+            android:saveEnabled="false"
+            android:textColor="?attr/colorOnSurface" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/logout_button"
             android:layout_width="match_parent"

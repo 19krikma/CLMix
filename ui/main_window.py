@@ -14,6 +14,7 @@ import sv_ttk
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
+from services.backup_store import BackupStore
 from services.log_store import log
 from services.network_info import get_ethernet_ip
 from services.preset_store import PresetStore
@@ -23,6 +24,7 @@ from services.user_store import UserStore
 from ui.app_icon import ICON_PNG_BASE64
 from ui.access_window import AccessWindow
 from ui.aux_window import AuxWindow
+from ui.backup_window import BackupWindow
 from ui.logs_window import LogsWindow
 from ui.presets_window import PresetsWindow
 from version import VERSION
@@ -39,6 +41,7 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/Channel_Input/name$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_level$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_pan$"),
+    re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_on$"),
     re.compile(r"^/Input_Channels/\d+/mute$"),
 ]
 
@@ -1236,6 +1239,7 @@ class MainWindow:
         self.worker = None
         self.access_window = None
         self.aux_window = None
+        self.backup_window = None
         self.logs_window = None
         self.presets_window = None
         self.remote_server = None
@@ -1249,6 +1253,7 @@ class MainWindow:
         self.settings = self.load_settings()
         self.user_store = UserStore()
         self.preset_store = PresetStore()
+        self.backup_store = BackupStore(backups_dir=self.settings.get("backup_dir"))
 
         self.apply_theme(self.settings["theme"], persist=False)
         self.build_ui()
@@ -1280,6 +1285,7 @@ class MainWindow:
 
         self.help_menu = tk.Menu(menu_bar, tearoff=False)
         self.help_menu.add_command(label="Logs", command=self.open_logs_window)
+        self.help_menu.add_command(label="Backup", command=self.open_backup_window)
         self.help_menu.add_command(label="About", command=self.open_about_window)
         menu_bar.add_cascade(label="Help", menu=self.help_menu)
 
@@ -1536,6 +1542,7 @@ class MainWindow:
             "remote_port": "8765",
             "theme": "dark",
             "hidden_auxes": [],
+            "backup_dir": None,
         }
 
         try:
@@ -1723,6 +1730,56 @@ class MainWindow:
             return
 
         self.logs_window = LogsWindow(self.root)
+
+    def open_backup_window(self):
+
+        if self.backup_window and self.backup_window.window.winfo_exists():
+            self.backup_window.window.lift()
+            return
+
+        self.backup_window = BackupWindow(
+            self.root, self.backup_store, self.user_store, self.preset_store,
+            self.settings, self.save_settings, on_restored=self.on_backup_restored
+        )
+
+    def on_backup_restored(self, keys):
+        if "settings" in keys:
+            self.reload_settings()
+
+        if "users" in keys and \
+                self.access_window and self.access_window.window.winfo_exists():
+            self.access_window.refresh_list()
+
+        if "presets" in keys and \
+                self.presets_window and self.presets_window.window.winfo_exists():
+            self.presets_window.refresh_list()
+
+    def reload_settings(self):
+        # Mutated in place (not reassigned) so AuxWindow - which is handed
+        # this same dict object rather than a getter - stays in sync too;
+        # replacing self.settings outright would leave an already-open
+        # AuxWindow mutating a now-orphaned dict that save_settings() no
+        # longer serializes.
+        fresh = self.load_settings()
+        self.settings.clear()
+        self.settings.update(fresh)
+
+        self.ip_entry.delete(0, tk.END)
+        self.ip_entry.insert(0, self.settings["mixer_ip"])
+
+        self.send_port_entry.delete(0, tk.END)
+        self.send_port_entry.insert(0, self.settings["send_port"])
+
+        self.recv_port_entry.delete(0, tk.END)
+        self.recv_port_entry.insert(0, self.settings["recv_port"])
+
+        self.remote_port_entry.delete(0, tk.END)
+        self.remote_port_entry.insert(0, self.settings["remote_port"])
+
+        self.theme_var.set(self.settings["theme"])
+        self.apply_theme(self.settings["theme"], persist=False)
+
+        self.aux_panel.refresh_aux_list()
 
     def process_messages(self):
 

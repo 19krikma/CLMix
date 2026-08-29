@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
@@ -46,7 +47,7 @@
                 android:gravity="center"
                 android:text="Discovered"
                 android:textSize="16sp"
-                android:textColor="@android:color/white" />
+                android:textColor="?attr/colorOnSurface" />
 
             <LinearLayout
                 android:id="@+id/discovered_servers"
@@ -73,9 +74,9 @@
                 android:layout_height="52dp"
                 android:text="Manual"
                 android:textSize="16sp"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnSurface"
                 app:backgroundTint="@android:color/transparent"
-                app:rippleColor="#33FFFFFF"
+                app:rippleColor="?attr/colorControlHighlight"
                 app:elevation="0dp"
                 app:cornerRadius="8dp" />
 
@@ -120,11 +121,27 @@
 
         </LinearLayout>
 
+        <!-- Login feedback sits here, immediately above the credentials
+             it refers to, rather than below the button where it used to
+             be. Gone (not invisible) when there is nothing to say, so it
+             takes no space on an untouched form. -->
+        <TextView
+            android:id="@+id/message_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:textSize="14sp"
+            android:visibility="gone"
+            tools:text="Invalid username or password"
+            tools:visibility="visible" />
+
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/username_layout"
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Username"
+            app:boxStrokeColor="@color/text_input_stroke"
             android:layout_marginBottom="14dp">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -136,11 +153,13 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/password_layout"
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Password"
             app:passwordToggleEnabled="true"
+            app:boxStrokeColor="@color/text_input_stroke"
             android:layout_marginBottom="24dp">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -151,22 +170,47 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/connect_button"
+        <!-- The spinner is overlaid on the button rather than replacing
+             it, so the button keeps its size and position while a login
+             is in flight and nothing below it shifts. Its label is
+             blanked for the duration (see ConnectActivity.setLoading). -->
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="Connect"
-            android:textSize="16sp"
-            app:cornerRadius="12dp" />
+            android:layout_height="wrap_content">
 
-        <TextView
-            android:id="@+id/status_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="18dp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:text="Disconnected" />
+            <!-- Draws the button's surface only. Its label lives in the
+                 switcher below so it can slide in and out; the button's
+                 own text stays empty, and its contentDescription is kept
+                 in step with whatever the switcher is showing. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/connect_button"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text=""
+                android:textSize="16sp"
+                app:cornerRadius="12dp" />
+
+            <!-- Clips to the button's bounds, so a label sliding through
+                 is only ever visible inside the button itself. Not
+                 clickable, so taps fall through to the button under it. -->
+            <TextSwitcher
+                android:id="@+id/connect_label"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_gravity="center" />
+
+            <com.google.android.material.progressindicator.CircularProgressIndicator
+                android:id="@+id/connect_progress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:indeterminate="true"
+                android:visibility="gone"
+                app:indicatorColor="?attr/colorOnPrimary"
+                app:indicatorSize="24dp"
+                app:trackThickness="3dp" />
+
+        </FrameLayout>
 
     </LinearLayout>
 
