@@ -29,3 +29,6 @@ targets:
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
+        # No AppIcon.appiconset exists yet (out of scope here) - without
+        # this, adding Assets.xcassets makes Xcode require one to build.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
