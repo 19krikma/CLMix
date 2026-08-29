@@ -27,12 +27,16 @@ import kotlin.math.roundToInt
  * palette and the night one alike without either being named here - what
  * shows through the erased part is just the window background.
  *
- * The graphic's bottom [TAIL_START] of its height is solid black, so once the
- * artwork runs out the view keeps filling black down to its bottom edge: the
- * seam is invisible and the fade can be stretched well past the image itself.
- * That matters because the fade is positioned against the *content* on top of
- * this view (it runs from the Discovered box down to Manual - see
- * ConnectActivity), not against the artwork's own proportions.
+ * The graphic's bottom [TAIL_START] of its height is a single flat colour, so
+ * once the artwork runs out the view keeps filling that same colour down to
+ * its bottom edge: the seam is invisible and the fade can be stretched well
+ * past the image itself. That matters because the fade is positioned against
+ * the *content* on top of this view (it runs from the Discovered box down to
+ * Manual - see ConnectActivity), not against the artwork's own proportions.
+ *
+ * There are two banners, picked by the night resource qualifier - black paper
+ * at night, #F4F5F7 by day - so the tail colour is read off the bitmap rather
+ * than named here, and follows whichever one got inflated.
  */
 class FadingBannerView @JvmOverloads constructor(
     context: Context,
@@ -44,7 +48,7 @@ class FadingBannerView @JvmOverloads constructor(
 
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
-    // Matches the artwork's solid-black lower edge, so the stretch below the
+    // Sampled from the artwork's own flat lower edge, so the stretch below the
     // image reads as more of the same picture rather than as a second block.
     private val tailPaint = Paint().apply { color = Color.BLACK }
 
@@ -77,7 +81,11 @@ class FadingBannerView @JvmOverloads constructor(
         // Decoded straight to a Bitmap (rather than kept as a Drawable) so the
         // draw below can scale it to the exact full-bleed rect with bilinear
         // filtering, which a plain drawable bounds-scale doesn't guarantee.
-        bitmap = BitmapFactory.decodeResource(resources, resId)
+        val bmp = BitmapFactory.decodeResource(resources, resId)
+        bitmap = bmp
+        if (bmp != null && bmp.width > 0 && bmp.height > 0) {
+            tailPaint.color = bmp.getPixel(bmp.width / 2, bmp.height - 1)
+        }
         requestLayout()
         invalidate()
     }
@@ -168,7 +176,7 @@ class FadingBannerView @JvmOverloads constructor(
     companion object {
         /**
          * Fraction of the artwork's height above which anything is drawn; the
-         * rest of it is solid black. ConnectActivity uses this to drop its
+         * rest of it is flat paper. ConnectActivity uses this to drop its
          * content in just below the logo instead of on top of it.
          */
         const val TAIL_START = 0.858f

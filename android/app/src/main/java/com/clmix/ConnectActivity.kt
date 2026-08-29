@@ -121,12 +121,13 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         setContentView(binding.root)
 
         // The banner runs to the very top of the window, under the status
-        // bar, and its top half is dark artwork in either palette - so the
-        // status bar icons are forced light here regardless of day/night,
-        // which enableEdgeToEdge would otherwise decide from the theme and
-        // get wrong in light mode.
+        // bar, so what the icons sit on is the artwork rather than the
+        // window background - and there are two of those, picked by the
+        // night qualifier. banner_is_light is picked by that same qualifier
+        // (see values/bools.xml), which keeps the icons in step with
+        // whichever banner actually got inflated.
         WindowCompat.getInsetsController(window, window.decorView)
-            .isAppearanceLightStatusBars = false
+            .isAppearanceLightStatusBars = resources.getBoolean(R.bool.banner_is_light)
 
         // Android 15+ (targetSdk 35+) draws this activity edge-to-edge by
         // default now - pad the scrolling content by the system bar insets
