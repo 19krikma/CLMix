@@ -15,4 +15,10 @@
     <color name="on_mute_inactive">#33363C</color>
 
     <color name="track_background">#D3D6DC</color>
+
+    <!-- Outlines on the connect screen's Discovered/Manual boxes and its
+         unselected server rows. Was hardcoded white, which vanished
+         against the light background - now that light mode is reachable
+         from the drawer's Dark mode switch, it needs a real day value. -->
+    <color name="outline">#9BA0A8</color>
 </resources>

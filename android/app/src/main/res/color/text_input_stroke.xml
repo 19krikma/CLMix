@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The outlined text field's normal border, spelled out so the error
+     state below can be swapped in and back out again: TextInputLayout
+     offers setBoxStrokeColorStateList() but no getter, so there is no way
+     to capture Material's own default and restore it afterwards. These
+     are the same theme attributes Material3's OutlinedBox style resolves,
+     so the field looks exactly as it did before. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:alpha="0.12"
+        android:color="?attr/colorOnSurface" />
+    <item android:state_focused="true" android:color="?attr/colorPrimary" />
+    <item android:state_hovered="true" android:color="?attr/colorOnSurface" />
+    <item android:color="?attr/colorOutline" />
+</selector>

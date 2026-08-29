@@ -15,4 +15,7 @@
     <color name="on_mute_inactive">#D3D6DC</color>
 
     <color name="track_background">#33363C</color>
+
+    <!-- Stays the white it has always been in dark mode. -->
+    <color name="outline">#FFFFFF</color>
 </resources>
