@@ -46,7 +46,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
                 draggingChannels.remove(channel)
                 dragReleasedAt[channel] = System.currentTimeMillis()
             },
-            onPanButtonClicked = { channel -> showPanSheet(channel) }
+            onPanButtonClicked = { channel -> showPanSheet(channel) },
+            onMuteToggled = { channel, muted -> MixerClient.setMute(channel, muted) }
         )
 
         binding.channelRecycler.layoutManager =

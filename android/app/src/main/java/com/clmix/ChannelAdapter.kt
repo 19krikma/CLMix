@@ -16,7 +16,8 @@ class ChannelAdapter(
     private val onLevelChanged: (Int, Double) -> Unit,
     private val onDragStart: (Int) -> Unit,
     private val onDragEnd: (Int) -> Unit,
-    private val onPanButtonClicked: (ChannelState) -> Unit
+    private val onPanButtonClicked: (ChannelState) -> Unit,
+    private val onMuteToggled: (Int, Boolean) -> Unit
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     // "Fine" mode (toggled from MixerActivity's top bar): while on, the
@@ -36,6 +37,19 @@ class ChannelAdapter(
     private val displayedPan = mutableMapOf<Int, Double?>()
     private val displayedMuted = mutableMapOf<Int, Boolean>()
 
+    // A mute tap flips the button straight away rather than waiting for
+    // the console's echo to travel back through the desktop app's cache
+    // and the next push (~150ms at best, longer over a busy wifi) - but
+    // the server stays the authority on what's actually muted. Until a
+    // push agrees with what was asked for, pushes for that channel's
+    // mute are ignored, so an in-flight one describing the pre-tap state
+    // can't flip the button back and forth. After MUTE_CONFIRM_TIMEOUT_MS
+    // without agreement the request is assumed lost - the console's own
+    // state wins again and the button snaps back to the truth.
+    private class PendingMute(val expected: Boolean, val sentAt: Long)
+
+    private val pendingMutes = mutableMapOf<Int, PendingMute>()
+
     fun updateChannels(
         newChannels: List<ChannelState>,
         draggingChannels: Set<Int>,
@@ -47,6 +61,11 @@ class ChannelAdapter(
         channels = newChannels
 
         if (!sameChannelSet) {
+            // A bank switch replaces the visible strips - a tap still
+            // awaiting confirmation on a channel that just left the list
+            // would otherwise sit here suppressing that channel's real
+            // state for the next couple of seconds if it came back.
+            pendingMutes.keys.retainAll(newChannels.map { it.channel }.toSet())
             notifyDataSetChanged()
             return
         }
@@ -74,7 +93,7 @@ class ChannelAdapter(
 
             val panChanged = displayedPan[channel.channel] != channel.pan
 
-            val muteChanged = displayedMuted[channel.channel] != channel.muted
+            val muteChanged = displayedMuted[channel.channel] != effectiveMuted(channel)
 
             if (progressChanged || panChanged || muteChanged) {
                 notifyItemChanged(index, PAYLOAD_UPDATE)
@@ -101,12 +120,6 @@ class ChannelAdapter(
         binding.faderRow.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
             syncFaderWidth(binding, bottom - top)
         }
-
-        // Mute is server/mixer-driven only - the button is a status
-        // indicator (text + color), not a control, so it never registers
-        // taps or steals focus from the actually-interactive controls.
-        binding.muteButton.isClickable = false
-        binding.muteButton.isFocusable = false
 
         return ViewHolder(binding)
     }
@@ -190,6 +203,24 @@ class ChannelAdapter(
             }
         }
 
+        // Toggles against what's on screen rather than against the last
+        // pushed state, so tapping twice in quick succession (before the
+        // first change has come back) reliably ends up where the user
+        // left it instead of re-sending the same value.
+        holder.binding.muteButton.setOnClickListener {
+            val adapterPosition = holder.bindingAdapterPosition
+            if (adapterPosition == RecyclerView.NO_POSITION) return@setOnClickListener
+
+            val tapped = channels[adapterPosition]
+            val target = !(displayedMuted[tapped.channel] ?: tapped.muted)
+
+            pendingMutes[tapped.channel] = PendingMute(target, System.currentTimeMillis())
+            displayedMuted[tapped.channel] = target
+            applyMuteAppearance(holder.binding, target)
+
+            onMuteToggled(tapped.channel, target)
+        }
+
         bindChannelState(holder, channel, position)
     }
 
@@ -232,19 +263,42 @@ class ChannelAdapter(
         holder.binding.panButton.text = PanFormat.buttonLabel(channel.pan)
         displayedPan[channel.channel] = channel.pan
 
-        displayedMuted[channel.channel] = channel.muted
+        val muted = effectiveMuted(channel)
+        displayedMuted[channel.channel] = muted
+        applyMuteAppearance(holder.binding, muted)
+    }
 
-        holder.binding.muteButton.text = if (channel.muted) "Muted" else "Mute"
-        holder.binding.muteButton.backgroundTintList = ColorStateList.valueOf(
+    // What this channel's Mute button should read right now: the pushed
+    // state, unless a tap on it is still waiting to be confirmed (see
+    // pendingMutes). Resolving a pending one here - rather than on a
+    // timer - means it's settled at exactly the moments its answer is
+    // needed, on every push and every rebind.
+    private fun effectiveMuted(channel: ChannelState): Boolean {
+        val pending = pendingMutes[channel.channel] ?: return channel.muted
+
+        val confirmed = channel.muted == pending.expected
+        val timedOut = System.currentTimeMillis() - pending.sentAt >= MUTE_CONFIRM_TIMEOUT_MS
+
+        if (confirmed || timedOut) {
+            pendingMutes.remove(channel.channel)
+            return channel.muted
+        }
+
+        return pending.expected
+    }
+
+    private fun applyMuteAppearance(binding: ItemChannelBinding, muted: Boolean) {
+        val context = binding.root.context
+
+        binding.muteButton.text = if (muted) "Muted" else "Mute"
+        binding.muteButton.backgroundTintList = ColorStateList.valueOf(
             ContextCompat.getColor(
-                holder.binding.root.context,
-                if (channel.muted) R.color.mute_active else R.color.mute_inactive
+                context, if (muted) R.color.mute_active else R.color.mute_inactive
             )
         )
-        holder.binding.muteButton.setTextColor(
+        binding.muteButton.setTextColor(
             ContextCompat.getColor(
-                holder.binding.root.context,
-                if (channel.muted) R.color.on_primary else R.color.on_mute_inactive
+                context, if (muted) R.color.on_primary else R.color.on_mute_inactive
             )
         )
     }
@@ -307,5 +361,12 @@ class ChannelAdapter(
         // Fine mode: the thumb moves at 20% of the finger's own travel
         // distance, i.e. 5x slower than a direct 1:1 drag.
         private const val FINE_SENSITIVITY = 0.2
+
+        // How long a tapped Mute button holds its own state before
+        // deferring to the console again - long enough to cover the
+        // round trip through the desktop app on a slow network, short
+        // enough that a command the console never acted on doesn't leave
+        // a strip lying about being muted.
+        private const val MUTE_CONFIRM_TIMEOUT_MS = 2000L
     }
 }

@@ -39,7 +39,7 @@ interface MixerClientListener {
  * Talks to the CLMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
  * protocol: login/logout/list_auxes/list_banks/select_aux/select_bank/
- * set_level/set_pan/list_presets/save_preset/load_preset out,
+ * set_level/set_pan/set_mute/list_presets/save_preset/load_preset out,
  * login_result/auxes/banks/levels/presets/preset_saved/preset_loaded/error
  * in.
  *
@@ -164,6 +164,15 @@ object MixerClient {
             .put("action", "set_pan")
             .put("channel", channel)
             .put("pan", pan)
+    )
+
+    // Mutes the channel in the selected aux mix only (the server writes
+    // the console's per-send on/off flag) - not a console-wide mute.
+    fun setMute(channel: Int, muted: Boolean) = send(
+        JSONObject()
+            .put("action", "set_mute")
+            .put("channel", channel)
+            .put("muted", muted)
     )
 
     fun requestPresets() = send(JSONObject().put("action", "list_presets"))

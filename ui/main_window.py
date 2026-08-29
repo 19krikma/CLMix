@@ -41,6 +41,7 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/Channel_Input/name$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_level$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_pan$"),
+    re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_on$"),
     re.compile(r"^/Input_Channels/\d+/mute$"),
 ]
 
