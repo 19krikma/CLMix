@@ -41,10 +41,17 @@ of connection and mixer activity for troubleshooting, stored on the same
 machine and automatically deleted after 30 days. These logs are never
 transmitted anywhere.
 
-**Update check (desktop app only).** On startup, the desktop app makes an
-anonymous request to GitHub's public API to check the latest released
+**Update check (desktop app only).** Shortly after startup, and again
+whenever you press Check in the About window, the desktop app makes an
+anonymous request to GitHub's public API to read the latest released
 version number. This request contains no personal or account data and is
 not tied to you or your device.
+
+**Update download (desktop app only).** If you press Update in the About
+window, the desktop app downloads that release's installer from GitHub and
+runs it. This is an anonymous public download, started only by you, and it
+sends nothing about you or your installation. Nothing is ever downloaded or
+installed without you pressing that button.
 
 ## What We Do Not Collect
 
@@ -62,8 +69,9 @@ CLMix does not access, collect, or share:
 ## Third Parties
 
 CLMix does not use any analytics, advertising, or crash-reporting SDKs, and
-does not share data with any third party. The only outside network request
-the app makes is the anonymous GitHub version check described above.
+does not share data with any third party. The only outside network requests
+the app makes are the anonymous GitHub version check and, if you ask for
+it, the update download described above.
 
 ## Data Storage & Security
 

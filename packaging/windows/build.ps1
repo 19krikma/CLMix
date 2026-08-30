@@ -86,5 +86,34 @@ Write-Host "==> Building installer with Inno Setup"
 & $IsccPath "/DMyAppVersion=$Version" "packaging\windows\installer.iss"
 
 $OutputExe = "packaging\windows\dist_installer\CLMixSetup-$Version.exe"
+
+# The app's own updater will not install anything it cannot check against a
+# published hash (see services/updater.py), so this sidecar is not optional
+# extra credit - a release without it can only be installed by hand. Written
+# in the same "<hash>  <filename>" shape sha256sum produces, which is what
+# fetch_checksum() parses.
+Write-Host "==> Writing SHA-256 sidecar"
+$Hash = (Get-FileHash -Algorithm SHA256 -Path $OutputExe).Hash.ToLower()
+$OutputHash = "$OutputExe.sha256"
+"$Hash  CLMixSetup-$Version.exe" | Set-Content -Path $OutputHash -Encoding ascii -NoNewline
+
 Write-Host ""
-Write-Host "==> Done: $OutputExe"
+Write-Host "==> Done"
+Write-Host "    $OutputExe"
+Write-Host "    $OutputHash"
+Write-Host ""
+
+# Both files have to end up attached to the GitHub release: the updater
+# finds them through the releases API, so anything left sitting on the build
+# machine is invisible to every installation out there.
+$Gh = Get-Command "gh" -ErrorAction SilentlyContinue
+
+if ($Gh) {
+    Write-Host "==> Upload to the GitHub release with:"
+} else {
+    Write-Host "==> Attach both files to the release. With the GitHub CLI:"
+}
+
+Write-Host "    gh release create $Version `"$OutputExe`" `"$OutputHash`" --title $Version --notes `"...`""
+Write-Host "    (or, for a release that already exists:)"
+Write-Host "    gh release upload $Version `"$OutputExe`" `"$OutputHash`" --clobber"
