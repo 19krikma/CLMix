@@ -1,10 +1,11 @@
 """The Help > About window: what this app is, what version it is, where to
 get the next one, and the handful of facts a support email needs.
 
-It is deliberately a near-mirror of docs/index.html, the About page served
-by GitHub Pages (and linked from the phone apps and the store listings) -
-same graphic, same tagline, same framing - so a user who lands on either
-one recognizes the other. When the wording here changes, change it there.
+It is deliberately a near-mirror of docs/index.html - same graphic, same
+tagline, same framing - so a user who lands on either one recognizes the
+other. When the wording here changes, change it there too. That page is
+only served if GitHub Pages is switched on for docs/, which it is not
+today, so every link below goes to github.com instead.
 """
 
 import platform
@@ -30,13 +31,16 @@ CONTACT_EMAIL = "markkrikunov2000@gmail.com"
 COPYRIGHT_YEAR = "2026"
 
 # Every link below is derived from update_checker's REPO so the repo slug
-# is named in exactly one place. PROJECT_URL is the GitHub Pages build of
-# docs/ - github.io lowercases the owner but keeps the repo name's case,
-# which is why only the owner half is lowered here.
-_OWNER, _NAME = REPO.split("/")
-PROJECT_URL = f"https://{_OWNER.lower()}.github.io/{_NAME}/"
-PRIVACY_URL = f"{PROJECT_URL}privacy.html"
+# is named in exactly one place.
+#
+# These all point at github.com rather than at the GitHub Pages build of
+# docs/, which is not switched on for this repo - so the policy the app
+# links to is the one file that is definitely published, its source in the
+# repository. If Pages is ever enabled, PROJECT_URL/PRIVACY_URL can move to
+# https://19krikma.github.io/CLMix/ and its privacy.html.
 REPO_URL = f"https://github.com/{REPO}"
+PROJECT_URL = REPO_URL
+PRIVACY_URL = f"{REPO_URL}/blob/main/legal/PRIVACY_POLICY.md"
 RELEASES_URL = f"{REPO_URL}/releases"
 ISSUES_URL = f"{REPO_URL}/issues"
 
