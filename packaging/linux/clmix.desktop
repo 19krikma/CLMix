@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=CLMix
+GenericName=Mixer remote control
+Comment=Aux-send mixing for the DiGiCo Q225 Quantum
+Exec=clmix
+Icon=clmix
+Terminal=false
+Categories=AudioVideo;Audio;Mixer;
+Keywords=mixer;audio;osc;digico;aux;monitor;
+
+# How the desktop connects a running window back to this entry, and the
+# reason the dock can show an icon at all. It must match the WM_CLASS the
+# app actually sets, which is ui/main_window.py's WM_CLASS_NAME after Tk
+# normalizes it - "CLMix" in the source, "Clmix" on the wire. Changing
+# either without the other silently breaks the icon again.
+StartupWMClass=Clmix

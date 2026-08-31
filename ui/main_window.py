@@ -32,6 +32,11 @@ from version import VERSION
 
 SETTINGS_PATH = Path.home() / ".clmix.json"
 
+# Passed to tk.Tk(className=...) - see the comment where it is used. Tk
+# capitalizes only the first letter, so the WM_CLASS this actually produces
+# is "Clmix", which is the spelling packaging/linux/clmix.desktop matches.
+WM_CLASS_NAME = "CLMix"
+
 # How long after launch the update check fires. Late enough to stay out of
 # the way of connecting to the mixer, which is what the operator actually
 # opened the app to do.
@@ -1232,13 +1237,28 @@ class MainWindow:
 
     def __init__(self):
 
-        self.root = tk.Tk()
+        # className is what X11 reports as the window's WM_CLASS, and a
+        # Linux desktop matches *that* against an installed .desktop file
+        # to decide what to show in the dock and the app switcher. Left at
+        # tkinter's default the window announces itself as "Tk", matches
+        # nothing, and gets a placeholder icon no matter what iconphoto
+        # below says - a Wayland compositor never reads _NET_WM_ICON for
+        # an XWayland window.
+        #
+        # Tk normalizes the name it is given, so this arrives as the class
+        # "Clmix" rather than "CLMix". packaging/linux/clmix.desktop's
+        # StartupWMClass has to match that spelling exactly, so don't
+        # change one without the other.
+        self.root = tk.Tk(className=WM_CLASS_NAME)
         self.root.title("CLMix")
         self.root.geometry("800x500")
 
         # Keep a reference on root itself - iconphoto doesn't retain the
         # PhotoImage, so a local-only reference gets garbage collected and
-        # the icon silently reverts to the Tk default.
+        # the icon silently reverts to the Tk default. Still worth setting
+        # on top of the .desktop match above: it is what X11 desktops (and
+        # the window's own title bar, on the ones that draw an icon there)
+        # actually use.
         self.root.icon_image = tk.PhotoImage(data=ICON_PNG_BASE64)
         self.root.iconphoto(True, self.root.icon_image)
 
@@ -1431,22 +1451,7 @@ class MainWindow:
         self.remote_port_entry.insert(0, self.settings["remote_port"])
         self.remote_port_entry.grid(row=3, column=1, padx=5, pady=5)
 
-        ttk.Label(frame, text="Computer IP").grid(
-            row=4, column=0, sticky="w", pady=(10, 0)
-        )
-
-        self.computer_ip_label = ttk.Label(frame, text="Detecting...")
-        self.computer_ip_label.grid(
-            row=4, column=1, padx=5, pady=(10, 0), sticky="w"
-        )
-
-        self.refresh_computer_ip()
-
         self.setup_window.withdraw()
-
-    def refresh_computer_ip(self):
-        ip = get_ethernet_ip()
-        self.computer_ip_label.config(text=ip if ip else "Not found")
 
     def open_setup_window(self):
         self.setup_window.deiconify()
