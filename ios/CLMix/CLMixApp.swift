@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct CLMixApp: App {
     @StateObject private var model = AppModel()
+    @StateObject private var themeStore = ThemeStore.shared
 
     var body: some Scene {
         WindowGroup {
@@ -19,6 +20,8 @@ struct CLMixApp: App {
                 }
             }
             .environmentObject(model)
+            .environmentObject(themeStore)
+            .preferredColorScheme(themeStore.colorScheme)
         }
     }
 }

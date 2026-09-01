@@ -12,7 +12,7 @@ struct ChannelState: Identifiable, Hashable {
     let name: String
     let level: Double?
     let pan: Double?
-    let muted: Bool
+    var muted: Bool
 
     var id: Int { channel }
 }

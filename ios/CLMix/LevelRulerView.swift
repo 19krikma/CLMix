@@ -26,12 +26,12 @@ struct LevelRulerView: View {
 
                     Text(tick.label)
                         .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.clmixOnSurfaceVariant)
                         .frame(width: labelWidth, alignment: .leading)
                         .position(x: labelWidth / 2, y: y)
 
                     Rectangle()
-                        .fill(Color.secondary.opacity(0.6))
+                        .fill(Color.clmixOnSurfaceVariant.opacity(0.6))
                         .frame(width: lineLength, height: 1)
                         .position(x: lineStartX + lineLength / 2, y: y)
                 }

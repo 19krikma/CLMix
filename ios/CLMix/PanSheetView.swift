@@ -27,7 +27,7 @@ struct PanSheetView: View {
     var body: some View {
         VStack(spacing: 16) {
             Capsule()
-                .fill(Color.secondary.opacity(0.4))
+                .fill(Color.clmixTrackBackground)
                 .frame(width: 40, height: 4)
                 .padding(.top, 8)
 
@@ -36,7 +36,7 @@ struct PanSheetView: View {
 
             Text(PanFormat.shortLabel(displayedPan))
                 .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.clmixPrimary)
 
             CenteredPanSlider(
                 pan: displayedPan,
@@ -53,13 +53,18 @@ struct PanSheetView: View {
             .frame(height: 52)
             .padding(.horizontal, 24)
 
-            Button("Center") {
+            Button {
                 panAtDrag = 0
                 dragEndedAt = Date()
                 onChange(0)
+            } label: {
+                Text("Center")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.gray)
+            .foregroundStyle(Color.clmixOnMuteInactive)
+            .background(Color.clmixMuteInactive)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .padding(.horizontal, 24)
 
             Spacer()
@@ -84,17 +89,18 @@ private struct CenteredPanSlider: View {
 
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.secondary.opacity(0.25))
+                    .fill(Color.clmixTrackBackground)
                     .frame(height: 10)
 
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.accentColor)
+                    .fill(Color.clmixPrimary)
                     .frame(width: fillWidth, height: 10)
                     .offset(x: min(centerX, thumbX))
 
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(Color.clmixPrimary)
                     .frame(width: 26, height: 26)
+                    .overlay(Circle().stroke(Color.clmixOnPrimary, lineWidth: 2))
                     .offset(x: thumbX - 13)
             }
             .frame(maxHeight: .infinity)

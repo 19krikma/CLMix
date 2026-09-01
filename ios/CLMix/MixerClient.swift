@@ -5,7 +5,10 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidConnect()
     func mixerDidDisconnect()
     func mixerDidFail(message: String)
-    func mixerDidReceiveLoginResult(ok: Bool, message: String?)
+    /// `token` is set whenever `ok` is true (both a fresh username/password
+    /// login and a resumed one) - see SessionStore for what callers should
+    /// do with it. Nil when `ok` is false.
+    func mixerDidReceiveLoginResult(ok: Bool, message: String?, token: String?)
     func mixerDidReceiveAuxes(_ auxes: [AuxBus])
     func mixerDidReceiveBanks(_ banks: [String])
     func mixerDidReceiveLevels(aux: Int, channels: [ChannelState])
@@ -36,10 +39,25 @@ final class MixerClient: NSObject {
     // (which still applies regardless of what the client shows).
     private(set) var presetsAllowed = false
 
+    // The one protocol error AppModel treats specially rather than just
+    // displaying: the account is scoped to a different snapshot than the
+    // one currently live on the console, which is a standing permissions
+    // problem rather than anything retrying will fix. Mirrors Android's
+    // MixerClient.SNAPSHOT_DENIED.
+    static let snapshotDenied = "Access denied: not permitted for the current snapshot"
+
     private var task: URLSessionWebSocketTask?
     private lazy var session = URLSession(
         configuration: .default, delegate: self, delegateQueue: nil
     )
+
+    // Cancelling a task completes its in-flight receive() with an error,
+    // which is indistinguishable from the socket genuinely dropping. Set
+    // across a deliberate close so listen() can tell the two apart and
+    // stay quiet - otherwise every logout/reconnect surfaces itself as a
+    // spurious "Error: cancelled" and bounces the user to the login
+    // screen they were already heading to.
+    private var isClosing = false
 
     private override init() {}
 
@@ -51,6 +69,7 @@ final class MixerClient: NSObject {
             return
         }
 
+        isClosing = false
         let task = session.webSocketTask(with: url)
         self.task = task
         task.resume()
@@ -58,6 +77,7 @@ final class MixerClient: NSObject {
     }
 
     func disconnect() {
+        isClosing = true
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         isConnected = false
@@ -66,6 +86,34 @@ final class MixerClient: NSObject {
 
     func login(username: String, password: String) {
         send(["action": "login", "username": username, "password": password])
+    }
+
+    /// Resumes a session saved by SessionStore instead of asking for
+    /// credentials again. The server answers with the same login_result
+    /// shape either way (RemoteServer._handle_token_login) - including a
+    /// false result with "Session expired" if the token has aged out or
+    /// the desktop app restarted since it was issued.
+    func login(token: String) {
+        send(["action": "login", "token": token])
+    }
+
+    /// Explicit logout: revokes the token server-side (RemoteServer pops
+    /// it from _sessions) before the socket closes, so a copy of the
+    /// token that outlived this app can't be redeemed afterwards.
+    ///
+    /// Closes only once the logout frame has actually been written -
+    /// cancelling the task straight after queueing it would drop the
+    /// frame, leaving the token live server-side until it aged out on its
+    /// own, which is exactly what an explicit logout is meant to prevent.
+    func logout(token: String?) {
+        guard let token else {
+            disconnect()
+            return
+        }
+
+        send(["action": "logout", "token": token]) { [weak self] in
+            self?.disconnect()
+        }
     }
 
     func requestAuxes() {
@@ -92,6 +140,12 @@ final class MixerClient: NSObject {
         send(["action": "set_pan", "channel": channel, "pan": pan])
     }
 
+    /// Mutes the channel in the selected aux mix only (the server writes
+    /// the console's per-send on/off flag) - not a console-wide mute.
+    func setMute(channel: Int, muted: Bool) {
+        send(["action": "set_mute", "channel": channel, "muted": muted])
+    }
+
     func requestPresets() {
         send(["action": "list_presets"])
     }
@@ -104,13 +158,18 @@ final class MixerClient: NSObject {
         send(["action": "load_preset", "name": name])
     }
 
-    private func send(_ payload: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+    /// `completion` runs once the frame has been written (or immediately
+    /// if there's nothing to write it to), on URLSession's queue rather
+    /// than the main actor.
+    private func send(_ payload: [String: Any], completion: (() -> Void)? = nil) {
+        guard let task,
+              let data = try? JSONSerialization.data(withJSONObject: payload),
               let text = String(data: data, encoding: .utf8) else {
+            completion?()
             return
         }
 
-        task?.send(.string(text)) { _ in }
+        task.send(.string(text)) { _ in completion?() }
     }
 
     private func listen() {
@@ -126,6 +185,12 @@ final class MixerClient: NSObject {
 
             case .failure(let error):
                 self.isConnected = false
+
+                // A deliberate close isn't a failure worth reporting -
+                // whoever called disconnect() has already driven the UI
+                // wherever it needs to go.
+                guard !self.isClosing else { return }
+
                 Task { @MainActor in
                     self.delegate?.mixerDidFail(message: error.localizedDescription)
                 }
@@ -145,7 +210,10 @@ final class MixerClient: NSObject {
             case "login_result":
                 let ok = json["ok"] as? Bool ?? false
                 presetsAllowed = ok && (json["presets"] as? Bool ?? false)
-                delegate?.mixerDidReceiveLoginResult(ok: ok, message: json["message"] as? String)
+                let token = (json["token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                delegate?.mixerDidReceiveLoginResult(
+                    ok: ok, message: json["message"] as? String, token: token
+                )
 
             case "auxes":
                 let entries = json["auxes"] as? [[String: Any]] ?? []
@@ -194,12 +262,31 @@ final class MixerClient: NSObject {
                 }
 
             case "error":
-                delegate?.mixerDidFail(message: json["message"] as? String ?? "Unknown error")
+                let raw = json["message"] as? String ?? "Unknown error"
+                delegate?.mixerDidFail(message: friendlyServerMessage(raw))
 
             default:
                 break
             }
         }
+    }
+}
+
+// Translates RemoteServer's raw protocol error strings
+// (services/remote_server.py) into wording that reads as a plain
+// user-facing message rather than a log line - permission rejections in
+// particular get an explicit "Access denied" prefix so they can't be
+// mistaken for a network problem. Anything not recognized here is
+// already a plain sentence from the server, so it's passed through
+// unchanged. Mirrors Android's MixerClient.kt friendlyServerMessage.
+private func friendlyServerMessage(_ raw: String) -> String {
+    switch raw {
+    case "Not permitted for the current snapshot": return MixerClient.snapshotDenied
+    case "Not permitted for this aux": return "Access denied: not permitted for this aux"
+    case "Not permitted for presets": return "Access denied: not permitted for presets"
+    case "Mixer not connected": return "Mixer not connected - try again shortly"
+    case "Not authenticated": return "Not logged in"
+    default: return raw
     }
 }
 

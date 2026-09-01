@@ -7,13 +7,13 @@ import re
 import socket
 import json
 import time
-import webbrowser
 from pathlib import Path
 
 import sv_ttk
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
+from services import updater
 from services.backup_store import BackupStore
 from services.log_store import log
 from services.network_info import get_ethernet_ip
@@ -22,6 +22,7 @@ from services.remote_server import RemoteServer
 from services.update_checker import check_for_update
 from services.user_store import UserStore
 from ui.app_icon import ICON_PNG_BASE64
+from ui.about_window import AboutWindow
 from ui.access_window import AccessPanel
 from ui.aux_window import AuxPanel
 from ui.backup_window import BackupWindow
@@ -30,6 +31,16 @@ from ui.presets_window import PresetsWindow
 from version import VERSION
 
 SETTINGS_PATH = Path.home() / ".clmix.json"
+
+# Passed to tk.Tk(className=...) - see the comment where it is used. Tk
+# capitalizes only the first letter, so the WM_CLASS this actually produces
+# is "Clmix", which is the spelling packaging/linux/clmix.desktop matches.
+WM_CLASS_NAME = "CLMix"
+
+# How long after launch the update check fires. Late enough to stay out of
+# the way of connecting to the mixer, which is what the operator actually
+# opened the app to do.
+STARTUP_UPDATE_CHECK_MS = 5000
 
 
 # Addresses worth keeping in the in-memory cache, mirroring the
@@ -1226,17 +1237,33 @@ class MainWindow:
 
     def __init__(self):
 
-        self.root = tk.Tk()
+        # className is what X11 reports as the window's WM_CLASS, and a
+        # Linux desktop matches *that* against an installed .desktop file
+        # to decide what to show in the dock and the app switcher. Left at
+        # tkinter's default the window announces itself as "Tk", matches
+        # nothing, and gets a placeholder icon no matter what iconphoto
+        # below says - a Wayland compositor never reads _NET_WM_ICON for
+        # an XWayland window.
+        #
+        # Tk normalizes the name it is given, so this arrives as the class
+        # "Clmix" rather than "CLMix". packaging/linux/clmix.desktop's
+        # StartupWMClass has to match that spelling exactly, so don't
+        # change one without the other.
+        self.root = tk.Tk(className=WM_CLASS_NAME)
         self.root.title("CLMix")
         self.root.geometry("800x500")
 
         # Keep a reference on root itself - iconphoto doesn't retain the
         # PhotoImage, so a local-only reference gets garbage collected and
-        # the icon silently reverts to the Tk default.
+        # the icon silently reverts to the Tk default. Still worth setting
+        # on top of the .desktop match above: it is what X11 desktops (and
+        # the window's own title bar, on the ones that draw an icon there)
+        # actually use.
         self.root.icon_image = tk.PhotoImage(data=ICON_PNG_BASE64)
         self.root.iconphoto(True, self.root.icon_image)
 
         self.worker = None
+        self.about_window = None
         self.access_panel = None
         self.aux_visibility_panel = None
         self.backup_window = None
@@ -1246,6 +1273,12 @@ class MainWindow:
 
         self._user_disconnected = True
         self._reconnect_job = None
+
+        # Last check_for_update() result, from the startup check below or
+        # from the About window's own Check button. Held here rather than
+        # in AboutWindow because that window is built and destroyed on
+        # demand, and this survives it.
+        self.latest_update = None
 
         self.command_queue = queue.Queue()
         self.message_queue = queue.Queue()
@@ -1260,7 +1293,13 @@ class MainWindow:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # Now, not during the update itself: this is the one moment the
+        # installer downloaded last time is guaranteed not to be running,
+        # since the app it installed is the one doing the clearing.
+        updater.sweep_download_dir()
+
         self.root.after(100, self.process_messages)
+        self.root.after(STARTUP_UPDATE_CHECK_MS, self._start_update_check)
 
     def build_menu_bar(self):
         menu_bar = tk.Menu(self.root)
@@ -1287,6 +1326,9 @@ class MainWindow:
         self.help_menu.add_command(label="Logs", command=self.open_logs_window)
         self.help_menu.add_command(label="Backup", command=self.open_backup_window)
         self.help_menu.add_command(label="About", command=self.open_about_window)
+        # Kept so the startup check can relabel this one entry - looking it
+        # up by its current label would stop working the moment it changes.
+        self.about_menu_index = self.help_menu.index("end")
         menu_bar.add_cascade(label="Help", menu=self.help_menu)
 
         self.root.config(menu=menu_bar)
@@ -1351,7 +1393,6 @@ class MainWindow:
         )
 
         self.build_setup_window()
-        self.build_about_window()
 
     def build_setup_window(self):
         """The single Setup window: Config, Accounts and Aux as notebook tabs.
@@ -1449,102 +1490,6 @@ class MainWindow:
         self.remote_port_entry.insert(0, self.settings["remote_port"])
         self.remote_port_entry.grid(row=3, column=1, padx=5, pady=5)
 
-        ttk.Label(frame, text="Computer IP").grid(
-            row=4, column=0, sticky="w", pady=(10, 0)
-        )
-
-        self.computer_ip_label = ttk.Label(frame, text="Detecting...")
-        self.computer_ip_label.grid(
-            row=4, column=1, padx=5, pady=(10, 0), sticky="w"
-        )
-
-        self.refresh_computer_ip()
-
-    def build_about_window(self):
-        self.about_window = tk.Toplevel(self.root)
-        self.about_window.title("About")
-        self.about_window.protocol("WM_DELETE_WINDOW", self.close_about_window)
-
-        frame = ttk.Frame(self.about_window, padding=15)
-        frame.pack(fill="both", expand=True)
-
-        update_row = ttk.Frame(frame)
-        update_row.pack(anchor="w")
-
-        ttk.Label(
-            update_row, text=f"Version {VERSION}", foreground="#888888"
-        ).pack(side="left")
-
-        self.check_update_btn = ttk.Button(
-            update_row, text="Check", command=self.on_check_update_button
-        )
-        self.check_update_btn.pack(side="left", padx=(10, 4))
-
-        self.update_btn = ttk.Button(
-            update_row, text="Update", command=self.open_update_page,
-            state="disabled"
-        )
-        self.update_btn.pack(side="left")
-
-        self.update_status_label = ttk.Label(
-            frame, text="", foreground="#888888"
-        )
-        self.update_status_label.pack(anchor="w", pady=(4, 0))
-
-        self.latest_release_url = None
-
-        self.about_window.withdraw()
-
-    def open_about_window(self):
-        self.about_window.deiconify()
-        self.about_window.lift()
-
-    def close_about_window(self):
-        self.about_window.withdraw()
-
-    def on_check_update_button(self):
-        if getattr(self, "_checking_for_update", False):
-            return
-
-        self._checking_for_update = True
-        self.update_status_label.config(text="Checking...")
-
-        threading.Thread(
-            target=self._check_for_update_worker, daemon=True
-        ).start()
-
-    def _check_for_update_worker(self):
-        result = check_for_update(VERSION)
-        self.message_queue.put(("update_check", result))
-
-    def _apply_update_check_result(self, result):
-        self._checking_for_update = False
-
-        if result["error"]:
-            self.update_status_label.config(text=f"Check failed: {result['error']}")
-            self.update_btn.config(state="disabled")
-            self.latest_release_url = None
-
-        elif result["available"]:
-            self.update_status_label.config(
-                text=f"Update available: v{result['latest_version']}"
-            )
-            self.latest_release_url = result["url"]
-            self.update_btn.config(state="normal")
-
-        else:
-            self.update_status_label.config(text="You're up to date")
-            self.update_btn.config(state="disabled")
-            self.latest_release_url = None
-
-    def open_update_page(self):
-        if self.latest_release_url:
-            webbrowser.open(self.latest_release_url)
-
-    def refresh_computer_ip(self):
-        ip = get_ethernet_ip()
-        self.computer_ip_label.config(text=ip if ip else "Not found")
-
     def open_setup_window(self):
         self.refresh_setup_tabs()
         self.setup_window.deiconify()
@@ -1635,6 +1580,10 @@ class MainWindow:
 
         if getattr(self, "aux_visibility_panel", None) is not None:
             self.aux_visibility_panel.rebuild()
+
+        if getattr(self, "about_window", None) is not None and \
+                self.about_window.window.winfo_exists():
+            self.about_window.apply_theme()
 
         if persist:
             self.settings["theme"] = theme
@@ -1771,6 +1720,65 @@ class MainWindow:
 
         self.logs_window = LogsWindow(self.root)
 
+    def open_about_window(self):
+
+        if self.about_window and self.about_window.window.winfo_exists():
+            self.about_window.refresh()
+            self.about_window.window.lift()
+            return
+
+        self.about_window = AboutWindow(
+            self.root, self.server_details,
+            initial_result=self.latest_update,
+            on_result=self._apply_update_result,
+        )
+
+    def _start_update_check(self):
+        """Asks GitHub once, a few seconds after launch, whether there's a
+        newer release - and does nothing else with the answer but note it.
+
+        Nothing is ever downloaded or installed without the operator
+        pressing Update in the About window. This only exists so they find
+        out an update exists without having to go looking.
+        """
+        def worker():
+            self.message_queue.put(("update_check", check_for_update(VERSION)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_update_result(self, result):
+        self.latest_update = result
+
+        if result["error"]:
+            log("debug", f"Update check failed: {result['error']}")
+
+        label = "About  •  update available" if result["available"] else "About"
+        self.help_menu.entryconfigure(self.about_menu_index, label=label)
+
+        # The About window may already be open and showing an empty status
+        # line when this lands - it is opened on demand, not after the
+        # check.
+        if self.about_window and self.about_window.window.winfo_exists():
+            self.about_window.set_result(result)
+
+    def server_details(self):
+        """Live server/mixer facts for the About window's support block.
+
+        Handed over as a bound method (not a snapshot dict) so the window
+        can re-read it whenever it's reopened or refreshed - the mixer
+        connects, drops and reconnects while the app stays up.
+        """
+        worker = self.worker
+
+        return {
+            "remote_port": self.settings["remote_port"],
+            "remote_running": self.remote_server is not None,
+            "clients": self.remote_server.client_count() if self.remote_server else 0,
+            "computer_ip": get_ethernet_ip(),
+            "mixer_ip": self.settings["mixer_ip"],
+            "mixer_connected": worker is not None and worker.is_alive() and worker.loaded,
+        }
+
     def open_backup_window(self):
 
         if self.backup_window and self.backup_window.window.winfo_exists():
@@ -1838,7 +1846,7 @@ class MainWindow:
                 log("debug", value)
 
             elif msg_type == "update_check":
-                self._apply_update_check_result(value)
+                self._apply_update_result(value)
 
         self.root.after(100, self.process_messages)
 

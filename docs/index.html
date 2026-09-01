@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<!--
+  The CLMix About page, served by GitHub Pages from this docs/ folder at
+  https://19krikma.github.io/CLMix/ and linked to from the desktop app's
+  Help > About window (ui/about_window.py), which is deliberately a
+  near-mirror of it - same graphic, same tagline, same framing.
+
+  Kept deliberately dependency-free: no build step, no webfonts, no CDN,
+  relative asset paths only, so it renders the same whether GitHub is
+  serving it or someone opened the file straight off a checkout.
+
+  No version number is written into this page on purpose. version.py is
+  the one place a release number lives; everything here points at the
+  Releases page instead, which cannot go stale.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLMix — Aux-send mixing for the DiGiCo Q225 Quantum</title>
+<meta name="description" content="CLMix gives every performer their own monitor mix on their own phone, driven by a desktop app that talks to a DiGiCo Q225 Quantum over your own local network.">
+<link rel="icon" href="assets/clmix-logo.png">
+<link rel="apple-touch-icon" href="assets/clmix-logo.png">
+<meta property="og:title" content="CLMix">
+<meta property="og:description" content="Aux-send mixing for the DiGiCo Q225 Quantum.">
+<meta property="og:image" content="assets/clmix-feature-graphic.png">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="banner-wrap">
+  <picture>
+    <source srcset="assets/clmix-feature-graphic-light.png" media="(prefers-color-scheme: light)">
+    <img class="banner" src="assets/clmix-feature-graphic.png" alt="CLMix" width="1024" height="500">
+  </picture>
+</div>
+
+<main>
+
+  <header class="intro">
+    <h1>CLMix</h1>
+    <p class="tagline">Aux-send mixing for the DiGiCo Q225 Quantum.</p>
+    <p class="version">Windows desktop app · Android and iOS clients · your network only</p>
+
+    <div class="actions">
+      <a class="button primary" href="https://github.com/19krikma/CLMix/releases/latest">Download for Windows</a>
+      <a class="button" href="https://github.com/19krikma/CLMix">View source on GitHub</a>
+    </div>
+  </header>
+
+  <h2>What it is</h2>
+
+  <p>
+    CLMix hands each performer their own monitor mix on their own phone. A
+    desktop app on the same network as the console does the talking — it
+    speaks OSC to a DiGiCo Q225 Quantum, mirrors the channel names, aux buses,
+    banks and snapshots the console reports, and re-serves the parts each
+    person is allowed to touch to the Android and iOS apps over Wi-Fi.
+  </p>
+
+  <p>
+    Everything happens on your own network. There is no CLMix account, no
+    cloud service, and no server run by anyone but you — the phones talk to
+    your desktop machine and nowhere else.
+  </p>
+
+  <h2>How it works</h2>
+
+  <ul class="chain">
+    <li>
+      <span class="step">Console</span>
+      <h3>Q225 Quantum</h3>
+      <p>Reached over OSC on the desk's own send and receive ports.</p>
+    </li>
+    <li>
+      <span class="step">Desktop</span>
+      <h3>CLMix on Windows</h3>
+      <p>Mixes from the desk itself and runs the server the phones connect to.</p>
+    </li>
+    <li>
+      <span class="step">Stage</span>
+      <h3>Phones</h3>
+      <p>Each performer gets one aux bus and nothing else, over local Wi-Fi.</p>
+    </li>
+  </ul>
+
+  <p class="note">
+    The phones find the desktop by themselves: the server advertises itself
+    over mDNS/Bonjour, so nobody has to read an IP address off the back of a
+    laptop mid-soundcheck. Typing one in by hand still works when the network
+    blocks multicast.
+  </p>
+
+  <h2>What it does</h2>
+
+  <ul class="cards">
+    <li>
+      <h3>Per-performer mixes</h3>
+      <p>Level, pan and per-send mute for every input channel, on the aux bus
+         that person is assigned to.</p>
+    </li>
+    <li>
+      <h3>Scoped accounts</h3>
+      <p>Each login is tied to one aux bus and one snapshot (or to all of
+         either). Passwords are stored salted and hashed, on your machine.</p>
+    </li>
+    <li>
+      <h3>Snapshot aware</h3>
+      <p>Recall a different snapshot on the desk and accounts scoped to
+         another one stop being able to move anything.</p>
+    </li>
+    <li>
+      <h3>Their mix, not the mix</h3>
+      <p>The phone's mute is the console's per-send on/off, so muting a
+         channel drops it out of that one wedge — never out of the room.</p>
+    </li>
+    <li>
+      <h3>Presets</h3>
+      <p>Save an aux mix under a name from the phone and pull it back later.
+         Presets recall as ordinary fader moves the desk sees like any other.</p>
+    </li>
+    <li>
+      <h3>Stays logged in</h3>
+      <p>A session token survives the app being closed and relaunched, and
+         ages out on its own once it stops being used.</p>
+    </li>
+    <li>
+      <h3>Hidden buses</h3>
+      <p>Aux buses that aren't monitor mixes can be kept out of the list the
+         phones ever see.</p>
+    </li>
+    <li>
+      <h3>Logs and backups</h3>
+      <p>Searchable local activity logs for troubleshooting, and a backup and
+         restore for settings, accounts and presets.</p>
+    </li>
+    <li>
+      <h3>Light and dark</h3>
+      <p>Both themes on all three clients, for the pit and for the daylight
+         load-in alike.</p>
+    </li>
+  </ul>
+
+  <h2>Getting it</h2>
+
+  <dl class="facts">
+    <div>
+      <dt>Windows</dt>
+      <dd>
+        Download the installer from the
+        <a href="https://github.com/19krikma/CLMix/releases/latest">latest release</a>.
+        It installs like any other Windows app and updates itself from
+        Help&nbsp;&rsaquo;&nbsp;About.
+      </dd>
+    </div>
+    <div>
+      <dt>Android</dt>
+      <dd>
+        Ships alongside the desktop release. Point it at the desktop machine —
+        it will usually find it on its own.
+      </dd>
+    </div>
+    <div>
+      <dt>iOS</dt>
+      <dd>
+        Built from source: see
+        <a href="https://github.com/19krikma/CLMix/tree/main/ios">ios/README.md</a>
+        in the repository.
+      </dd>
+    </div>
+    <div>
+      <dt>macOS / Linux</dt>
+      <dd>
+        No packaged build, but the desktop app runs from source on both —
+        <code>pip install -r requirements.txt</code>, then
+        <code>python main.py</code>.
+      </dd>
+    </div>
+    <div>
+      <dt>You'll need</dt>
+      <dd>
+        A DiGiCo Q225 Quantum reachable over the network, and the phones on the
+        same network as the desktop machine.
+      </dd>
+    </div>
+  </dl>
+
+  <h2>Privacy</h2>
+
+  <p>
+    CLMix collects nothing. There is no analytics, no advertising and no crash
+    reporting, and no server the developer operates for it to talk to. Logins,
+    mixer commands and presets never leave the network they were sent on. The
+    one request that goes out is the desktop app's anonymous check of GitHub's
+    public API for a newer release.
+  </p>
+
+  <p><a href="privacy.html">Read the full privacy policy →</a></p>
+
+  <h2>Support</h2>
+
+  <p>
+    Something wrong, or missing?
+    <a href="https://github.com/19krikma/CLMix/issues">Open an issue</a> —
+    the Copy button under Help&nbsp;&rsaquo;&nbsp;About in the desktop app puts
+    the version and connection details worth pasting into one on your
+    clipboard.
+  </p>
+
+  <footer>
+    <p>CLMix is built by Mark Krikunov · <a href="mailto:markkrikunov2000@gmail.com">markkrikunov2000@gmail.com</a></p>
+    <p>DiGiCo and Q225 Quantum are trademarks of their respective owner. CLMix is not affiliated with or endorsed by DiGiCo.</p>
+  </footer>
+
+</main>
+
+</body>
+</html>

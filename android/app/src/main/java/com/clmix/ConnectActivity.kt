@@ -29,9 +29,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.animation.doOnEnd
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.clmix.databinding.ActivityConnectBinding
 import com.google.android.material.button.MaterialButton
+import kotlin.math.max
 
 class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryListener {
     private lateinit var binding: ActivityConnectBinding
@@ -92,30 +94,84 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    // Top system-bar inset, cached from the last insets pass so the banner
+    // offset can be recomputed on a width change without waiting for another.
+    private var statusBarInset = 0
+
+    // How far down the form has to start to clear the banner's wordmark: the
+    // artwork's height at this width, cut off where its artwork ends and its
+    // solid black tail begins. Not added to the status bar inset but maxed
+    // against it - the banner is drawn from y=0, status bar included, so the
+    // wordmark's bottom edge is already past it and adding the two would
+    // leave a bar-sized hole between the logo and the form.
+    private fun bannerOffsetFor(width: Int): Int {
+        if (width <= 0) return statusBarInset
+        val drawable = ContextCompat.getDrawable(this, R.drawable.clmix_feature_graphic)
+        val iw = drawable?.intrinsicWidth ?: 0
+        val ih = drawable?.intrinsicHeight ?: 0
+        if (iw <= 0 || ih <= 0) return statusBarInset
+        val bannerHeight = width.toFloat() * ih / iw
+        return max(statusBarInset, (bannerHeight * FadingBannerView.TAIL_START).toInt())
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         binding = ActivityConnectBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // The banner runs to the very top of the window, under the status
+        // bar, so what the icons sit on is the artwork rather than the
+        // window background - and there are two of those, picked by the
+        // night qualifier. banner_is_light is picked by that same qualifier
+        // (see values/bools.xml), which keeps the icons in step with
+        // whichever banner actually got inflated.
+        WindowCompat.getInsetsController(window, window.decorView)
+            .isAppearanceLightStatusBars = resources.getBoolean(R.bool.banner_is_light)
+
         // Android 15+ (targetSdk 35+) draws this activity edge-to-edge by
         // default now - pad the scrolling content by the system bar insets
-        // (on top of its own 28dp padding) so the title isn't under the
-        // status bar and the status label isn't under the nav bar/gesture
-        // strip.
+        // (on top of its own 28dp padding) so the form isn't under the
+        // status bar and the button isn't under the nav bar/gesture strip.
+        // The top inset is folded into the banner offset below rather than
+        // applied here, because the banner is what actually sits under the
+        // status bar.
         val contentBasePadding = Rect(
             binding.content.paddingLeft, binding.content.paddingTop,
             binding.content.paddingRight, binding.content.paddingBottom
         )
         ViewCompat.setOnApplyWindowInsetsListener(binding.content) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            statusBarInset = bars.top
             view.setPadding(
                 contentBasePadding.left + bars.left,
-                contentBasePadding.top + bars.top,
+                contentBasePadding.top + bannerOffsetFor(view.width),
                 contentBasePadding.right + bars.right,
                 contentBasePadding.bottom + bars.bottom
             )
             insets
+        }
+        // Width isn't known when the insets first arrive, and it changes on
+        // rotation - so the offset is recomputed whenever the content is
+        // laid out at a new width, not only when insets land.
+        binding.content.addOnLayoutChangeListener { view, l, _, r, _, oldL, _, oldR, _ ->
+            if (r - l != oldR - oldL) {
+                view.setPadding(
+                    view.paddingLeft,
+                    contentBasePadding.top + bannerOffsetFor(r - l),
+                    view.paddingRight,
+                    view.paddingBottom
+                )
+            }
+            // The fade is pinned to the boxes it runs behind rather than to
+            // any fixed height: it starts where Discovered starts and has
+            // finished by the time Manual does. Both tops are already in the
+            // banner's own coordinates, since content and banner share a
+            // parent and content sits at its top-left.
+            binding.banner.setFadeBounds(
+                binding.discoveredContainer.top.toFloat(),
+                binding.manualContainer.top.toFloat()
+            )
         }
 
         prefs = getSharedPreferences("connection", MODE_PRIVATE)

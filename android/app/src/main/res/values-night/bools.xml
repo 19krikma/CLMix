@@ -1,0 +1,4 @@
+<resources>
+    <!-- Dark artwork at night - see values/bools.xml. -->
+    <bool name="banner_is_light">false</bool>
+</resources>

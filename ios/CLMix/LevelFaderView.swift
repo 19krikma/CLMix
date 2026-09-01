@@ -27,18 +27,19 @@ struct LevelFaderView: View {
 
             ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.secondary.opacity(0.25))
+                    .fill(Color.clmixTrackBackground)
                     .frame(width: 10)
                     .frame(maxWidth: .infinity)
 
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.accentColor)
+                    .fill(Color.clmixPrimary)
                     .frame(width: 10, height: filledHeight)
                     .frame(maxWidth: .infinity, alignment: .bottom)
 
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(Color.clmixPrimary)
                     .frame(width: 26, height: 26)
+                    .overlay(Circle().stroke(Color.clmixOnPrimary, lineWidth: 2))
                     .offset(y: -filledHeight + 13)
             }
             .contentShape(Rectangle())

@@ -7,6 +7,7 @@ __pycache__/
 /build/
 /dist/
 packaging/windows/dist_installer/
+packaging/linux/dist_deb/
 
 # Android
 android/.gradle/
@@ -17,3 +18,9 @@ android/**/*.iml
 android/keystore.properties
 android/*.keystore
 android/*.jks
+
+# iOS - CLMix.xcodeproj is generated from ios/project.yml via `xcodegen
+# generate` (run from ios/), so it's reproducible rather than hand-typed -
+# regenerate it instead of committing it.
+ios/CLMix.xcodeproj/
+ios/build/

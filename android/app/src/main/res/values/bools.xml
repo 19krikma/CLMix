@@ -1,0 +1,8 @@
+<resources>
+    <!-- Whether the connect screen's banner is the light artwork. Picked by
+         the same night qualifier that picks the drawable itself, so the two
+         can't drift apart: flip one folder and the status bar icons follow.
+         See ConnectActivity, which reads this to decide which way round the
+         icons over the banner have to be. -->
+    <bool name="banner_is_light">true</bool>
+</resources>

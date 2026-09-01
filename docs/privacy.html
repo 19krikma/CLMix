@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<!--
+  A hosted rendering of legal/PRIVACY_POLICY.md, so the policy has a real
+  URL for the app store listings and for the desktop About window to link
+  at. The markdown file remains the source of truth: when it changes, this
+  page has to be updated to match, wording for wording.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLMix — Privacy Policy</title>
+<meta name="description" content="What CLMix accesses, collects, uses and shares — across its Android, iOS and Windows desktop clients.">
+<link rel="icon" href="assets/clmix-logo.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<main class="prose">
+
+  <header class="intro" style="margin-top:48px">
+    <h1>Privacy Policy</h1>
+    <p class="tagline">CLMix</p>
+    <p class="version">Effective date: August 19, 2026</p>
+  </header>
+
+  <hr>
+
+  <p>
+    CLMix ("the app", "we", "our") is a remote-control client for a DiGiCo SD7
+    Quantum audio mixing console. This policy explains what information CLMix
+    accesses, collects, uses, and shares, across its Android, iOS, and Windows
+    desktop clients.
+  </p>
+
+  <h2>Summary</h2>
+
+  <p>
+    CLMix has no backend server operated by the developer. Each installation
+    connects only to a mixer control server that you (or your organization) run
+    yourselves, over your own local network. We do not operate any server that
+    receives, stores, or processes your data.
+  </p>
+
+  <h2>Information We Access or Collect</h2>
+
+  <h3>Login credentials</h3>
+  <p>
+    When you log in, the username and password you enter are sent directly to
+    your own mixer control server over your local network. They are never sent
+    to the developer or to any third party.
+  </p>
+
+  <h3>Session token</h3>
+  <p>
+    After login, the app stores a session token on your device so you don't
+    have to log in again each time. On Android this is encrypted at rest using
+    the Android Keystore. This token never leaves your device except back to
+    the same server that issued it.
+  </p>
+
+  <h3>Local network access</h3>
+  <p>
+    The app uses your device's Wi-Fi/network state and local network discovery
+    (mDNS) solely to find your mixer control server on the local network. This
+    is not used to track your location or identity.
+  </p>
+
+  <h3>Remote-access accounts (desktop app only)</h3>
+  <p>
+    If you use the Windows desktop app to grant other users remote access, it
+    stores each account's username and a salted, hashed password locally on the
+    machine running the desktop app. This data stays on that machine and is
+    never transmitted elsewhere.
+  </p>
+
+  <h3>Activity logs (desktop app only)</h3>
+  <p>
+    The desktop app keeps local log files of connection and mixer activity for
+    troubleshooting, stored on the same machine and automatically deleted after
+    30 days. These logs are never transmitted anywhere.
+  </p>
+
+  <h3>Update check (desktop app only)</h3>
+  <p>
+    Shortly after startup, and again whenever you press Check in the About
+    window, the desktop app makes an anonymous request to GitHub's public API
+    to read the latest released version number. This request contains no
+    personal or account data and is not tied to you or your device.
+  </p>
+
+  <h3>Update download (desktop app only)</h3>
+  <p>
+    If you press Update in the About window, the desktop app downloads that
+    release's installer from GitHub and runs it. This is an anonymous public
+    download, started only by you, and it sends nothing about you or your
+    installation. Nothing is ever downloaded or installed without you
+    pressing that button.
+  </p>
+
+  <h2>What We Do Not Collect</h2>
+
+  <p>CLMix does not access, collect, or share:</p>
+
+  <ul>
+    <li>Name, email address, or other personal identifiers</li>
+    <li>Location data (approximate or precise)</li>
+    <li>Contacts, calendar, photos, videos, or files</li>
+    <li>Microphone or camera data</li>
+    <li>Financial, health, or fitness information</li>
+    <li>Messages, browsing history, or installed-app lists</li>
+    <li>Device identifiers (e.g. advertising ID, Android ID)</li>
+    <li>Crash logs, diagnostics, or analytics of any kind</li>
+  </ul>
+
+  <h2>Third Parties</h2>
+
+  <p>
+    CLMix does not use any analytics, advertising, or crash-reporting SDKs, and
+    does not share data with any third party. The only outside network requests
+    the app makes are the anonymous GitHub version check and, if you ask for it,
+    the update download described above.
+  </p>
+
+  <h2>Data Storage &amp; Security</h2>
+
+  <ul>
+    <li>Session tokens are encrypted at rest (Android: Android Keystore-backed
+        encryption).</li>
+    <li>Remote-access account passwords are never stored in plain text; only a
+        salted hash is kept, and only on the machine you designate as the
+        server.</li>
+    <li>All mixer-control traffic (login, fader/mute/pan commands, presets)
+        stays on your local network between the client app and your own
+        server.</li>
+  </ul>
+
+  <h2>Data Retention &amp; Deletion</h2>
+
+  <ul>
+    <li>Logging out of the app clears the locally stored session token.</li>
+    <li>Uninstalling the app removes all locally stored app data, including the
+        encrypted session token.</li>
+    <li>An administrator can delete a remote-access account at any time from
+        the desktop app's Access management screen.</li>
+    <li>Desktop activity logs are automatically deleted after 30 days.</li>
+  </ul>
+
+  <h2>Children's Privacy</h2>
+
+  <p>
+    CLMix is a professional audio-production tool not directed at children and
+    is not knowingly used to collect data from children.
+  </p>
+
+  <h2>Changes to This Policy</h2>
+
+  <p>
+    If this policy changes, the updated version will be posted at this same
+    location with a revised effective date.
+  </p>
+
+  <h2>Contact Us</h2>
+
+  <p>
+    Questions about this privacy policy or CLMix's data practices can be sent
+    to:
+  </p>
+
+  <p>
+    Mark Krikunov<br>
+    <a href="mailto:markkrikunov2000@gmail.com">markkrikunov2000@gmail.com</a>
+  </p>
+
+  <p class="back"><a href="index.html">← Back to CLMix</a></p>
+
+</main>
+
+</body>
+</html>

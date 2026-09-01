@@ -80,6 +80,18 @@ class RemoteServer:
         self._aiozc = None
         self._service_info = None
 
+        # Sockets open right now, as opposed to _sessions, which is
+        # redeemable tokens - a phone that has been put in a pocket still
+        # has a session but no connection. Only ever added to and removed
+        # from on the event loop's own thread; read from the Tkinter
+        # thread, which is fine for something only used to say "3 phones
+        # are connected" before an action that would cut them off.
+        self._clients = set()
+
+    def client_count(self):
+        """How many phones are connected to this server right now."""
+        return len(self._clients)
+
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -183,6 +195,7 @@ class RemoteServer:
 
     async def _handle_client(self, websocket):
         log("info", f"Client connected: {websocket.remote_address}")
+        self._clients.add(websocket)
         state = {
             "aux": None, "bank": None, "user": None, "permission": None, "token": None
         }
@@ -196,6 +209,7 @@ class RemoteServer:
             pass
         finally:
             push_task.cancel()
+            self._clients.discard(websocket)
             log("info", f"Client disconnected: {websocket.remote_address}")
 
     async def _handle_message(self, websocket, state, raw):

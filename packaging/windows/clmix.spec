@@ -23,6 +23,16 @@ PROJECT_ROOT = os.path.abspath(os.path.join(SPEC_DIR, "..", ".."))
 # fails to find the theme at startup.
 datas = collect_data_files("sv_ttk")
 
+# The About window's feature graphic, resolved at runtime through
+# ui/resources.py (which reads sys._MEIPASS in a frozen build and the repo
+# root from source). Listed file by file rather than by folder so a build
+# doesn't quietly balloon with the 10800x10800 master artwork also living
+# in images/.
+datas += [
+    (os.path.join(PROJECT_ROOT, "images", name), "images")
+    for name in ("clmix-feature-graphic.png", "clmix-feature-graphic-light.png")
+]
+
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "main.py")],
     pathex=[PROJECT_ROOT],

@@ -1,0 +1,293 @@
+/* Shared styling for the GitHub Pages site (index.html + privacy.html).
+ *
+ * The palette is the phone apps' own - android/app/src/main/res/values/
+ * colors.xml by day, values-night/colors.xml by night - so the page, the
+ * Android client and the iOS client all read as one product. Dark is the
+ * default because the feature graphic is, and because that's the theme a
+ * front-of-house desk is actually looked at in.
+ *
+ * No webfonts and no CDN: the whole page has to render from the repo
+ * alone, whether it is served by GitHub Pages or opened as a local file. */
+
+:root {
+  color-scheme: dark light;
+
+  --bg: #121317;
+  --surface: #1b1d22;
+  --surface-variant: #25272e;
+  --text: #ecedf0;
+  --muted: #a9acb4;
+  --accent: #6c93ff;
+  --accent-strong: #8aa9ff;
+  --outline: #2f323a;
+
+  --measure: 46rem;
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-variant: #e7e9ee;
+    --text: #1b1d22;
+    --muted: #54585f;
+    --accent: #3b6df6;
+    --accent-strong: #2b56cc;
+    --outline: #d3d6dc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+}
+
+/* --- banner ------------------------------------------------------------ */
+
+/* Full-bleed at its own aspect ratio, dissolving into the page background
+ * below the wordmark - the same treatment the Android connect screen gives
+ * it (FadingBannerView) and the desktop About window crops for. */
+.banner {
+  position: relative;
+  display: block;
+  width: 100%;
+  /* Explicit, not inherited: the img's width/height attributes (there so
+     the page reserves the right space before the file loads) come through
+     as presentation hints, and without this the 500px one survives
+     width:100% and stretches the artwork on a narrow screen. */
+  height: auto;
+  max-height: 52vh;
+  object-fit: cover;
+  /* Weighted low so that when a short viewport forces a crop it takes the
+     bite out of the faders at the top, never off the wordmark. */
+  object-position: center 70%;
+}
+
+.banner-wrap {
+  position: relative;
+  background: #000;
+}
+
+@media (prefers-color-scheme: light) {
+  .banner-wrap { background: #f4f5f7; }
+}
+
+.banner-wrap::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  /* Only as tall as the artwork's own flat lower edge (its bottom ~14%,
+     the same tail the Android banner and the desktop About window crop
+     off) - any taller and the fade starts eating the wordmark. */
+  height: 13%;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+
+/* --- layout ------------------------------------------------------------ */
+
+main {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 0 24px 72px;
+}
+
+header.intro {
+  margin-top: -8px;
+  text-align: center;
+}
+
+h1 {
+  font-size: 2.4rem;
+  line-height: 1.15;
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  font-size: 1.15rem;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
+.version {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+h2 {
+  font-size: 1.3rem;
+  margin: 48px 0 12px;
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 0 0 4px;
+}
+
+p { margin: 0 0 16px; }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { color: var(--accent-strong); }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--outline);
+  margin: 40px 0;
+}
+
+/* --- buttons ----------------------------------------------------------- */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 24px 0 8px;
+}
+
+.button {
+  display: inline-block;
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--outline);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.button:hover { border-color: var(--accent); color: var(--text); }
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1530;
+}
+
+.button.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: #0b1530; }
+
+@media (prefers-color-scheme: light) {
+  .button.primary, .button.primary:hover { color: #ffffff; }
+}
+
+/* --- cards ------------------------------------------------------------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cards li {
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+
+.cards p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+/* --- signal chain ------------------------------------------------------ */
+
+/* Console -> desktop -> phones, in the order the audio control actually
+ * travels. Wraps to a column on a narrow screen, arrows and all. */
+.chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.chain li {
+  flex: 1 1 12rem;
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.chain .step {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.chain p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+
+/* --- misc -------------------------------------------------------------- */
+
+dl.facts { margin: 0; }
+
+dl.facts div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--outline);
+}
+
+dl.facts dt { flex: 0 0 9rem; color: var(--muted); margin: 0; }
+dl.facts dd { flex: 1 1 16rem; margin: 0; }
+
+.note {
+  background: var(--surface-variant);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+.note p:last-child { margin-bottom: 0; }
+
+footer {
+  border-top: 1px solid var(--outline);
+  margin-top: 56px;
+  padding-top: 20px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+footer p { margin: 0 0 6px; }
+
+/* --- prose (privacy.html) ---------------------------------------------- */
+
+.prose h2 { margin-top: 36px; }
+.prose h3 { margin: 24px 0 4px; font-size: 1.02rem; }
+.prose ul { padding-left: 22px; }
+.prose li { margin-bottom: 6px; }
+.prose strong { color: var(--text); }
+
+.back {
+  display: inline-block;
+  margin: 24px 0 0;
+  font-size: 0.95rem;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--surface-variant);
+  padding: 1px 5px;
+  border-radius: 5px;
+}

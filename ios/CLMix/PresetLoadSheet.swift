@@ -15,17 +15,17 @@ struct PresetLoadSheet: View {
     var body: some View {
         VStack(spacing: 16) {
             Capsule()
-                .fill(Color.secondary.opacity(0.4))
+                .fill(Color.clmixTrackBackground)
                 .frame(width: 40, height: 4)
                 .padding(.top, 8)
 
             Text("Load Preset")
-                .font(.headline)
+                .font(.system(size: 16, weight: .bold))
 
             if model.presetNames.isEmpty {
                 Spacer()
                 Text("No presets saved yet")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.clmixOnSurfaceVariant)
                 Spacer()
             } else {
                 List(model.presetNames, id: \.self, selection: $selectedName) { name in
@@ -34,15 +34,22 @@ struct PresetLoadSheet: View {
                 .listStyle(.plain)
             }
 
-            Button(isLoading ? "Loading..." : "Load") {
+            Button {
                 guard let selectedName else { return }
                 isLoading = true
                 model.loadPreset(name: selectedName) {
                     isLoading = false
                     dismiss()
                 }
+            } label: {
+                Text(isLoading ? "Loading..." : "Load")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
             }
-            .buttonStyle(.borderedProminent)
+            .foregroundStyle(Color.clmixOnPrimary)
+            .background(Color.clmixPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .opacity(selectedName == nil || isLoading ? 0.5 : 1)
             .disabled(selectedName == nil || isLoading)
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
