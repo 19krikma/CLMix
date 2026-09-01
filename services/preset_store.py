@@ -11,7 +11,7 @@ class PresetStore:
 
     Captured/recalled from the phone apps via RemoteServer's save_preset/
     load_preset actions; the desktop UI (PresetsWindow) only manages the
-    list - view names and delete - mirroring how AccessWindow manages
+    list - view names and delete - mirroring how AccessPanel manages
     UserStore's accounts.
     """
 

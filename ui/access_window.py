@@ -16,15 +16,26 @@ def format_aux(aux):
     return ", ".join(aux)
 
 
-class AccessWindow:
-    def __init__(self, master, user_store, get_worker, get_hidden_auxes=None):
+class AccessPanel:
+    """User accounts and their per-user snapshot/aux/preset permissions.
+
+    Lives as a tab inside the Setup window rather than owning a window of
+    its own. The permission options offered by UserEditDialog come from
+    the connected mixer, but they are read at dialog-open time rather than
+    build time, so this panel does not need rebuilding when the connection
+    changes - refresh_list() is enough.
+    """
+
+    def __init__(self, parent, user_store, get_worker, get_hidden_auxes=None):
         self.user_store = user_store
         self.get_worker = get_worker
         self.get_hidden_auxes = get_hidden_auxes or (lambda: set())
 
-        self.window = tk.Toplevel(master)
-        self.window.title("Accounts")
-        self.window.geometry("530x360")
+        self.container = parent
+
+        # UserEditDialog grabs/transients onto this and the messageboxes
+        # parent to it - a tab frame can't serve as either.
+        self.window = parent.winfo_toplevel()
 
         self.build_ui()
         self.refresh_list()
@@ -32,7 +43,7 @@ class AccessWindow:
     def build_ui(self):
         columns = ("username", "snapshot", "aux", "presets")
         self.tree = ttk.Treeview(
-            self.window, columns=columns, show="headings", height=10
+            self.container, columns=columns, show="headings", height=10
         )
         self.tree.heading("username", text="Username")
         self.tree.heading("snapshot", text="Snapshot Access")
@@ -45,7 +56,7 @@ class AccessWindow:
         self.tree.pack(fill="both", expand=True, padx=10, pady=10)
         self.tree.bind("<Double-1>", lambda event: self.edit_user())
 
-        btn_bar = ttk.Frame(self.window, padding=(10, 0, 10, 10))
+        btn_bar = ttk.Frame(self.container, padding=(10, 0, 10, 10))
         btn_bar.pack(fill="x")
 
         ttk.Button(btn_bar, text="New", command=self.new_user).pack(side="left")

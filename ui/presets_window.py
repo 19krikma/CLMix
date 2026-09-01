@@ -6,7 +6,7 @@ class PresetsWindow:
     """Lists presets saved from the phone apps (name + channel count) and
     lets the operator delete them. Presets are only ever created/loaded
     from a phone - this window just manages the saved list, mirroring
-    AccessWindow's relationship to UserStore.
+    AccessPanel's relationship to UserStore.
     """
 
     def __init__(self, master, preset_store):

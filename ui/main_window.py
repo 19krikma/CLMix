@@ -22,8 +22,8 @@ from services.remote_server import RemoteServer
 from services.update_checker import check_for_update
 from services.user_store import UserStore
 from ui.app_icon import ICON_PNG_BASE64
-from ui.access_window import AccessWindow
-from ui.aux_window import AuxWindow
+from ui.access_window import AccessPanel
+from ui.aux_window import AuxPanel
 from ui.backup_window import BackupWindow
 from ui.logs_window import LogsWindow
 from ui.presets_window import PresetsWindow
@@ -885,7 +885,7 @@ class AuxLevelsPanel:
 
             # Alternating tone so adjacent channel strips read as visually
             # separate columns instead of blurring together - same idea
-            # as AuxWindow's row striping and the Android app's per-item
+            # as AuxPanel's row striping and the Android app's per-item
             # background (ChannelAdapter.bindChannelState).
             is_alt = index % 2 == 1
             self.channel_parity[i] = is_alt
@@ -1237,8 +1237,8 @@ class MainWindow:
         self.root.iconphoto(True, self.root.icon_image)
 
         self.worker = None
-        self.access_window = None
-        self.aux_window = None
+        self.access_panel = None
+        self.aux_visibility_panel = None
         self.backup_window = None
         self.logs_window = None
         self.presets_window = None
@@ -1266,9 +1266,9 @@ class MainWindow:
         menu_bar = tk.Menu(self.root)
 
         self.preference_menu = tk.Menu(menu_bar, tearoff=False)
-        self.preference_menu.add_command(label="Config", command=self.open_setup_window)
-        self.preference_menu.add_command(label="Accounts", command=self.open_access_window)
-        self.preference_menu.add_command(label="Aux", command=self.open_aux_window)
+        self.preference_menu.add_command(
+            label="Setup\u2026", command=self.open_setup_window
+        )
         menu_bar.add_cascade(label="Setup", menu=self.preference_menu)
 
         self.theme_var = tk.StringVar(value=self.settings["theme"])
@@ -1354,11 +1354,50 @@ class MainWindow:
         self.build_about_window()
 
     def build_setup_window(self):
+        """The single Setup window: Config, Accounts and Aux as notebook tabs.
+
+        Built once at startup and hidden rather than created on demand, so
+        the Config entries below exist before the first connect(). The
+        Accounts and Aux tabs read mixer state, which is not available yet
+        at startup - open_setup_window() refreshes them on the way in, and
+        _on_setup_tab_changed does the same when the operator switches tabs.
+        """
         self.setup_window = tk.Toplevel(self.root)
-        self.setup_window.title("Config")
+        self.setup_window.title("Setup")
+        self.setup_window.geometry("720x470")
         self.setup_window.protocol("WM_DELETE_WINDOW", self.close_setup_window)
 
-        frame = ttk.Frame(self.setup_window, padding=15)
+        self.setup_notebook = ttk.Notebook(self.setup_window)
+        self.setup_notebook.pack(fill="both", expand=True, padx=10, pady=10)
+
+        config_tab = ttk.Frame(self.setup_notebook)
+        accounts_tab = ttk.Frame(self.setup_notebook)
+        aux_tab = ttk.Frame(self.setup_notebook)
+
+        self.setup_notebook.add(config_tab, text="Config")
+        self.setup_notebook.add(accounts_tab, text="Accounts")
+        self.setup_notebook.add(aux_tab, text="Aux")
+
+        self.build_config_tab(config_tab)
+
+        self.access_panel = AccessPanel(
+            accounts_tab, self.user_store, lambda: self.worker,
+            self.get_hidden_auxes
+        )
+
+        self.aux_visibility_panel = AuxPanel(
+            aux_tab, self.settings, self.save_settings, lambda: self.worker,
+            on_change=self.aux_panel.refresh_aux_list
+        )
+
+        self.setup_notebook.bind(
+            "<<NotebookTabChanged>>", self._on_setup_tab_changed
+        )
+
+        self.setup_window.withdraw()
+
+    def build_config_tab(self, parent):
+        frame = ttk.Frame(parent, padding=15)
         frame.pack(fill="both", expand=True)
 
         port_vcmd = (self.setup_window.register(self._validate_port_input), "%P")
@@ -1420,8 +1459,6 @@ class MainWindow:
         )
 
         self.refresh_computer_ip()
-
-        self.setup_window.withdraw()
 
     def build_about_window(self):
         self.about_window = tk.Toplevel(self.root)
@@ -1509,11 +1546,32 @@ class MainWindow:
         self.computer_ip_label.config(text=ip if ip else "Not found")
 
     def open_setup_window(self):
+        self.refresh_setup_tabs()
         self.setup_window.deiconify()
         self.setup_window.lift()
 
     def close_setup_window(self):
         self.setup_window.withdraw()
+
+    def _on_setup_tab_changed(self, event=None):
+        # Only worth refreshing what is actually on screen; the window
+        # stays alive in the background between openings, so without this
+        # a tab built while disconnected would keep showing stale content.
+        if self.setup_window.winfo_viewable():
+            self.refresh_setup_tabs()
+
+    def refresh_setup_tabs(self):
+        """Re-sync the Accounts and Aux tabs with the current mixer state.
+
+        The Aux tab has to be rebuilt outright rather than refreshed: its
+        rows are laid out from the aux list and colored with values read at
+        build time, so there is nothing to update in place.
+        """
+        if self.access_panel is not None:
+            self.access_panel.refresh_list()
+
+        if self.aux_visibility_panel is not None:
+            self.aux_visibility_panel.rebuild()
 
     def _validate_port_input(self, proposed):
         # Caps keystroke entry at 5 digits (max valid port is 65535) -
@@ -1574,6 +1632,9 @@ class MainWindow:
 
         if getattr(self, "aux_panel", None) is not None:
             self.aux_panel.apply_theme()
+
+        if getattr(self, "aux_visibility_panel", None) is not None:
+            self.aux_visibility_panel.rebuild()
 
         if persist:
             self.settings["theme"] = theme
@@ -1694,27 +1755,6 @@ class MainWindow:
         self.disconnect(user_initiated=False)
         self.connect()
 
-    def open_access_window(self):
-
-        if self.access_window and self.access_window.window.winfo_exists():
-            self.access_window.window.lift()
-            return
-
-        self.access_window = AccessWindow(
-            self.root, self.user_store, lambda: self.worker, self.get_hidden_auxes
-        )
-
-    def open_aux_window(self):
-
-        if self.aux_window and self.aux_window.window.winfo_exists():
-            self.aux_window.window.lift()
-            return
-
-        self.aux_window = AuxWindow(
-            self.root, self.settings, self.save_settings, lambda: self.worker,
-            on_change=self.aux_panel.refresh_aux_list
-        )
-
     def open_presets_window(self):
 
         if self.presets_window and self.presets_window.window.winfo_exists():
@@ -1746,20 +1786,18 @@ class MainWindow:
         if "settings" in keys:
             self.reload_settings()
 
-        if "users" in keys and \
-                self.access_window and self.access_window.window.winfo_exists():
-            self.access_window.refresh_list()
+        if "users" in keys and self.access_panel is not None:
+            self.access_panel.refresh_list()
 
         if "presets" in keys and \
                 self.presets_window and self.presets_window.window.winfo_exists():
             self.presets_window.refresh_list()
 
     def reload_settings(self):
-        # Mutated in place (not reassigned) so AuxWindow - which is handed
+        # Mutated in place (not reassigned) so AuxPanel - which is handed
         # this same dict object rather than a getter - stays in sync too;
-        # replacing self.settings outright would leave an already-open
-        # AuxWindow mutating a now-orphaned dict that save_settings() no
-        # longer serializes.
+        # replacing self.settings outright would leave the Aux tab mutating
+        # a now-orphaned dict that save_settings() no longer serializes.
         fresh = self.load_settings()
         self.settings.clear()
         self.settings.update(fresh)
@@ -1779,6 +1817,8 @@ class MainWindow:
         self.theme_var.set(self.settings["theme"])
         self.apply_theme(self.settings["theme"], persist=False)
 
+        # The Aux tab picks up the restored hidden_auxes via the rebuild
+        # apply_theme() above already performs.
         self.aux_panel.refresh_aux_list()
 
     def process_messages(self):

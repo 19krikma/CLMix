@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 
 
-class AuxWindow:
+class AuxPanel:
     """Per-aux "View" checkboxes, letting the operator hide aux buses they
     don't care about. Hidden auxes are remembered (by name) in settings
     across restarts.
@@ -13,24 +13,40 @@ class AuxWindow:
     count per group is chosen to keep the whole thing roughly square
     (e.g. 25 auxes -> 5 groups of 5 rows) instead of one very tall,
     narrow column.
+
+    Lives as a tab inside the Setup window rather than owning a window of
+    its own, so it is built once and persists. Because the aux list comes
+    from the mixer, the contents are only meaningful once a worker has
+    loaded - rebuild() re-runs the build against whatever the worker knows
+    now, and the Setup window calls it whenever the tab is shown or the
+    theme changes (the row colors below are resolved at build time).
     """
 
-    def __init__(self, master, settings, save_settings, get_worker, on_change=None):
+    def __init__(self, parent, settings, save_settings, get_worker, on_change=None):
         self.settings = settings
         self.save_settings = save_settings
         self.get_worker = get_worker
         self.on_change = on_change
         self.vars = {}
 
-        self.window = tk.Toplevel(master)
-        self.window.title("Aux Visibility")
-        self.window.geometry("700x420")
+        self.container = parent
 
+        # Dialogs and messageboxes opened from a panel still need a real
+        # toplevel to attach to, which a tab frame is not.
+        self.window = parent.winfo_toplevel()
+
+        self.build_ui()
+
+    def rebuild(self):
+        for child in self.container.winfo_children():
+            child.destroy()
+
+        self.vars = {}
         self.build_ui()
 
     def build_ui(self):
         # Deferred to avoid a circular import - ui.main_window imports
-        # AuxWindow at module level, so these can only be pulled in once
+        # AuxPanel at module level, so these can only be pulled in once
         # ui.main_window has finished loading.
         from ui.main_window import build_aux_list, panel_bg, panel_fg, stripe_bg
 
@@ -38,7 +54,7 @@ class AuxWindow:
 
         if not worker or not worker.is_alive() or not worker.loaded:
             ttk.Label(
-                self.window,
+                self.container,
                 text="Connect to the mixer to manage aux visibility.",
                 padding=20
             ).pack()
@@ -47,15 +63,15 @@ class AuxWindow:
         aux_list = build_aux_list(worker)
 
         if not aux_list:
-            ttk.Label(self.window, text="No aux buses found.", padding=20).pack()
+            ttk.Label(self.container, text="No aux buses found.", padding=20).pack()
             return
 
         hidden = set(self.settings.get("hidden_auxes", []))
-        base_bg = panel_bg(self.window)
-        fg = panel_fg(self.window)
-        alt_bg = stripe_bg(self.window)
+        base_bg = panel_bg(self.container)
+        fg = panel_fg(self.container)
+        alt_bg = stripe_bg(self.container)
 
-        canvas_container = ttk.Frame(self.window)
+        canvas_container = ttk.Frame(self.container)
         canvas_container.pack(fill="both", expand=True)
 
         canvas = tk.Canvas(canvas_container, highlightthickness=0, bg=base_bg)
@@ -64,14 +80,37 @@ class AuxWindow:
         )
         canvas.configure(xscrollcommand=h_scroll.set)
         canvas.pack(side="top", fill="both", expand=True)
-        h_scroll.pack(side="bottom", fill="x")
 
         container = tk.Frame(canvas, bg=base_bg, padx=15, pady=15)
         canvas.create_window((0, 0), window=container, anchor="nw")
-        container.bind(
-            "<Configure>",
-            lambda event: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+
+        # Tracked explicitly rather than read back off winfo_ismapped():
+        # mapping is processed asynchronously, so straight after pack()
+        # the scrollbar still reports itself unmapped and the matching
+        # hide would be skipped, leaving the bar up for good.
+        scroll_shown = [False]
+
+        def sync_scroll(event=None):
+            bbox = canvas.bbox("all")
+            if bbox is None:
+                return
+
+            canvas.configure(scrollregion=bbox)
+
+            # Only show the scrollbar when the groups actually overflow -
+            # a console with few auxes fits easily, and a permanently
+            # visible bar across the bottom of the tab reads as clutter.
+            needed = bbox[2] > canvas.winfo_width()
+
+            if needed and not scroll_shown[0]:
+                h_scroll.pack(side="bottom", fill="x")
+                scroll_shown[0] = True
+            elif not needed and scroll_shown[0]:
+                h_scroll.pack_forget()
+                scroll_shown[0] = False
+
+        container.bind("<Configure>", sync_scroll)
+        canvas.bind("<Configure>", sync_scroll)
 
         # Raw tk.Checkbutton's indicator rendering is unreliable across
         # platforms/themes (its "checked" fill can end up indistinguishable
