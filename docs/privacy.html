@@ -21,7 +21,7 @@
   <header class="intro" style="margin-top:48px">
     <h1>Privacy Policy</h1>
     <p class="tagline">CLMix</p>
-    <p class="version">Effective date: August 19, 2026</p>
+    <p class="version">Effective date: September 1, 2026</p>
   </header>
 
   <hr>
@@ -55,15 +55,30 @@
   <p>
     After login, the app stores a session token on your device so you don't
     have to log in again each time. On Android this is encrypted at rest using
-    the Android Keystore. This token never leaves your device except back to
-    the same server that issued it.
+    the Android Keystore; on iOS it is held in the system Keychain, readable
+    only by CLMix itself and only once the device has been unlocked. This
+    token never leaves your device except back to the same server that issued
+    it.
+  </p>
+
+  <h3>Connection settings</h3>
+  <p>
+    The app remembers the server address, port and username you last used,
+    together with your light/dark theme choice, so you do not have to re-enter
+    them. These stay on your device; the address and username leave it only in
+    the course of reaching and logging in to your own server. Your password is
+    never written to disk on any platform.
   </p>
 
   <h3>Local network access</h3>
   <p>
-    The app uses your device's Wi-Fi/network state and local network discovery
-    (mDNS) solely to find your mixer control server on the local network. This
-    is not used to track your location or identity.
+    The app uses local network discovery (mDNS / Bonjour) solely to find your
+    mixer control server on the local network. On Android this relies on the
+    device's Wi-Fi/network state; on iOS it requires the system's Local
+    Network permission, which iOS asks for the first time the app looks for or
+    connects to a server on your network, and without which CLMix cannot reach
+    your server. Discovery is limited to CLMix servers advertising themselves
+    on your own network, and is not used to track your location or identity.
   </p>
 
   <h3>Remote-access accounts (desktop app only)</h3>
@@ -109,7 +124,9 @@
     <li>Microphone or camera data</li>
     <li>Financial, health, or fitness information</li>
     <li>Messages, browsing history, or installed-app lists</li>
-    <li>Device identifiers (e.g. advertising ID, Android ID)</li>
+    <li>Device identifiers (e.g. the iOS advertising identifier (IDFA) or
+        identifier for vendor (IDFV), or the Android advertising ID or
+        Android ID)</li>
     <li>Crash logs, diagnostics, or analytics of any kind</li>
   </ul>
 
@@ -117,16 +134,19 @@
 
   <p>
     CLMix does not use any analytics, advertising, or crash-reporting SDKs, and
-    does not share data with any third party. The only outside network requests
-    the app makes are the anonymous GitHub version check and, if you ask for it,
-    the update download described above.
+    does not share data with any third party. The Android and iOS apps make no
+    outside network requests whatsoever — they talk only to your own mixer
+    control server on your local network. On the Windows desktop app, the only
+    outside requests are the anonymous GitHub version check and, if you ask for
+    it, the update download described above.
   </p>
 
   <h2>Data Storage &amp; Security</h2>
 
   <ul>
-    <li>Session tokens are encrypted at rest (Android: Android Keystore-backed
-        encryption).</li>
+    <li>Session tokens are protected at rest by the platform's own secure
+        storage (Android: Android Keystore-backed encryption; iOS: the system
+        Keychain).</li>
     <li>Remote-access account passwords are never stored in plain text; only a
         salted hash is kept, and only on the machine you designate as the
         server.</li>
@@ -139,8 +159,8 @@
 
   <ul>
     <li>Logging out of the app clears the locally stored session token.</li>
-    <li>Uninstalling the app removes all locally stored app data, including the
-        encrypted session token.</li>
+    <li>Uninstalling the app removes all locally stored app data, including
+        the stored session token and your saved connection settings.</li>
     <li>An administrator can delete a remote-access account at any time from
         the desktop app's Access management screen.</li>
     <li>Desktop activity logs are automatically deleted after 30 days.</li>
