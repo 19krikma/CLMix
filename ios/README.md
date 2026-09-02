@@ -68,6 +68,17 @@ yet - SwiftUI `DragGesture` geometry math is fiddly to get exactly right
 without live testing against real fader input, so expect to need some
 hands-on adjustment there.
 
+Has an `AppIcon.appiconset` (from `images/cl-icon-1024.png`, the same
+source the Android launcher icon and the feature graphics come from) and
+a `PrivacyInfo.xcprivacy` declaring the app's one required-reason API
+(`UserDefaults`, used for the saved host/port/username and the dark-mode
+override - never anything shared outside the app's own container). Code
+signing is `Automatic` with no team baked in, so the Simulator build
+above needs nothing further; building for a physical device or archiving
+for TestFlight/App Store needs a real Apple Developer team, picked under
+the CLMix target's Signing & Capabilities tab in Xcode (or set
+`DEVELOPMENT_TEAM` in `project.yml` to bake it in for every checkout).
+
 ## Structure
 
 | File | Mirrors (Android) | Purpose |
