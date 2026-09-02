@@ -73,11 +73,12 @@ source the Android launcher icon and the feature graphics come from) and
 a `PrivacyInfo.xcprivacy` declaring the app's one required-reason API
 (`UserDefaults`, used for the saved host/port/username and the dark-mode
 override - never anything shared outside the app's own container). Code
-signing is `Automatic` with no team baked in, so the Simulator build
-above needs nothing further; building for a physical device or archiving
-for TestFlight/App Store needs a real Apple Developer team, picked under
-the CLMix target's Signing & Capabilities tab in Xcode (or set
-`DEVELOPMENT_TEAM` in `project.yml` to bake it in for every checkout).
+signing is `Automatic` against the team ID in `project.yml`, so a
+generated project is ready to build as-is - the Simulator needs no
+signing at all, and device builds and archives (TestFlight, App Store)
+resolve a profile from that team. A machine whose Xcode is not signed in
+to an account with access to that team can still run the Simulator, but
+cannot archive.
 
 ## Structure
 

@@ -4,14 +4,17 @@ options:
   deploymentTarget:
     iOS: "17.0"
 settings:
-  # Automatic signing, no team baked in - Simulator builds need no signing
-  # at all, so this still builds clean out of the box. Device/archive
-  # builds (TestFlight, ad-hoc, App Store) need a real Apple Developer
-  # team: pick one under the CLMix target's Signing & Capabilities tab in
-  # Xcode, or set DEVELOPMENT_TEAM here to your team ID so `xcodegen
-  # generate` bakes it in for everyone building this checkout.
+  # Automatic signing against the team below, so `xcodegen generate` wires
+  # up a buildable project with no Signing & Capabilities fiddling in
+  # Xcode. Simulator builds need no signing at all and work regardless;
+  # device builds and archives (TestFlight, ad-hoc, App Store) resolve a
+  # profile from this team, so a machine whose Xcode is not signed in to
+  # an account with access to it can still run the Simulator but cannot
+  # archive. The team ID is not a secret - it ships inside every signed
+  # app, in the application-identifier entitlement - so it lives here
+  # rather than in a gitignored file.
   CODE_SIGN_STYLE: Automatic
-  DEVELOPMENT_TEAM: ""
+  DEVELOPMENT_TEAM: "5A5LF52KKC"
 targets:
   CLMix:
     type: application
@@ -27,10 +30,15 @@ targets:
         NSLocalNetworkUsageDescription: "CLMix finds and connects to the desktop mixer app on your local network."
         NSBonjourServices:
           - _clmix._tcp.
+        # Answers App Store Connect's export-compliance question up front,
+        # rather than being asked it on every upload. True of this app: the
+        # only cryptography is the system Keychain and the platform's own
+        # TLS, neither of which counts, and the mixer socket is plain ws://.
+        ITSAppUsesNonExemptEncryption: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.clmix.CLMix
-        MARKETING_VERSION: "1.0"
+        MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
