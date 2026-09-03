@@ -51,6 +51,12 @@ class RemoteServer:
     only that operator's own mix - a channel mute would cut the source
     everywhere at once, FOH and every other performer's wedge included.
 
+    Writing that flag is itself gated by the account's "mute" permission.
+    An account denied it still *receives* each channel's muted state in
+    the push loop - it needs to see a channel the operator has pulled
+    from its mix - and can still move level and pan; only set_mute is
+    refused.
+
     A successful username/password login also mints an opaque session
     token, so a phone app that was killed and relaunched can resend just
     that token instead of asking the user to retype their password. The
@@ -306,6 +312,14 @@ class RemoteServer:
                 )
                 return
 
+            if not entry.get("mute", True):
+                log("info", f"Denied set_mute for user {state['user']!r} "
+                    "(account has no mute permission)")
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted to mute"}
+                )
+                return
+
             self._set_mute(state, msg.get("channel"), msg.get("muted"))
 
         elif action == "list_presets":
@@ -383,7 +397,8 @@ class RemoteServer:
         state["token"] = new_token
 
         log("info", f"User {username!r} logged in "
-            f"(snapshot={entry['snapshot']!r}, aux={entry['aux']!r})")
+            f"(snapshot={entry['snapshot']!r}, aux={entry['aux']!r}, "
+            f"mute={entry.get('mute', True)})")
 
         await self._send(websocket, {
             "type": "login_result",
@@ -391,6 +406,7 @@ class RemoteServer:
             "snapshot": entry["snapshot"],
             "aux": entry["aux"],
             "presets": entry.get("presets", False),
+            "mute": entry.get("mute", True),
             "token": new_token,
         })
 
@@ -435,6 +451,7 @@ class RemoteServer:
             "snapshot": entry["snapshot"],
             "aux": entry["aux"],
             "presets": entry.get("presets", False),
+            "mute": entry.get("mute", True),
             "token": token,
         })
 

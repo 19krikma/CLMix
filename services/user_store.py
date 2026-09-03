@@ -18,6 +18,12 @@ class UserStore:
     either ALL_AUX or a list of specific aux bus names. RemoteServer checks
     these scopes against the mixer's current snapshot/aux before honoring
     a client's requests.
+
+    Alongside those scopes - which say *where* an account may act - two
+    flags say *what* it may do there: "presets" gates the preset actions,
+    and "mute" gates the per-send on/off write. An account denied mute can
+    still ride levels and pan on its permitted auxes, and still sees which
+    channels are muted; it just can't drop one out of the mix.
     """
 
     def __init__(self, path=USERS_PATH):
@@ -40,6 +46,13 @@ class UserStore:
             if aux is not None and aux != ALL_AUX and not isinstance(aux, list):
                 record["aux"] = [aux]
 
+            # "mute" was added after accounts were already in the wild,
+            # and every one of those accounts could mute. Defaulting a
+            # missing key to True keeps an upgrade (or a restored older
+            # backup) from quietly taking a capability away from a
+            # performer mid-show - only an explicit False denies it.
+            record.setdefault("mute", True)
+
         return users
 
     def _save(self):
@@ -58,7 +71,8 @@ class UserStore:
     def get(self, username):
         return self.users.get(username)
 
-    def save_user(self, username, password, snapshot, aux, presets=False):
+    def save_user(self, username, password, snapshot, aux, presets=False,
+                  mute=True):
         record = dict(self.users.get(username, {}))
         salt = record.get("salt") or secrets.token_hex(16)
 
@@ -71,6 +85,7 @@ class UserStore:
         record["snapshot"] = snapshot
         record["aux"] = aux
         record["presets"] = presets
+        record["mute"] = mute
 
         self.users[username] = record
         self._save()
@@ -90,6 +105,7 @@ class UserStore:
             "snapshot": record["snapshot"],
             "aux": record["aux"],
             "presets": record.get("presets", False),
+            "mute": record.get("mute", True),
         }
 
     @staticmethod
