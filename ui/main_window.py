@@ -6,6 +6,7 @@ import queue
 import re
 import socket
 import json
+import math
 import time
 from pathlib import Path
 
@@ -77,6 +78,19 @@ class MixerWorker(threading.Thread):
     HEARTBEAT_INTERVAL_SECONDS = 3.0
     HEARTBEAT_TIMEOUT_SECONDS = 10.0
 
+    # Meter wire format, reverse-engineered from captures of the official
+    # DiGiCo client - see docs/mixer_protocol/PROTOCOL.md "Metering".
+    # Each /Meters/values int packs two 8-bit fields (the middle byte is
+    # always zero): peak in the high byte, RMS in the low byte. A field is
+    # simply dB below zero - 24 means -24 dB - quantised to 3 dB steps,
+    # which is why every observed value is a multiple of 3. Across both
+    # reference captures the fields take every multiple of 3 from 6 to 60
+    # and then nothing until 126, so -60 dB is the bottom of the scale
+    # (matching the console's own printed meter scale) and 126 is a
+    # no-signal sentinel rather than a measurement.
+    METER_FLOOR_FIELD = 126
+    METER_FLOOR_DB = -60.0
+
     def __init__(self, mixer_ip, send_port, recv_port,
                  command_queue, message_queue):
         super().__init__(daemon=True)
@@ -102,6 +116,13 @@ class MixerWorker(threading.Thread):
 
         self._last_received_at = None
         self._last_heartbeat_sent_at = 0.0
+
+        # slot number -> channel index, mirroring whatever the UI last
+        # subscribed via subscribe_meters(). /Meters/values reports slots,
+        # not addresses, so this is the only way back to a channel.
+        self.meter_slots = {}
+        # channel index -> (peak_db, rms_db); None means no signal.
+        self.meter_levels = {}
 
     def run(self):
         try:
@@ -157,6 +178,13 @@ class MixerWorker(threading.Thread):
 
         address = message.address
         args = list(message.params)
+
+        # Meters stream at ~30Hz. They're handled (and stored) here rather
+        # than pushed through message_queue, which is drained every 100ms
+        # and logs every entry - a meter subscription would swamp both.
+        if address == "/Meters/values":
+            self._handle_meter_values(args)
+            return
 
         self.message_queue.put(
             ("message", f"Received: {address} {args}")
@@ -292,6 +320,50 @@ class MixerWorker(threading.Thread):
         log("info", "Mixer fully loaded and ready")
         self.message_queue.put(("status", "Loaded"))
         self.send_osc("/Layout/Layout/Banks/?", [])
+
+    @classmethod
+    def decode_meter(cls, value):
+        """Unpack one /Meters/values int into (peak_db, rms_db).
+
+        Either field may be None, meaning no signal - the console sends
+        the floor field (126) as a sentinel rather than as a measurement.
+        """
+        value = int(value)
+        peak = (value >> 16) & 0xFF
+        rms = value & 0xFF
+
+        return (
+            None if peak >= cls.METER_FLOOR_FIELD else float(-peak),
+            None if rms >= cls.METER_FLOOR_FIELD else float(-rms),
+        )
+
+    def _handle_meter_values(self, args):
+        # Flat [slot, value, slot, value, ...] pairs, carrying only the
+        # slots that actually changed - so the length varies per packet
+        # and slot n is NOT at index 2n. Always walk it as pairs.
+        for i in range(0, len(args) - 1, 2):
+            channel = self.meter_slots.get(int(args[i]))
+
+            if channel is not None:
+                self.meter_levels[channel] = self.decode_meter(args[i + 1])
+
+    def subscribe_meters(self, channels):
+        """Bind one meter slot per channel, replacing any previous set.
+
+        Safe to call from the UI thread: the actual sends go out through
+        command_queue on the worker thread. Only subscribe what's on
+        screen - this is a continuous ~30Hz stream, not a poll.
+        """
+        self.meter_slots = {slot: channel for slot, channel in enumerate(channels)}
+        self.meter_levels = {}
+
+        self.command_queue.put("/Meters/clear")
+
+        for slot, channel in self.meter_slots.items():
+            self.command_queue.put(
+                f"/Meters/request/{slot} "
+                f"/Input_Channels/{channel}/Channel_Input/post_meter/left"
+            )
 
     def send_osc(self, address, args):
         log("debug", f"send_osc: {address} {args}")
@@ -593,6 +665,71 @@ class AuxLevelsPanel:
     LEVEL_RULER_WIDTH = 26
     LEVEL_TICK_LINE_START = 16
 
+    # Meter bar drawn beside each fader. The console's meter feed spans
+    # 0..-60 dB (see MixerWorker.decode_meter), matching the scale printed
+    # on the console's own meters - deliberately NOT the fader's own
+    # -150..+10 dB scale, so the two are not interchangeable and the meter
+    # is not drawn against the fader's ruler.
+    METER_WIDTH = 10
+    METER_FLOOR_DB = -60.0
+
+    # Colour ramp sampled from the SD7's own meters: deep blue at the
+    # bottom, through cyan and green, yellow-green near -14, into red for
+    # the last few dB. Stops are in dB (not fractions) so the colours stay
+    # tied to real levels if METER_FLOOR_DB ever changes.
+    METER_GRADIENT = (
+        (-60.0, (0x0A, 0x30, 0xC8)),
+        (-46.0, (0x00, 0xA0, 0xE8)),
+        (-34.0, (0x00, 0xD2, 0x4A)),
+        (-20.0, (0x7A, 0xDA, 0x00)),
+        (-14.0, (0xD8, 0xD0, 0x00)),
+        (-10.0, (0xE8, 0x40, 0x1C)),
+        (0.0,   (0xFF, 0x1A, 0x10)),
+    )
+
+    # Unlit slices keep their gradient hue at low brightness, which is
+    # what gives the console's meters their dark-red-over-dark-blue look
+    # when idle rather than a flat grey trough.
+    METER_DIM_FACTOR = 0.22
+
+    # Peak-hold marker, kept near-white so it reads against every part
+    # of the gradient including the red top.
+    METER_PEAK_COLOR = "#e6edf3"
+
+    # The bar is built from fixed slices whose fill is toggled lit/unlit,
+    # rather than redrawn each frame: only the few slices the level
+    # actually crossed get touched, which is what makes a 30fps refresh
+    # across a full bank affordable in Tk.
+    METER_SLICE_H = 2
+
+    # Ballistics. Both directions ease towards the target by a time
+    # constant rather than jumping or moving at a fixed dB/sec.
+    #
+    # Rise is fast but not instantaneous: snapping straight to the new
+    # value was the one movement in the bar that wasn't animated, which
+    # read as a glitch next to the smooth fall. ~0.045s settles inside
+    # about five frames - still immediate to the eye, but a slide.
+    #
+    # METER_RISE_MIN_DB_PER_SEC has to stay small. The wire quantises to
+    # 3 dB, so most real movement is a single 3 dB step; a floor big
+    # enough to cross that in one frame would snap exactly the case that
+    # happens most often, leaving only rare large jumps looking smooth.
+    #
+    # A flat fall rate would have to be slow enough to smooth the wire's
+    # 3 dB quantisation, which then makes a big drop crawl - over a 60 dB
+    # scale a 32 dB/sec fall took nearly two seconds to reach the floor
+    # and read as lag against the console's own meters. A time constant
+    # collapses a large gap quickly while still easing over single steps.
+    # The MIN_DB_PER_SEC floors guarantee both directions actually
+    # converge rather than creeping asymptotically.
+    METER_REFRESH_MS = 33
+    METER_RISE_TAU_SECONDS = 0.045
+    METER_RISE_MIN_DB_PER_SEC = 30.0
+    METER_FALL_TAU_SECONDS = 0.12
+    METER_FALL_MIN_DB_PER_SEC = 24.0
+    METER_PEAK_HOLD_SECONDS = 0.9
+    METER_PEAK_FALL_DB_PER_SEC = 40.0
+
     @classmethod
     def _fraction_to_db(cls, fraction):
         fraction = min(1.0, max(0.0, fraction))
@@ -652,6 +789,13 @@ class AuxLevelsPanel:
 
         self.sliders = {}
         self.level_rulers = {}
+        self.channel_meters = {}
+        self.meter_slices = {}
+        self.meter_peak_items = {}
+        self.meter_lit = {}
+        self.meter_shown = {}
+        self.meter_peak = {}
+        self.meter_peak_at = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
         self.channel_columns = {}
@@ -664,10 +808,12 @@ class AuxLevelsPanel:
         self.pan_dragging = set()
         self.pan_drag_released_at = {}
         self.bank_names_shown = None
+        self.meter_ticked_at = time.monotonic()
 
         self.build_ui()
 
         self.master.after(self.REFRESH_MS, self.refresh_levels)
+        self.master.after(self.METER_REFRESH_MS, self.refresh_meters)
 
     def build_ui(self):
         self.top_bar = ttk.Frame(self.master, padding=10)
@@ -736,6 +882,12 @@ class AuxLevelsPanel:
                 ruler.configure(bg=column_bg)
                 self._draw_level_ruler(ruler)
 
+            meter = self.channel_meters.get(channel)
+            if meter is not None:
+                # Only the canvas backing needs recolouring - the slices
+                # carry their own gradient, which is theme-independent.
+                meter.configure(bg=column_bg)
+
             track_color = self._track_color(column_bg)
 
             slider = self.sliders.get(channel)
@@ -770,10 +922,18 @@ class AuxLevelsPanel:
         self.build_bank_buttons()
         self.build_channel_widgets()
         self.request_mute_states()
+        self.subscribe_meters()
 
         if self.aux_list:
             self.aux_combo.current(0)
             self.on_aux_selected()
+
+    def subscribe_meters(self):
+        # Only ever the channels actually on screen: this is a continuous
+        # ~30Hz stream from the console, so subscribing all 72 would cost
+        # bandwidth and redraws for strips nobody is looking at.
+        if self.worker is not None:
+            self.worker.subscribe_meters(self.channels)
 
     def refresh_aux_list(self):
         # Called when the operator hides/shows an aux via the Aux window,
@@ -816,6 +976,13 @@ class AuxLevelsPanel:
 
         self.sliders = {}
         self.level_rulers = {}
+        self.channel_meters = {}
+        self.meter_slices = {}
+        self.meter_peak_items = {}
+        self.meter_lit = {}
+        self.meter_shown = {}
+        self.meter_peak = {}
+        self.meter_peak_at = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
         self.channel_columns = {}
@@ -873,6 +1040,13 @@ class AuxLevelsPanel:
 
         self.sliders = {}
         self.level_rulers = {}
+        self.channel_meters = {}
+        self.meter_slices = {}
+        self.meter_peak_items = {}
+        self.meter_lit = {}
+        self.meter_shown = {}
+        self.meter_peak = {}
+        self.meter_peak_at = {}
         self.pan_sliders = {}
         self.mute_buttons = {}
         self.channel_columns = {}
@@ -887,6 +1061,7 @@ class AuxLevelsPanel:
         self.build_channel_widgets()
         self.on_aux_selected()
         self.request_mute_states()
+        self.subscribe_meters()
 
     def build_channel_widgets(self):
         for index, i in enumerate(self.channels):
@@ -966,6 +1141,14 @@ class AuxLevelsPanel:
             slider.pack(side="left")
 
             self.sliders[i] = slider
+
+            meter = tk.Canvas(
+                fader_row, width=self.METER_WIDTH, height=self.LEVEL_LENGTH,
+                highlightthickness=0, bg=column_bg
+            )
+            meter.pack(side="left", padx=(3, 0))
+            self.channel_meters[i] = meter
+            self._build_meter_slices(i, meter)
 
             pan_slider = RoundSlider(
                 column,
@@ -1071,6 +1254,163 @@ class AuxLevelsPanel:
             ruler.create_text(
                 2, y, text=label, anchor="w", fill=fg, font=("TkDefaultFont", 7)
             )
+
+    def _meter_fraction(self, db):
+        """dB -> 0..1 along the bar, clamped to the console's meter range."""
+        span = -self.METER_FLOOR_DB
+        return min(1.0, max(0.0, (db - self.METER_FLOOR_DB) / span))
+
+    @classmethod
+    def _meter_palette(cls):
+        """(lit, dim) hex colours per slice, bottom-up. Built once."""
+        cached = cls.__dict__.get("_meter_palette_cache")
+
+        if cached is not None:
+            return cached
+
+        count = cls.LEVEL_LENGTH // cls.METER_SLICE_H
+        stops = cls.METER_GRADIENT
+        lit = []
+        dim = []
+
+        for index in range(count):
+            db = cls.METER_FLOOR_DB + (
+                (index + 0.5) / count * -cls.METER_FLOOR_DB
+            )
+
+            # Linear interpolation between the two stops bracketing this
+            # slice's dB - the ramp is defined by level, not by position.
+            low, high = stops[0], stops[-1]
+            for current, following in zip(stops, stops[1:]):
+                if current[0] <= db <= following[0]:
+                    low, high = current, following
+                    break
+
+            span = high[0] - low[0]
+            ratio = 0.0 if span == 0 else (db - low[0]) / span
+            rgb = [
+                round(a + (b - a) * ratio) for a, b in zip(low[1], high[1])
+            ]
+
+            lit.append("#%02x%02x%02x" % tuple(rgb))
+            dim.append("#%02x%02x%02x" % tuple(
+                round(channel * cls.METER_DIM_FACTOR) for channel in rgb
+            ))
+
+        cls._meter_palette_cache = (lit, dim)
+        return cls._meter_palette_cache
+
+    def _build_meter_slices(self, channel, meter):
+        # Created once per strip. refresh_meters() then only recolours the
+        # slices the level actually crossed.
+        _lit, dim = self._meter_palette()
+        count = self.LEVEL_LENGTH // self.METER_SLICE_H
+        slices = []
+
+        for index in range(count):
+            bottom = self.LEVEL_LENGTH - index * self.METER_SLICE_H
+            slices.append(meter.create_rectangle(
+                0, bottom - self.METER_SLICE_H, self.METER_WIDTH, bottom,
+                fill=dim[index], outline=""
+            ))
+
+        self.meter_slices[channel] = slices
+        self.meter_lit[channel] = 0
+        self.meter_peak_items[channel] = meter.create_line(
+            0, 0, self.METER_WIDTH, 0,
+            fill=self.METER_PEAK_COLOR, state="hidden"
+        )
+
+    def _apply_meter(self, channel, level_db, peak_db):
+        meter = self.channel_meters.get(channel)
+        slices = self.meter_slices.get(channel)
+
+        if meter is None or not slices:
+            return
+
+        lit_colors, dim_colors = self._meter_palette()
+        count = len(slices)
+        lit = round(self._meter_fraction(level_db) * count)
+        previous = self.meter_lit.get(channel, 0)
+
+        if lit != previous:
+            # Only the crossed band changes state, so a bar that moved two
+            # pixels costs two itemconfig calls rather than a full repaint.
+            low, high = min(lit, previous), max(lit, previous)
+
+            for index in range(low, high):
+                meter.itemconfig(
+                    slices[index],
+                    fill=lit_colors[index] if index < lit else dim_colors[index]
+                )
+
+            self.meter_lit[channel] = lit
+
+        peak_item = self.meter_peak_items.get(channel)
+
+        if peak_item is not None:
+            if peak_db is None or peak_db <= self.METER_FLOOR_DB:
+                meter.itemconfig(peak_item, state="hidden")
+            else:
+                y = self.LEVEL_LENGTH - self._meter_fraction(peak_db) \
+                    * self.LEVEL_LENGTH
+                meter.coords(peak_item, 0, y, self.METER_WIDTH, y)
+                meter.itemconfig(peak_item, state="normal")
+
+    def refresh_meters(self):
+        now = time.monotonic()
+        elapsed = min(0.25, now - self.meter_ticked_at)
+        self.meter_ticked_at = now
+
+        if self.worker is not None:
+            levels = self.worker.meter_levels
+            rise_decay = math.exp(-elapsed / self.METER_RISE_TAU_SECONDS)
+            rise_floor = self.METER_RISE_MIN_DB_PER_SEC * elapsed
+            fall_decay = math.exp(-elapsed / self.METER_FALL_TAU_SECONDS)
+            fall_floor = self.METER_FALL_MIN_DB_PER_SEC * elapsed
+            peak_fall = self.METER_PEAK_FALL_DB_PER_SEC * elapsed
+
+            for channel in self.channel_meters:
+                peak_db, rms_db = levels.get(channel, (None, None))
+
+                # The console reports peak and RMS independently and either
+                # may be at its floor sentinel, so drive the bar from
+                # whichever is actually present.
+                target = max(
+                    rms_db if rms_db is not None else self.METER_FLOOR_DB,
+                    peak_db if peak_db is not None else self.METER_FLOOR_DB,
+                )
+
+                shown = self.meter_shown.get(channel, self.METER_FLOOR_DB)
+
+                # Ease towards the target from either side - quickly on
+                # the way up, more gently on the way down - never
+                # overshooting it.
+                if target >= shown:
+                    eased = target + (shown - target) * rise_decay
+                    shown = min(target, max(eased, shown + rise_floor))
+                else:
+                    eased = target + (shown - target) * fall_decay
+                    shown = max(target, min(eased, shown - fall_floor))
+                self.meter_shown[channel] = shown
+
+                held = self.meter_peak.get(channel, self.METER_FLOOR_DB)
+
+                # Tracked against the incoming target rather than the
+                # animated bar, so a brief transient still marks its true
+                # peak even when the bar is still sliding up to it.
+                if target >= held:
+                    held = target
+                    self.meter_peak_at[channel] = now
+                elif now - self.meter_peak_at.get(channel, now) > \
+                        self.METER_PEAK_HOLD_SECONDS:
+                    held = max(shown, held - peak_fall)
+
+                self.meter_peak[channel] = held
+
+                self._apply_meter(channel, shown, held)
+
+        self.master.after(self.METER_REFRESH_MS, self.refresh_meters)
 
     def current_aux(self):
         index = self.aux_combo.current()

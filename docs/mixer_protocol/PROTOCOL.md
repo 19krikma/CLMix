@@ -121,40 +121,58 @@ peak  = (value >> 16) & 0xFF
 rms   =  value        & 0xFF
 ```
 
-Both fields are **always a multiple of 3**, and convert to dBFS as:
+**A field is simply dB below zero**: `24` means -24 dB.
 
 ```
-dB = -field / 3.0
+dB = -field
 ```
 
-giving a range of **0 dB down to -42 dB** (field `0` .. `126`).
+The scale runs **0 dB down to -60 dB**, matching the scale printed on the console's own meters, and `126` is a no-signal sentinel.
+
+> **Do not read the "multiple of 3" as a scale factor.** Every field is a multiple of 3 because the console quantises meters to **3 dB steps**, not because the value needs dividing by 3. Dividing by 3 was the original mistake here: it compressed the real -6..-60 dB range into -2..-20 dB, so every bar read about 20 dB hot and sat near full scale. It was caught by filming the console's meters and CLMix's side by side.
+
+The decisive evidence is the value distribution across both reference captures. The fields take **every multiple of 3 from 6 to 60, and then nothing at all until 126**:
+
+```
+high byte:  6 9 12 ... 51 54 57                126
+low  byte:  6 9 12 ... 54 57 60                126
+                              ^^^^^^^^^^^^^^^^
+                              clean gap - no values between 60 and 126
+```
+
+A field of `60` is therefore -60 dB, the bottom of the scale, and `126` is a sentinel rather than a measurement. Had the scale really been `-field/3`, values would have run continuously up to 126 with no gap.
 
 | Field | Byte | Meaning | Evidence |
 |---|---|---|---|
 | `value >> 16` | high | **Peak**, with peak-hold behaviour | Changed on only 40 of 878 transitions for a busy channel |
 | `value & 0xFF` | low | **RMS / instantaneous** level | Changed on 442 of the same 878 transitions |
 
-Verified across 9,350 samples from a capture with real audio playing: every field was a multiple of 3, and peak was louder than or equal to RMS in **99.5%** of samples. The remaining 0.5% are all the same case - `peak == 126` (the floor sentinel) while RMS still reads a real level.
+Decoded over a capture with music playing, peak spans -39..-6 dB (median -18) and RMS spans -60..-6 dB (median -24) - consistent with the console's own meters in the same room reading roughly -20 to -25 dB.
 
-**`126` (i.e. -42 dB) is the floor / no-signal sentinel.** The distinct values observed jump from `20*3` straight to `42*3` with nothing between, so `126` is a sentinel rather than a genuine measurement. Treat a peak of 126 as "no signal" and render an empty meter.
+**The peak field falls back to the sentinel on its own.** With a steady low-level signal and no recent transient, the high byte reads `126` while the low byte still reports a real level - accounting for all 48 of the "peak quieter than RMS" samples in the capture. Render the bar from whichever field is present and omit the peak marker when peak is `None`; do not treat it as a decoding error. Deriving peak-hold locally from the displayed level is more stable than trusting this field frame to frame.
+
+**Rejected alternative: the two fields are not stereo left/right.** Worth recording because it is the obvious guess. All 12 channels subscribed in `sound sample.pcapng` are mono per `/Console/Input_Channels/modes`, yet they reported *both* fields carrying a level in 9,248 of 9,350 samples. A left/right split would leave the second field at sentinel for every mono channel.
 
 ### Worked example
 
 ```python
+FLOOR_FIELD = 126           # no-signal sentinel
+
 def decode_meter(value):
     """(peak_db, rms_db) from a /Meters/values int. None == no signal."""
     peak, rms = (value >> 16) & 0xFF, value & 0xFF
-    return (None if peak == 126 else -peak / 3.0,
-            None if rms  == 126 else -rms  / 3.0)
+    return (None if peak >= FLOOR_FIELD else float(-peak),
+            None if rms  >= FLOOR_FIELD else float(-rms))
 
 # /Meters/values [0, 1572897, ...]
-decode_meter(1572897)   # 0x180021 -> (-8.0 dB peak, -11.0 dB rms)
-decode_meter(8257662)   # 0x7E007E -> (None, None)  - silent
+decode_meter(1572897)   # 0x180021 -> (-24.0 dB peak, -33.0 dB rms)
+decode_meter(3932220)   # 0x3C003C -> (-60.0, -60.0)  - bottom of scale
+decode_meter(8257662)   # 0x7E007E -> (None, None)    - no signal
 ```
 
 ### Notes for CLMix
 
-- Resolution is coarse: 1/3 dB steps over a 42 dB span, i.e. 43 discrete levels per field. That is plenty for a bar meter, but do not present it as a precise readout.
+- Resolution is coarse: **3 dB steps over a 60 dB span**, i.e. 21 discrete levels per field. Plenty for a bar meter, but do not present it as a precise readout - and smooth the fall in the UI, or the bar visibly jumps a twentieth of its height at a time.
 - At 30 Hz with 12 slots this is ~30 packets/sec - the dominant traffic on the link (594 of 1,240 console packets in one capture, 1,054 of 1,895 in another). Re-subscribe with `/Meters/clear` when the visible set changes rather than subscribing every channel on the console.
 - Meter traffic shares the same `recv_port` as everything else, so it lands in the same `receive_osc` loop. `/Meters/values` should be dispatched before the generic cache path, and must **not** be cached per-address - it is a stream, not a parameter.
 
@@ -660,6 +678,7 @@ Multitrack recorder return channels (e.g. "FX"). Just fader/mute/solo/name.
 | 2026-08-09 | Live OSC probing (send 1091 / recv 1090) | The 946-address command map above; console topology; GET/SET semantics |
 | 2026-09-03 | Live probing (send 10025 / recv 10026) | Ports are console config, not constants; no keep-alive required; console ignores sender port; `/Snapshots/names/?` does reply |
 | 2026-09-03 | `~/Documents/digico.pcapng` - official client, 92 s | Discovery beacon on 2029; `/Console/Name/?` handshake; 2.0 s keep-alive; meter subscription mechanism |
-| 2026-09-03 | `~/Documents/sound sample.pcapng` - official client with live audio, 42 s | Meter value encoding: packed peak/RMS, 1/3 dB steps, -42 dB floor sentinel |
+| 2026-09-03 | `~/Documents/sound sample.pcapng` - official client with live audio, 42 s | Meter value encoding: packed peak/RMS fields, 3 dB quantisation, `126` no-signal sentinel |
+| 2026-09-03 | `~/Pictures/VID2026090321*.mp4` - phone video of the console's meters and CLMix side by side | Corrected the meter scale: a field is dB directly (`dB = -field`, 0..-60), not `-field/3` |
 
 Anything marked "unidentified" above stayed unidentified because only one console was ever observed - constant fields may be constant by circumstance rather than by design.
