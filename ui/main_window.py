@@ -123,6 +123,12 @@ class MixerWorker(threading.Thread):
         self.meter_slots = {}
         # channel index -> (peak_db, rms_db); None means no signal.
         self.meter_levels = {}
+        # channel index -> how many samples have landed for it. The console
+        # only sends a slot when its value changed, so a bump here is the
+        # only way the UI can tell "a fresh sample arrived" from "nothing
+        # was sent because the level is unchanged" - which the meter's
+        # release ballistics depend on (see MainWindow.refresh_meters).
+        self.meter_seq = {}
 
     def run(self):
         try:
@@ -346,6 +352,7 @@ class MixerWorker(threading.Thread):
 
             if channel is not None:
                 self.meter_levels[channel] = self.decode_meter(args[i + 1])
+                self.meter_seq[channel] = self.meter_seq.get(channel, 0) + 1
 
     def subscribe_meters(self, channels):
         """Bind one meter slot per channel, replacing any previous set.
@@ -356,6 +363,7 @@ class MixerWorker(threading.Thread):
         """
         self.meter_slots = {slot: channel for slot, channel in enumerate(channels)}
         self.meter_levels = {}
+        self.meter_seq = {}
 
         self.command_queue.put("/Meters/clear")
 
@@ -702,8 +710,15 @@ class AuxLevelsPanel:
     # across a full bank affordable in Tk.
     METER_SLICE_H = 2
 
-    # Ballistics. Both directions ease towards the target by a time
-    # constant rather than jumping or moving at a fixed dB/sec.
+    # Ballistics, in the classic attack/release shape of a hardware
+    # programme meter: the bar is ALWAYS falling, and each arriving
+    # sample pushes it back up. It never parks on a level and waits.
+    #
+    # This is why MixerWorker keeps meter_seq. A sample is a one-shot
+    # push, not a level to settle on: once the bar has risen to it the
+    # sample is spent, and only the next packet lifts the bar again.
+    # Re-reading the same latched value every frame would hold the bar
+    # up forever, which is exactly the parking this replaces.
     #
     # Rise is fast but not instantaneous: snapping straight to the new
     # value was the one movement in the bar that wasn't animated, which
@@ -715,18 +730,24 @@ class AuxLevelsPanel:
     # enough to cross that in one frame would snap exactly the case that
     # happens most often, leaving only rare large jumps looking smooth.
     #
-    # A flat fall rate would have to be slow enough to smooth the wire's
-    # 3 dB quantisation, which then makes a big drop crawl - over a 60 dB
-    # scale a 32 dB/sec fall took nearly two seconds to reach the floor
-    # and read as lag against the console's own meters. A time constant
-    # collapses a large gap quickly while still easing over single steps.
-    # The MIN_DB_PER_SEC floors guarantee both directions actually
-    # converge rather than creeping asymptotically.
+    # Release is a flat dB/sec, not a time constant: it decays towards
+    # the floor rather than towards a target, so there is no gap for a
+    # tau to be proportional to - an exponential would sag hardest at
+    # exactly the loud levels where the sag is most visible. The rate is
+    # the one number to turn if the meter feels too twitchy or too slow,
+    # and it trades off in two directions:
+    #   - too fast, and the bar visibly sags between packets (with music
+    #     the RMS field changes on roughly every other frame, so the bar
+    #     free-falls ~70ms at a time - 40 dB/sec is ~2.8 dB of dip, about
+    #     one wire step, which reads as the meter breathing rather than
+    #     as flicker);
+    #   - too slow, and silence takes too long to clear. 40 dB/sec walks
+    #     the full 60 dB scale in 1.5s; an earlier 32 dB/sec fall was
+    #     already judged laggy against the console's own meters.
     METER_REFRESH_MS = 33
     METER_RISE_TAU_SECONDS = 0.045
     METER_RISE_MIN_DB_PER_SEC = 30.0
-    METER_FALL_TAU_SECONDS = 0.12
-    METER_FALL_MIN_DB_PER_SEC = 24.0
+    METER_RELEASE_DB_PER_SEC = 40.0
     METER_PEAK_HOLD_SECONDS = 0.9
     METER_PEAK_FALL_DB_PER_SEC = 40.0
 
@@ -794,6 +815,9 @@ class AuxLevelsPanel:
         self.meter_peak_items = {}
         self.meter_lit = {}
         self.meter_shown = {}
+        self.meter_target = {}
+        self.meter_rising = {}
+        self.meter_seen_seq = {}
         self.meter_peak = {}
         self.meter_peak_at = {}
         self.pan_sliders = {}
@@ -981,6 +1005,9 @@ class AuxLevelsPanel:
         self.meter_peak_items = {}
         self.meter_lit = {}
         self.meter_shown = {}
+        self.meter_target = {}
+        self.meter_rising = {}
+        self.meter_seen_seq = {}
         self.meter_peak = {}
         self.meter_peak_at = {}
         self.pan_sliders = {}
@@ -1045,6 +1072,9 @@ class AuxLevelsPanel:
         self.meter_peak_items = {}
         self.meter_lit = {}
         self.meter_shown = {}
+        self.meter_target = {}
+        self.meter_rising = {}
+        self.meter_seen_seq = {}
         self.meter_peak = {}
         self.meter_peak_at = {}
         self.pan_sliders = {}
@@ -1364,34 +1394,54 @@ class AuxLevelsPanel:
 
         if self.worker is not None:
             levels = self.worker.meter_levels
+            seqs = self.worker.meter_seq
             rise_decay = math.exp(-elapsed / self.METER_RISE_TAU_SECONDS)
             rise_floor = self.METER_RISE_MIN_DB_PER_SEC * elapsed
-            fall_decay = math.exp(-elapsed / self.METER_FALL_TAU_SECONDS)
-            fall_floor = self.METER_FALL_MIN_DB_PER_SEC * elapsed
+            release = self.METER_RELEASE_DB_PER_SEC * elapsed
             peak_fall = self.METER_PEAK_FALL_DB_PER_SEC * elapsed
 
             for channel in self.channel_meters:
-                peak_db, rms_db = levels.get(channel, (None, None))
-
-                # The console reports peak and RMS independently and either
-                # may be at its floor sentinel, so drive the bar from
-                # whichever is actually present.
-                target = max(
-                    rms_db if rms_db is not None else self.METER_FLOOR_DB,
-                    peak_db if peak_db is not None else self.METER_FLOOR_DB,
-                )
-
                 shown = self.meter_shown.get(channel, self.METER_FLOOR_DB)
+                target = self.meter_target.get(channel, self.METER_FLOOR_DB)
+                seq = seqs.get(channel, 0)
 
-                # Ease towards the target from either side - quickly on
-                # the way up, more gently on the way down - never
-                # overshooting it.
-                if target >= shown:
+                # A packet only carries slots that actually changed, so a
+                # bumped seq - not a changed value - is what marks a fresh
+                # sample. Arm the rise on arrival; a sample at or below
+                # where the bar already sits arms nothing and simply lets
+                # the release carry on through it.
+                #
+                # The corollary: a signal steady enough to stay inside one
+                # 3 dB wire step sends nothing, and the bar releases away
+                # under it. Real programme material moves the RMS field on
+                # roughly every other frame so it never gets far, but a
+                # held test tone will visibly sag.
+                if seq != self.meter_seen_seq.get(channel):
+                    self.meter_seen_seq[channel] = seq
+                    peak_db, rms_db = levels.get(channel, (None, None))
+
+                    # The console reports peak and RMS independently and
+                    # either may be at its floor sentinel, so drive the bar
+                    # from whichever is actually present.
+                    target = max(
+                        rms_db if rms_db is not None else self.METER_FLOOR_DB,
+                        peak_db if peak_db is not None else self.METER_FLOOR_DB,
+                    )
+                    self.meter_target[channel] = target
+                    self.meter_rising[channel] = target > shown
+
+                if self.meter_rising.get(channel):
+                    # Ease up to the sample, never overshooting it. Once
+                    # it is reached the push is spent: the bar releases
+                    # from there until the next packet lifts it again.
                     eased = target + (shown - target) * rise_decay
                     shown = min(target, max(eased, shown + rise_floor))
+
+                    if shown >= target:
+                        self.meter_rising[channel] = False
                 else:
-                    eased = target + (shown - target) * fall_decay
-                    shown = max(target, min(eased, shown - fall_floor))
+                    shown = max(self.METER_FLOOR_DB, shown - release)
+
                 self.meter_shown[channel] = shown
 
                 held = self.meter_peak.get(channel, self.METER_FLOOR_DB)
