@@ -1,19 +1,162 @@
 # Mixer OSC Protocol Reference
 
-Reverse-engineered by live-probing the actual console at `10.5.20.242` (send port 1091, recv port 1090) on 2026-08-09. Console identifies itself as **SD7Q-Q2** - a DiGiCo SD7 Quantum (Quantum engine 2).
+Reverse-engineered by live-probing the actual console at `10.5.20.242` on 2026-08-09 (send port 1091, recv port 1090 at that time), and extended on 2026-09-03 from live probing plus two packet captures of the **official DiGiCo client** talking to the same console (`digico.pcapng`, `sound sample.pcapng`).
+
+> **The send/recv ports are console configuration, not protocol constants.** They have been observed as 1091/1090, then 800/900, then 10025/10026 on this same console. Never hardcode them; treat them as user settings (which is what CLMix already does). Console identifies itself as **SD7Q-Q2** - a DiGiCo SD7 Quantum (Quantum engine 2).
 
 This document was generated from **946 concrete addresses** the console actually replied with, collapsed into **358 generalized command patterns**. See `commands.csv` in this folder for the full flat list (every concrete address + the live value it held at probe time).
 
 ## Transport / wire protocol
 
-- **OSC 1.0 over UDP.** App sends to `mixer_ip:1091` (`send_port`), console replies to the app's bound `1090` (`recv_port`) - matches [`ui/main_window.py`](../../ui/main_window.py)'s `MixerWorker`.
+- **OSC 1.0 over UDP.** App sends to `mixer_ip:send_port`; the console replies to the app's bound `recv_port` - matches [`ui/main_window.py`](../../ui/main_window.py)'s `MixerWorker`.
+- **The console ignores your source port entirely.** It only ever transmits to the destination port configured in its own External Control panel. Querying from an ephemeral socket gets you silence no matter how correct the address is - you must bind the exact `recv_port` the console is configured to send to.
+- **The console transmits from an ephemeral source port of its own** (observed 65510 and 65511). It is stable for the life of the console's OSC engine but changes across console restarts, so never filter incoming packets by source port. `MixerWorker` discards the source address in `recvfrom`, which is correct.
+- **Beware privileged ports on Linux.** A `recv_port` below 1024 cannot be bound without root and fails with `PermissionError`. Prefer configuring the console to a port above 1024.
 - **GET a value:** send the address with `/?` appended, empty arg list, e.g. `/Input_Channels/1/Channel_Input/name/?`. The console replies with the same address (no `/?`) and the current value(s) as OSC args.
 - **GET a whole channel strip in one shot:** append `/?` directly to a bare index path with *no* leaf, e.g. `/Input_Channels/1/?` or `/Aux_Outputs/1/?` - the console dumps **every** parameter under that strip as a burst of individual reply messages (that's how this whole document was built: one query per category, not hundreds of guesses).
 - **SET a value:** send the bare address (no `/?`) with the new value as the single OSC arg, e.g. `/Input_Channels/1/mute 1.0`. Confirmed live: the console only echoes the address back to listeners when the value actually *changes* - setting a parameter to its current value produces no reply, so don't rely on a SET always producing a confirmation message.
 - Args observed as OSC float32 for virtually everything, including boolean-style on/off flags (`0.0`/`1.0`) - only names/labels come back as OSC strings.
-- Meter addresses (anything with `meter` in the name) always replied with an **empty arg list** at query time - they're push-only, updated continuously by the console while metering is active, not meaningfully "gettable" on demand.
+- Meter addresses (anything with `meter` in the name) reply with an **empty arg list** when queried directly with `/?`. They are not gettable that way - but they are fully readable through the meter subscription mechanism documented in [Metering](#metering) below.
 - `/Talkback_Outputs/*` (2 exist per `/Console/Channels/?`) did not answer any address pattern tried (`/Talkback_Outputs/1/?`, `.../mute`, `.../name`, `.../fader`, `.../Buss_Trim/name`) - left undocumented.
-- `/Snapshots/names/?` (used by the app to build its snapshot-name catalog, [`ui/main_window.py:206`](../../ui/main_window.py#L206)) did not reply during this probing session even though it's confirmed working from the app's own source - likely session/state-dependent rather than always-on.
+- `/Snapshots/names/?` (used by the app to build its snapshot-name catalog, [`ui/main_window.py:206`](../../ui/main_window.py#L206)) **does reply** - re-confirmed 2026-09-03, when it returned one `/Snapshots/name` message per snapshot for all 16 snapshots. Its silence during the 2026-08-09 session was an anomaly, not the norm.
+  Arg shape is 4 values: `[index, cue_number, 0, name]`, e.g. `[13, 450, 0, "NATALIYA FILISTOVICH"]`. Reading `args[0]` and `args[-1]` (what `_handle_snapshot_name` does) is correct.
+
+## Console discovery (UDP broadcast beacon)
+
+The console continuously broadcasts a **22-byte non-OSC beacon** to `255.255.255.255:2029`, from source port 2029, **every ~2.02 seconds**, forever - with no client connected and nothing having been sent to it. Listening for this is the only way to find a console without already knowing its IP.
+
+Observed payload (identical in all 45 beacons of one 92-second capture):
+
+```
+16 00 00 00 | ff 00 00 00 | 00 00 00 00 00 00 00 00 | 0a 05 14 f2 | 2a 02
+^^^^^^^^^^^   ^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^   ^^^^^
+length=22     255           zero padding              10.5.20.242   ?
+(uint32 LE)   (type?)                                 console IP    unidentified
+```
+
+| Offset | Size | Meaning |
+|---|---|---|
+| 0 | 4 | Payload length, `22`, uint32 little-endian |
+| 4 | 4 | Constant `255` - message type or protocol version (only one value ever seen) |
+| 8 | 8 | Zero padding |
+| 16 | 4 | **The console's own IPv4 address, raw bytes** |
+| 20 | 2 | `2a 02` - unidentified; constant across every beacon observed |
+
+Only one console was present during capture, so the fields called "type?" and "unidentified" are constant by circumstance and could mean something else entirely. Treat offset 16-20 as the reliable part.
+
+**To auto-discover a console:** bind UDP 2029, accept broadcasts, read the IP at offset 16. This removes the most common class of setup failure, since a wrong or stale IP no longer needs to be typed by hand.
+
+## Connection lifecycle
+
+**There is no negotiated handshake, no session, and no registration.** The console has no concept of a connected client - it simply transmits to whatever destination IP/port its External Control panel names. That configuration *is* the registration. Consequences:
+
+- If the console's configured destination IP does not match your machine, it will accept every packet you send and answer none of them. This looks identical to a wrong port or a firewall, and is the single most likely cause of one-way silence.
+- Nothing expires. Verified by going completely silent for 150 seconds: the console kept pushing change broadcasts unprompted and still answered queries immediately afterwards.
+- A successful socket `bind()` proves nothing about whether a console is there. The **first inbound datagram** is the only real evidence of a live console.
+
+### What the official DiGiCo client does on connect
+
+Captured 2026-09-03. Client `10.5.20.211:63337` to console `:800`; console replied from `:65511` to client `:900`.
+
+| Step | Message | Notes |
+|---|---|---|
+| 1 | `/Console/Name/?` | **The de-facto handshake.** Sent repeatedly (3x in the first 11 ms) and *retried until answered* - the client does not proceed until `/Console/Name` comes back. |
+| 2 | `/Console/Session/Filename/?` | e.g. `["cl default.ses"]` |
+| 3 | `/Snapshots/Surface_Snapshot/?` | |
+| 4 | `/Console/Channels/?` | Triggers the 9-message topology burst |
+| 5 | `/Console/Aux_Outputs/modes/?` | 30 values, `1`=mono `2`=stereo |
+| 6 | `/Console/Input_Channels/modes/?` | 72 values |
+| 7 | `/Console/Group_Outputs/modes/?` | 3 values |
+| 8 | `/Console/Multis/?` | |
+| 9 | `/Layout/Layout/Banks/?` | 24 replies (3 layers x 4 banks x L/R) |
+| 10 | `/Meters/clear` then `/Meters/request/{n}` | See [Metering](#metering) |
+
+Steps 2-8 are fired as a single burst within about 1 ms; the client does not wait for each reply.
+
+### Keep-alive
+
+The official client sends **`/Console/Session/Filename/?` every 2.00 seconds** for the entire life of the session - dead regular, and the only recurring traffic in a settled connection.
+
+The console does **not** require this (it answers fine after 150 s of silence), so it is a client-side liveness detector rather than a protocol obligation. CLMix's own 3-second `/Snapshots/Current_Snapshot/?` heartbeat in `_check_heartbeat` serves the identical purpose and is equally valid; matching the official 2.0 s / `/Console/Session/Filename/?` is optional.
+
+## Metering
+
+Meters are **not** readable via `/?`. They use a **slot-based subscription**: you bind meter addresses to numbered slots, and the console then streams all subscribed slots in a single compact message at ~30 Hz.
+
+### Subscribing
+
+```
+/Meters/clear                                                    (no args)
+/Meters/request/0   "/Input_Channels/33/Channel_Input/post_meter/left"
+/Meters/request/1   "/Input_Channels/35/Channel_Input/post_meter/left"
+/Meters/request/2   "/Input_Channels/34/Channel_Input/post_meter/left"
+...
+```
+
+- `/Meters/clear` takes no arguments and resets the whole subscription list. Send it before (re)building a subscription - e.g. when the user changes bank or page.
+- `/Meters/request/{slot}` takes exactly **one OSC string**: the full meter address to bind to that slot number. Slots are zero-based and assigned by you.
+- Any address ending in a meter leaf works, e.g. `Channel_Input/post_meter/left`, `.../pre_meter/right`, `Dynamics/GR_meter_1`. See the per-category tables below for the full set.
+- The official client subscribed 12 slots - one per visible strip. Subscribe only what is actually on screen; this is a continuous 30 Hz stream, not a poll.
+
+### Receiving
+
+The console pushes `/Meters/values` with a **flat list of alternating `[slot, value]` int pairs**:
+
+```
+/Meters/values  [0, 1572897, 1, 1376286, 2, 1769505, 4, 2359338, ...]
+                 ^slot ^value ^slot ^value
+```
+
+- **Only slots whose value changed** are included, so message length varies packet to packet. Never assume a fixed layout or that slot *n* sits at index *2n* - always read the pairs.
+- Update rate is ~35 ms (about 29 Hz), regardless of how many slots are subscribed.
+- Both fields are OSC **int32**.
+
+### Decoding a meter value
+
+Each 24-bit value packs **two independent 8-bit fields**; the middle byte is always zero:
+
+```
+value = (peak << 16) | rms          # byte 1 is always 0x00
+peak  = (value >> 16) & 0xFF
+rms   =  value        & 0xFF
+```
+
+Both fields are **always a multiple of 3**, and convert to dBFS as:
+
+```
+dB = -field / 3.0
+```
+
+giving a range of **0 dB down to -42 dB** (field `0` .. `126`).
+
+| Field | Byte | Meaning | Evidence |
+|---|---|---|---|
+| `value >> 16` | high | **Peak**, with peak-hold behaviour | Changed on only 40 of 878 transitions for a busy channel |
+| `value & 0xFF` | low | **RMS / instantaneous** level | Changed on 442 of the same 878 transitions |
+
+Verified across 9,350 samples from a capture with real audio playing: every field was a multiple of 3, and peak was louder than or equal to RMS in **99.5%** of samples. The remaining 0.5% are all the same case - `peak == 126` (the floor sentinel) while RMS still reads a real level.
+
+**`126` (i.e. -42 dB) is the floor / no-signal sentinel.** The distinct values observed jump from `20*3` straight to `42*3` with nothing between, so `126` is a sentinel rather than a genuine measurement. Treat a peak of 126 as "no signal" and render an empty meter.
+
+### Worked example
+
+```python
+def decode_meter(value):
+    """(peak_db, rms_db) from a /Meters/values int. None == no signal."""
+    peak, rms = (value >> 16) & 0xFF, value & 0xFF
+    return (None if peak == 126 else -peak / 3.0,
+            None if rms  == 126 else -rms  / 3.0)
+
+# /Meters/values [0, 1572897, ...]
+decode_meter(1572897)   # 0x180021 -> (-8.0 dB peak, -11.0 dB rms)
+decode_meter(8257662)   # 0x7E007E -> (None, None)  - silent
+```
+
+### Notes for CLMix
+
+- Resolution is coarse: 1/3 dB steps over a 42 dB span, i.e. 43 discrete levels per field. That is plenty for a bar meter, but do not present it as a precise readout.
+- At 30 Hz with 12 slots this is ~30 packets/sec - the dominant traffic on the link (594 of 1,240 console packets in one capture, 1,054 of 1,895 in another). Re-subscribe with `/Meters/clear` when the visible set changes rather than subscribing every channel on the console.
+- Meter traffic shares the same `recv_port` as everything else, so it lands in the same `receive_osc` loop. `/Meters/values` should be dispatched before the generic cache path, and must **not** be cached per-address - it is a stream, not a parameter.
 
 ## Console topology (from `/Console/Channels/?`)
 
@@ -66,6 +209,13 @@ Console identity/topology. A single query ("/Console/Channels/?") triggers a bur
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
 | `/Console/Name` | 1 | string | `["SD7Q-Q2"]` | `/Console/Name` |
+| `/Console/Session/Filename` | 1 | string | `["cl default.ses"]` | `/Console/Session/Filename` |
+| `/Console/Input_Channels/modes` | 1 | int list (72) | `[1, 1, 1, ..., 2, 2]` | `/Console/Input_Channels/modes` |
+| `/Console/Group_Outputs/modes` | 1 | int list (3) | `[2, 1, 1]` | `/Console/Group_Outputs/modes` |
+
+`*/modes` lists carry one entry per channel/bus: `1` = mono, `2` = stereo. `/Console/Aux_Outputs/modes` (already used by CLMix) is the same shape with 30 entries.
+
+`/Console/Session/Filename` is the currently loaded session file. The official client polls it every 2.0 s as its keep-alive - see [Connection lifecycle](#connection-lifecycle).
 
 ### Snapshots
 
@@ -74,7 +224,9 @@ Scene/snapshot recall and naming.
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
 | `/Snapshots/Current_Snapshot` | 1 | int | `[3]` | `/Snapshots/Current_Snapshot` |
+| `/Snapshots/Surface_Snapshot` | 1 | int | `[13]` | `/Snapshots/Surface_Snapshot` |
 | `/Snapshots/count` | 1 | int | `[10]` | `/Snapshots/count` |
+| `/Snapshots/name` | per snapshot | `[index, cue, 0, name]` | `[13, 450, 0, "NATALIYA FILISTOVICH"]` | reply to `/Snapshots/names/?` |
 
 ### Layout
 
@@ -497,5 +649,17 @@ Multitrack recorder return channels (e.g. "FX"). Just fader/mute/solo/name.
 ## Undocumented / not reachable this session
 
 - `/Talkback_Outputs/{n}` - exists (count 2) per console topology, but no query form tried got a reply.
-- `/Console/Session`, `/Console/Session_Name`, `/Console/Show_File`, `/Console/Sample_Rate`, `/Console/Version`, `/Console/Type`, `/Console/Desk_Type` - guessed metadata addresses, none answered. Only `/Console/Name` worked.
+- `/Console/Session_Name`, `/Console/Show_File`, `/Console/Sample_Rate`, `/Console/Version`, `/Console/Type`, `/Console/Desk_Type` - guessed metadata addresses, none answered.
+  **Resolved since:** the real session address is `/Console/Session/Filename` (not `/Console/Session`), found by capturing the official client rather than by guessing. Worth remembering as a method - guessing addresses found almost nothing here, while one capture of the real client resolved several at once.
 - `/Snapshots/Count`, `/Snapshots/Total` - guessed; the real one is `/Snapshots/count` -> `[10]`.
+
+## Provenance
+
+| Date | Source | What it established |
+|---|---|---|
+| 2026-08-09 | Live OSC probing (send 1091 / recv 1090) | The 946-address command map above; console topology; GET/SET semantics |
+| 2026-09-03 | Live probing (send 10025 / recv 10026) | Ports are console config, not constants; no keep-alive required; console ignores sender port; `/Snapshots/names/?` does reply |
+| 2026-09-03 | `~/Documents/digico.pcapng` - official client, 92 s | Discovery beacon on 2029; `/Console/Name/?` handshake; 2.0 s keep-alive; meter subscription mechanism |
+| 2026-09-03 | `~/Documents/sound sample.pcapng` - official client with live audio, 42 s | Meter value encoding: packed peak/RMS, 1/3 dB steps, -42 dB floor sentinel |
+
+Anything marked "unidentified" above stayed unidentified because only one console was ever observed - constant fields may be constant by circumstance rather than by design.
