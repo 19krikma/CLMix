@@ -48,6 +48,7 @@ STARTUP_UPDATE_CHECK_MS = 5000
 # webmixer Node server's maybeCacheResponse() address list.
 CACHEABLE_ADDRESSES = [
     re.compile(r"^/Console/Input_Channels$"),
+    re.compile(r"^/Console/Input_Channels/modes$"),
     re.compile(r"^/Console/Aux_Outputs/modes$"),
     re.compile(r"^/Aux_Outputs/\d+/Buss_Trim/name$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/name$"),
@@ -91,6 +92,17 @@ class MixerWorker(threading.Thread):
     METER_FLOOR_FIELD = 126
     METER_FLOOR_DB = -60.0
 
+    # /Console/Input_Channels/modes carries one entry per channel: 1 is
+    # mono, 2 is stereo (the same shape as /Console/Aux_Outputs/modes).
+    # A stereo channel meters as two independent legs, each on its own
+    # subscription slot; a mono one has only a left leg. The console
+    # exposes .../post_meter/right on every channel regardless, so the
+    # modes list - not the address space - is what says whether the
+    # right leg carries anything.
+    CHANNEL_MODE_STEREO = 2
+    METER_LEGS_MONO = ("left",)
+    METER_LEGS_STEREO = ("left", "right")
+
     def __init__(self, mixer_ip, send_port, recv_port,
                  command_queue, message_queue):
         super().__init__(daemon=True)
@@ -117,17 +129,19 @@ class MixerWorker(threading.Thread):
         self._last_received_at = None
         self._last_heartbeat_sent_at = 0.0
 
-        # slot number -> channel index, mirroring whatever the UI last
-        # subscribed via subscribe_meters(). /Meters/values reports slots,
-        # not addresses, so this is the only way back to a channel.
+        # slot number -> (channel index, leg), mirroring whatever the UI
+        # last subscribed via subscribe_meters(). /Meters/values reports
+        # slots, not addresses, so this is the only way back to a channel.
+        # A stereo channel occupies two slots, one per leg.
         self.meter_slots = {}
-        # channel index -> (peak_db, rms_db); None means no signal.
+        # (channel index, leg) -> (peak_db, rms_db); None means no signal.
         self.meter_levels = {}
-        # channel index -> how many samples have landed for it. The console
-        # only sends a slot when its value changed, so a bump here is the
-        # only way the UI can tell "a fresh sample arrived" from "nothing
-        # was sent because the level is unchanged" - which the meter's
-        # release ballistics depend on (see MainWindow.refresh_meters).
+        # (channel index, leg) -> how many samples have landed for it. The
+        # console only sends a slot when its value changed, so a bump here
+        # is the only way the UI can tell "a fresh sample arrived" from
+        # "nothing was sent because the level is unchanged" - which the
+        # meter's release ballistics depend on (see
+        # MainWindow.refresh_meters).
         self.meter_seq = {}
 
     def run(self):
@@ -300,6 +314,12 @@ class MixerWorker(threading.Thread):
             self.send_osc("/Console/Aux_Outputs/modes/?", [])
             return
 
+        # Needed before the first meter subscription, since it decides how
+        # many slots each channel takes - see subscribe_meters().
+        if "/Console/Input_Channels/modes" not in self.cache:
+            self.send_osc("/Console/Input_Channels/modes/?", [])
+            return
+
         aux_modes = self.cache["/Console/Aux_Outputs/modes"]
         for i in range(1, len(aux_modes) + 1):
             address = f"/Aux_Outputs/{i}/Buss_Trim/name"
@@ -348,29 +368,59 @@ class MixerWorker(threading.Thread):
         # slots that actually changed - so the length varies per packet
         # and slot n is NOT at index 2n. Always walk it as pairs.
         for i in range(0, len(args) - 1, 2):
-            channel = self.meter_slots.get(int(args[i]))
+            key = self.meter_slots.get(int(args[i]))
 
-            if channel is not None:
-                self.meter_levels[channel] = self.decode_meter(args[i + 1])
-                self.meter_seq[channel] = self.meter_seq.get(channel, 0) + 1
+            if key is not None:
+                self.meter_levels[key] = self.decode_meter(args[i + 1])
+                self.meter_seq[key] = self.meter_seq.get(key, 0) + 1
+
+    def channel_is_stereo(self, channel):
+        """Whether channel is a stereo pair, per /Console/Input_Channels/modes.
+
+        Falls back to mono when the modes list is missing or too short:
+        metering one leg of a stereo channel under-reads, while metering
+        a mono channel's absent right leg would show a dead bar, so mono
+        is the safer guess with incomplete information.
+        """
+        modes = self.cache.get("/Console/Input_Channels/modes", [])
+
+        if not 1 <= channel <= len(modes):
+            return False
+
+        return int(modes[channel - 1]) == self.CHANNEL_MODE_STEREO
+
+    def channel_legs(self, channel):
+        """The meter legs to subscribe and draw for channel."""
+        return self.METER_LEGS_STEREO if self.channel_is_stereo(channel) \
+            else self.METER_LEGS_MONO
 
     def subscribe_meters(self, channels):
-        """Bind one meter slot per channel, replacing any previous set.
+        """Bind meter slots for channels, replacing any previous set.
+
+        One slot per leg: mono channels take a single slot, stereo
+        channels two. Slot numbers are ours to assign and are handed back
+        verbatim in /Meters/values, so nothing but this mapping needs to
+        know that a strip's two bars are adjacent slots.
 
         Safe to call from the UI thread: the actual sends go out through
         command_queue on the worker thread. Only subscribe what's on
-        screen - this is a continuous ~30Hz stream, not a poll.
+        screen - this is a continuous ~30Hz stream, not a poll, and a
+        bank of stereo channels now costs twice the slots it used to.
         """
-        self.meter_slots = {slot: channel for slot, channel in enumerate(channels)}
+        self.meter_slots = {}
         self.meter_levels = {}
         self.meter_seq = {}
 
+        for channel in channels:
+            for leg in self.channel_legs(channel):
+                self.meter_slots[len(self.meter_slots)] = (channel, leg)
+
         self.command_queue.put("/Meters/clear")
 
-        for slot, channel in self.meter_slots.items():
+        for slot, (channel, leg) in self.meter_slots.items():
             self.command_queue.put(
                 f"/Meters/request/{slot} "
-                f"/Input_Channels/{channel}/Channel_Input/post_meter/left"
+                f"/Input_Channels/{channel}/Channel_Input/post_meter/{leg}"
             )
 
     def send_osc(self, address, args):
@@ -681,6 +731,19 @@ class AuxLevelsPanel:
     METER_WIDTH = 10
     METER_FLOOR_DB = -60.0
 
+    # A stereo channel draws two bars inside that same total width rather
+    # than widening its canvas, so a bank of mixed mono and stereo strips
+    # still lines up as even columns - fader, ruler and meter keep
+    # identical geometry either way, and the split reads as "this channel
+    # is stereo" without the strip jumping width.
+    #
+    # Consequently every per-meter dict below (slices, peak items and all
+    # the ballistics state) is keyed by (channel, leg) rather than by
+    # channel: a stereo strip's two bars animate independently, exactly
+    # as two mono strips would. self.channel_legs holds each channel's
+    # legs, mirroring what MixerWorker actually subscribed.
+    METER_STEREO_GAP = 2
+
     # Colour ramp sampled from the SD7's own meters: deep blue at the
     # bottom, through cyan and green, yellow-green near -14, into red for
     # the last few dB. Stops are in dB (not fractions) so the colours stay
@@ -811,7 +874,9 @@ class AuxLevelsPanel:
         self.sliders = {}
         self.level_rulers = {}
         self.channel_meters = {}
+        self.channel_legs = {}
         self.meter_slices = {}
+        self.meter_leg_spans = {}
         self.meter_peak_items = {}
         self.meter_lit = {}
         self.meter_shown = {}
@@ -1001,7 +1066,9 @@ class AuxLevelsPanel:
         self.sliders = {}
         self.level_rulers = {}
         self.channel_meters = {}
+        self.channel_legs = {}
         self.meter_slices = {}
+        self.meter_leg_spans = {}
         self.meter_peak_items = {}
         self.meter_lit = {}
         self.meter_shown = {}
@@ -1068,7 +1135,9 @@ class AuxLevelsPanel:
         self.sliders = {}
         self.level_rulers = {}
         self.channel_meters = {}
+        self.channel_legs = {}
         self.meter_slices = {}
+        self.meter_leg_spans = {}
         self.meter_peak_items = {}
         self.meter_lit = {}
         self.meter_shown = {}
@@ -1178,7 +1247,11 @@ class AuxLevelsPanel:
             )
             meter.pack(side="left", padx=(3, 0))
             self.channel_meters[i] = meter
-            self._build_meter_slices(i, meter)
+            # Legs come from the worker so the bars drawn here and the
+            # slots it subscribes can never disagree about a channel.
+            legs = self.worker.channel_legs(i)
+            self.channel_legs[i] = legs
+            self._build_meter_slices(i, meter, legs)
 
             pan_slider = RoundSlider(
                 column,
@@ -1330,30 +1403,54 @@ class AuxLevelsPanel:
         cls._meter_palette_cache = (lit, dim)
         return cls._meter_palette_cache
 
-    def _build_meter_slices(self, channel, meter):
-        # Created once per strip. refresh_meters() then only recolours the
-        # slices the level actually crossed.
+    @classmethod
+    def _meter_leg_spans(cls, legs):
+        """(x0, x1) for each leg, splitting one strip's meter width.
+
+        A single leg gets the whole width; a stereo pair splits it with a
+        gap between, keeping the strip the same width either way.
+        """
+        if len(legs) < 2:
+            return {legs[0]: (0, cls.METER_WIDTH)}
+
+        gaps = cls.METER_STEREO_GAP * (len(legs) - 1)
+        bar = (cls.METER_WIDTH - gaps) // len(legs)
+
+        return {
+            leg: (index * (bar + cls.METER_STEREO_GAP),
+                  index * (bar + cls.METER_STEREO_GAP) + bar)
+            for index, leg in enumerate(legs)
+        }
+
+    def _build_meter_slices(self, channel, meter, legs):
+        # Created once per strip, one bar per leg. refresh_meters() then
+        # only recolours the slices the level actually crossed.
         _lit, dim = self._meter_palette()
         count = self.LEVEL_LENGTH // self.METER_SLICE_H
-        slices = []
+        spans = self._meter_leg_spans(legs)
 
-        for index in range(count):
-            bottom = self.LEVEL_LENGTH - index * self.METER_SLICE_H
-            slices.append(meter.create_rectangle(
-                0, bottom - self.METER_SLICE_H, self.METER_WIDTH, bottom,
-                fill=dim[index], outline=""
-            ))
+        for leg in legs:
+            x0, x1 = spans[leg]
+            slices = []
 
-        self.meter_slices[channel] = slices
-        self.meter_lit[channel] = 0
-        self.meter_peak_items[channel] = meter.create_line(
-            0, 0, self.METER_WIDTH, 0,
-            fill=self.METER_PEAK_COLOR, state="hidden"
-        )
+            for index in range(count):
+                bottom = self.LEVEL_LENGTH - index * self.METER_SLICE_H
+                slices.append(meter.create_rectangle(
+                    x0, bottom - self.METER_SLICE_H, x1, bottom,
+                    fill=dim[index], outline=""
+                ))
 
-    def _apply_meter(self, channel, level_db, peak_db):
+            self.meter_slices[(channel, leg)] = slices
+            self.meter_leg_spans[(channel, leg)] = (x0, x1)
+            self.meter_lit[(channel, leg)] = 0
+            self.meter_peak_items[(channel, leg)] = meter.create_line(
+                x0, 0, x1, 0,
+                fill=self.METER_PEAK_COLOR, state="hidden"
+            )
+
+    def _apply_meter(self, channel, leg, level_db, peak_db):
         meter = self.channel_meters.get(channel)
-        slices = self.meter_slices.get(channel)
+        slices = self.meter_slices.get((channel, leg))
 
         if meter is None or not slices:
             return
@@ -1361,7 +1458,7 @@ class AuxLevelsPanel:
         lit_colors, dim_colors = self._meter_palette()
         count = len(slices)
         lit = round(self._meter_fraction(level_db) * count)
-        previous = self.meter_lit.get(channel, 0)
+        previous = self.meter_lit.get((channel, leg), 0)
 
         if lit != previous:
             # Only the crossed band changes state, so a bar that moved two
@@ -1374,17 +1471,18 @@ class AuxLevelsPanel:
                     fill=lit_colors[index] if index < lit else dim_colors[index]
                 )
 
-            self.meter_lit[channel] = lit
+            self.meter_lit[(channel, leg)] = lit
 
-        peak_item = self.meter_peak_items.get(channel)
+        peak_item = self.meter_peak_items.get((channel, leg))
 
         if peak_item is not None:
             if peak_db is None or peak_db <= self.METER_FLOOR_DB:
                 meter.itemconfig(peak_item, state="hidden")
             else:
+                x0, x1 = self.meter_leg_spans[(channel, leg)]
                 y = self.LEVEL_LENGTH - self._meter_fraction(peak_db) \
                     * self.LEVEL_LENGTH
-                meter.coords(peak_item, 0, y, self.METER_WIDTH, y)
+                meter.coords(peak_item, x0, y, x1, y)
                 meter.itemconfig(peak_item, state="normal")
 
     def refresh_meters(self):
@@ -1400,67 +1498,84 @@ class AuxLevelsPanel:
             release = self.METER_RELEASE_DB_PER_SEC * elapsed
             peak_fall = self.METER_PEAK_FALL_DB_PER_SEC * elapsed
 
-            for channel in self.channel_meters:
-                shown = self.meter_shown.get(channel, self.METER_FLOOR_DB)
-                target = self.meter_target.get(channel, self.METER_FLOOR_DB)
-                seq = seqs.get(channel, 0)
-
-                # A packet only carries slots that actually changed, so a
-                # bumped seq - not a changed value - is what marks a fresh
-                # sample. Arm the rise on arrival; a sample at or below
-                # where the bar already sits arms nothing and simply lets
-                # the release carry on through it.
-                #
-                # The corollary: a signal steady enough to stay inside one
-                # 3 dB wire step sends nothing, and the bar releases away
-                # under it. Real programme material moves the RMS field on
-                # roughly every other frame so it never gets far, but a
-                # held test tone will visibly sag.
-                if seq != self.meter_seen_seq.get(channel):
-                    self.meter_seen_seq[channel] = seq
-                    peak_db, rms_db = levels.get(channel, (None, None))
-
-                    # The console reports peak and RMS independently and
-                    # either may be at its floor sentinel, so drive the bar
-                    # from whichever is actually present.
-                    target = max(
-                        rms_db if rms_db is not None else self.METER_FLOOR_DB,
-                        peak_db if peak_db is not None else self.METER_FLOOR_DB,
+            # Each leg animates on its own: a stereo channel's two bars
+            # are driven by two independent subscriptions and must be
+            # free to sit at different levels.
+            for channel, legs in self.channel_legs.items():
+                for leg in legs:
+                    self._advance_meter(
+                        channel, leg, levels, seqs, now,
+                        rise_decay, rise_floor, release, peak_fall
                     )
-                    self.meter_target[channel] = target
-                    self.meter_rising[channel] = target > shown
-
-                if self.meter_rising.get(channel):
-                    # Ease up to the sample, never overshooting it. Once
-                    # it is reached the push is spent: the bar releases
-                    # from there until the next packet lifts it again.
-                    eased = target + (shown - target) * rise_decay
-                    shown = min(target, max(eased, shown + rise_floor))
-
-                    if shown >= target:
-                        self.meter_rising[channel] = False
-                else:
-                    shown = max(self.METER_FLOOR_DB, shown - release)
-
-                self.meter_shown[channel] = shown
-
-                held = self.meter_peak.get(channel, self.METER_FLOOR_DB)
-
-                # Tracked against the incoming target rather than the
-                # animated bar, so a brief transient still marks its true
-                # peak even when the bar is still sliding up to it.
-                if target >= held:
-                    held = target
-                    self.meter_peak_at[channel] = now
-                elif now - self.meter_peak_at.get(channel, now) > \
-                        self.METER_PEAK_HOLD_SECONDS:
-                    held = max(shown, held - peak_fall)
-
-                self.meter_peak[channel] = held
-
-                self._apply_meter(channel, shown, held)
 
         self.master.after(self.METER_REFRESH_MS, self.refresh_meters)
+
+    def _advance_meter(self, channel, leg, levels, seqs, now,
+                       rise_decay, rise_floor, release, peak_fall):
+        """Step one bar's ballistics by a frame and redraw it.
+
+        Called once per leg, so a stereo strip's two bars rise, release
+        and hold their peaks entirely independently of each other.
+        """
+        key = (channel, leg)
+        shown = self.meter_shown.get(key, self.METER_FLOOR_DB)
+        target = self.meter_target.get(key, self.METER_FLOOR_DB)
+        seq = seqs.get(key, 0)
+
+        # A packet only carries slots that actually changed, so a bumped
+        # seq - not a changed value - is what marks a fresh sample. Arm
+        # the rise on arrival; a sample at or below where the bar already
+        # sits arms nothing and simply lets the release carry on through
+        # it.
+        #
+        # The corollary: a signal steady enough to stay inside one 3 dB
+        # wire step sends nothing, and the bar releases away under it.
+        # Real programme material moves the RMS field on roughly every
+        # other frame so it never gets far, but a held test tone will
+        # visibly sag.
+        if seq != self.meter_seen_seq.get(key):
+            self.meter_seen_seq[key] = seq
+            peak_db, rms_db = levels.get(key, (None, None))
+
+            # The console reports peak and RMS independently and either
+            # may be at its floor sentinel, so drive the bar from
+            # whichever is actually present.
+            target = max(
+                rms_db if rms_db is not None else self.METER_FLOOR_DB,
+                peak_db if peak_db is not None else self.METER_FLOOR_DB,
+            )
+            self.meter_target[key] = target
+            self.meter_rising[key] = target > shown
+
+        if self.meter_rising.get(key):
+            # Ease up to the sample, never overshooting it. Once it is
+            # reached the push is spent: the bar releases from there
+            # until the next packet lifts it again.
+            eased = target + (shown - target) * rise_decay
+            shown = min(target, max(eased, shown + rise_floor))
+
+            if shown >= target:
+                self.meter_rising[key] = False
+        else:
+            shown = max(self.METER_FLOOR_DB, shown - release)
+
+        self.meter_shown[key] = shown
+
+        held = self.meter_peak.get(key, self.METER_FLOOR_DB)
+
+        # Tracked against the incoming target rather than the animated
+        # bar, so a brief transient still marks its true peak even when
+        # the bar is still sliding up to it.
+        if target >= held:
+            held = target
+            self.meter_peak_at[key] = now
+        elif now - self.meter_peak_at.get(key, now) > \
+                self.METER_PEAK_HOLD_SECONDS:
+            held = max(shown, held - peak_fall)
+
+        self.meter_peak[key] = held
+
+        self._apply_meter(channel, leg, shown, held)
 
     def current_aux(self):
         index = self.aux_combo.current()

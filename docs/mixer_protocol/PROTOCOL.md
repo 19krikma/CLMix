@@ -153,6 +153,8 @@ Decoded over a capture with music playing, peak spans -39..-6 dB (median -18) an
 
 **Rejected alternative: the two fields are not stereo left/right.** Worth recording because it is the obvious guess. All 12 channels subscribed in `sound sample.pcapng` are mono per `/Console/Input_Channels/modes`, yet they reported *both* fields carrying a level in 9,248 of 9,350 samples. A left/right split would leave the second field at sentinel for every mono channel.
 
+**Stereo lives in the address space, not in the value.** A stereo channel is metered by subscribing *two* slots - `.../post_meter/left` and `.../post_meter/right` - each carrying its own independent peak/RMS pair. `/Console/Input_Channels/modes` says which channels warrant the second slot; the `/right` address answers on mono channels too, so it cannot be used to detect stereo. This doubles the slot cost of a bank of stereo strips, which is the practical reason to subscribe only what is on screen.
+
 ### Worked example
 
 ```python
@@ -173,6 +175,7 @@ decode_meter(8257662)   # 0x7E007E -> (None, None)    - no signal
 ### Notes for CLMix
 
 - Resolution is coarse: **3 dB steps over a 60 dB span**, i.e. 21 discrete levels per field. Plenty for a bar meter, but do not present it as a precise readout - and smooth the fall in the UI, or the bar visibly jumps a twentieth of its height at a time.
+- One slot per *leg*, not per channel: a bank of 12 strips costs 12 slots if they are all mono and 24 if they are all stereo.
 - At 30 Hz with 12 slots this is ~30 packets/sec - the dominant traffic on the link (594 of 1,240 console packets in one capture, 1,054 of 1,895 in another). Re-subscribe with `/Meters/clear` when the visible set changes rather than subscribing every channel on the console.
 - Meter traffic shares the same `recv_port` as everything else, so it lands in the same `receive_osc` loop. `/Meters/values` should be dispatched before the generic cache path, and must **not** be cached per-address - it is a stream, not a parameter.
 
@@ -201,13 +204,15 @@ For reference, these are the addresses `ui/main_window.py` already speaks - all 
 | Address pattern | Purpose |
 |---|---|
 | `/Console/Channels/?` | Boot: triggers the topology burst above |
-| `/Console/Aux_Outputs/modes/?` | Boot: per-aux mono/stereo mode list |
+| `/Console/Aux_Outputs/modes/?` | Boot: per-aux mono/stereo mode list (used for its length, i.e. the aux count) |
+| `/Console/Input_Channels/modes/?` | Boot: per-channel mono/stereo mode list. Decides how many meter slots each channel takes - see below |
 | `/Aux_Outputs/{n}/Buss_Trim/name/?` | Aux bus display name |
 | `/Input_Channels/{n}/Channel_Input/name/?` | Channel display name |
 | `/Input_Channels/{n}/mute` (get/set) | Channel mute |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_level` (get/set) | Channel's send level to aux `a` |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_pan` (get/set) | Channel's send pan to aux `a` |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_on` (get/set) | Whether channel `n` is in aux `a`'s mix at all (`0.0` = out). What the phone apps' per-channel Mute button drives, since it affects only that one aux mix - unlike `/Input_Channels/{n}/mute` above, which cuts the source everywhere. |
+| `/Meters/clear`, `/Meters/request/{slot}` | Meter subscription for the visible strips: one slot on `.../post_meter/left` for a mono channel, two (`left` and `right`) for a stereo one |
 | `/Snapshots/Current_Snapshot/?` | Currently recalled snapshot number |
 | `/Snapshots/names/?` | Broadcasts `/Snapshots/name [index, name]` per snapshot |
 | `/Snapshots/Rename_Snapshot/{n}` | Broadcast when a snapshot is renamed |
@@ -232,6 +237,8 @@ Console identity/topology. A single query ("/Console/Channels/?") triggers a bur
 | `/Console/Group_Outputs/modes` | 1 | int list (3) | `[2, 1, 1]` | `/Console/Group_Outputs/modes` |
 
 `*/modes` lists carry one entry per channel/bus: `1` = mono, `2` = stereo. `/Console/Aux_Outputs/modes` (already used by CLMix) is the same shape with 30 entries.
+
+`/Console/Input_Channels/modes` is what tells you whether a channel's `.../post_meter/right` is worth a meter slot: the address exists on every channel regardless, so the modes list is the only way to know a right leg carries anything. CLMix subscribes one slot per leg on this basis - see [Metering](#metering).
 
 `/Console/Session/Filename` is the currently loaded session file. The official client polls it every 2.0 s as its keep-alive - see [Connection lifecycle](#connection-lifecycle).
 
