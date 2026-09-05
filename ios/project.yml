@@ -24,6 +24,18 @@ targets:
     info:
       path: CLMix/Info.plist
       properties:
+        # Without these two, XcodeGen's own plist generator defaults them to
+        # literal "1.0"/"1" on every `xcodegen generate` - silently
+        # overwriting CLMix/Info.plist and discarding whatever
+        # CFBundleShortVersionString/CFBundleVersion this file previously
+        # had, regardless of the MARKETING_VERSION/CURRENT_PROJECT_VERSION
+        # build settings below (which then go completely unused, since nothing
+        # in the plist ever references them). Pointing these at the build
+        # settings via $() is what makes the two actually take effect, and
+        # keeps a plain `xcodegen generate` from quietly reverting a version
+        # bump the next time anything else about the project changes.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -35,10 +47,46 @@ targets:
         # only cryptography is the system Keychain and the platform's own
         # TLS, neither of which counts, and the mixer socket is plain ws://.
         ITSAppUsesNonExemptEncryption: false
+        # Every screen here (vertical faders running edge-to-edge, the
+        # connect form) is built portrait-only and has never been run in
+        # landscape or iPad Split View - declaring it explicitly avoids
+        # Xcode's "All interface orientations must be supported unless the
+        # app requires full screen" validation failure (ITMS-90474 at
+        # App Store Connect upload), which TARGETED_DEVICE_FAMILY "1,2"
+        # otherwise triggers by including the iPad idiom.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+        # iPad multitasking (Split View/Slide Over) can present the app in
+        # any orientation regardless of the key above unless this opts out
+        # of it - untested layout territory the same way landscape is.
+        UIRequiresFullScreen: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.clmix.CLMix
         MARKETING_VERSION: "1.0.0"
+        # Bumped from "1" - that build number is already used by the
+        # existing TestFlight upload (the one that shipped with the "1.0"
+        # bug this fixes), and App Store Connect rejects a second upload
+        # carrying a build number it's already seen for this bundle ID.
         CURRENT_PROJECT_VERSION: "2"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
+      # XcodeGen's own project template default (CODE_SIGN_IDENTITY =
+      # "iPhone Developer", a legacy pre-2019 identity name baked in
+      # regardless of anything set above) pins Development-style signing
+      # even for a Release archive, which needs a profile scoped to
+      # registered device UDIDs and fails archiving with "Your team has no
+      # devices from which to generate a provisioning profile." Blanking it
+      # per configuration - rather than substituting another explicit
+      # identity, Development or Distribution, which Automatic signing
+      # rejects as a manual/automatic conflict either way - is what actually
+      # lets CODE_SIGN_STYLE: Automatic resolve each configuration's real
+      # identity itself: Development for a Debug/device build, Distribution
+      # for a Release archive.
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: ""
+        Release:
+          CODE_SIGN_IDENTITY: ""

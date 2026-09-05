@@ -6,6 +6,7 @@ struct DiscoveredServer: Identifiable, Equatable {
     let port: Int
 }
 
+@MainActor
 protocol MdnsDiscoveryDelegate: AnyObject {
     func mdnsDidFindServer(_ server: DiscoveredServer)
     func mdnsDidLoseServer(id: String)
