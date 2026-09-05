@@ -531,11 +531,19 @@ class RemoteServer:
         if aux is None:
             return
 
+        # Nothing to prime on a mono bus: send_pan does not apply, so the
+        # value stays absent from the cache and _channel_states reports
+        # pan as None for the whole bank - which is what a client that
+        # honours the aux list's "stereo" flag expects anyway.
+        stereo = worker.aux_is_stereo(aux)
+
         for channel in self._channels_for(worker, state.get("bank")):
             prefix = f"/Input_Channels/{channel}/Aux_Send/{aux}"
             self.command_queue.put(f"{prefix}/send_level/?")
-            self.command_queue.put(f"{prefix}/send_pan/?")
             self.command_queue.put(f"{prefix}/send_on/?")
+
+            if stereo:
+                self.command_queue.put(f"{prefix}/send_pan/?")
 
     def _set_level(self, state, channel, level):
         aux = state.get("aux")
@@ -652,7 +660,16 @@ class RemoteServer:
             if entry and entry["aux"] != ALL_AUX and name not in entry["aux"]:
                 continue
 
-            auxes.append({"index": i, "name": name})
+            # A mono bus sums its sends to one leg, so send_pan is a
+            # no-op on it - the console accepts and echoes the write
+            # regardless, so a client has no way to discover this by
+            # trying. Reported here so phone clients can drop their pan
+            # control the way the desktop strip does.
+            auxes.append({
+                "index": i,
+                "name": name,
+                "stereo": worker.aux_is_stereo(i),
+            })
 
         return auxes
 

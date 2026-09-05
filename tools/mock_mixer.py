@@ -46,6 +46,13 @@ import time
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
+# Mono/stereo, as /Console/*/modes reports it, for both input channels
+# and aux buses. Roughly a quarter of the simulated channels come up
+# stereo (see STEREO_CHANCE) so a typical bank exercises both meter
+# layouts at once.
+MODE_MONO = 1
+MODE_STEREO = 2
+
 BANK_NAMES = ["Band", "Drums", "Vocals", "Horns", "Percussion"]
 MIN_CHANNELS_PER_BANK = 3
 MAX_CHANNELS_PER_BANK = 10
@@ -60,13 +67,16 @@ INSTRUMENT_POOL = [
 ]
 
 AUX_NAMES = ["Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send"]
+
+# Fixed rather than randomized: an aux's width decides whether the pan
+# control appears at all, so having a known mono bus and a known stereo
+# one next to each other in the list is what makes that switchable by
+# hand. Reverb and FX Send are stereo; the wedge/IEM monitors are mono,
+# which is also how they usually are on a real desk.
+AUX_MODES = [MODE_STEREO, MODE_MONO, MODE_MONO, MODE_MONO, MODE_STEREO]
+
 SNAPSHOT_NAME = "Show 1"
 
-# Per-channel mono/stereo, as /Console/*/modes reports it: 1 = mono,
-# 2 = stereo. Roughly a quarter of the simulated channels come up stereo
-# so a typical bank exercises both meter layouts at once.
-MODE_MONO = 1
-MODE_STEREO = 2
 STEREO_CHANCE = 0.25
 
 # Meter simulation. The console quantises meters to 3 dB steps over a
@@ -401,7 +411,7 @@ class MockMixer:
             self.send("/Console/Input_Channels", [len(CHANNEL_NAMES)])
 
         elif address == "/Console/Aux_Outputs/modes":
-            self.send("/Console/Aux_Outputs/modes", [MODE_MONO] * len(AUX_NAMES))
+            self.send("/Console/Aux_Outputs/modes", list(AUX_MODES))
 
         elif address == "/Console/Input_Channels/modes":
             self.send("/Console/Input_Channels/modes", list(CHANNEL_MODES))
@@ -511,8 +521,14 @@ def main():
         if mode == MODE_STEREO
     ]
 
+    aux_widths = ", ".join(
+        f"{name} ({'stereo' if mode == MODE_STEREO else 'mono'})"
+        for name, mode in zip(AUX_NAMES, AUX_MODES)
+    )
+
     print(f"Simulated console: {len(CHANNEL_NAMES)} channels, "
           f"{len(AUX_NAMES)} aux sends")
+    print(f"  auxes: {aux_widths}")
     print(f"  stereo channels: {stereo or 'none'}")
     for bank_name, channels in BANKS.items():
         print(f"  {bank_name}: {len(channels)} channels {channels}")

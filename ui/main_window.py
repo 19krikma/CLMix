@@ -92,14 +92,22 @@ class MixerWorker(threading.Thread):
     METER_FLOOR_FIELD = 126
     METER_FLOOR_DB = -60.0
 
-    # /Console/Input_Channels/modes carries one entry per channel: 1 is
-    # mono, 2 is stereo (the same shape as /Console/Aux_Outputs/modes).
-    # A stereo channel meters as two independent legs, each on its own
-    # subscription slot; a mono one has only a left leg. The console
-    # exposes .../post_meter/right on every channel regardless, so the
-    # modes list - not the address space - is what says whether the
-    # right leg carries anything.
-    CHANNEL_MODE_STEREO = 2
+    # /Console/Input_Channels/modes and /Console/Aux_Outputs/modes carry
+    # one entry per channel/bus: 1 is mono, 2 is stereo.
+    #
+    # For an input channel this decides metering: a stereo channel meters
+    # as two independent legs, each on its own subscription slot, while a
+    # mono one has only a left leg. The console exposes
+    # .../post_meter/right on every channel regardless, so the modes list
+    # - not the address space - is what says whether the right leg
+    # carries anything.
+    #
+    # For an aux bus it decides whether send_pan means anything at all:
+    # a mono bus sums to one leg, so panning a send into it is a no-op.
+    # The console accepts and echoes the write either way, which is
+    # exactly why the mode has to be consulted rather than inferred from
+    # how the bus responds.
+    MODE_STEREO = 2
     METER_LEGS_MONO = ("left",)
     METER_LEGS_STEREO = ("left", "right")
 
@@ -382,12 +390,26 @@ class MixerWorker(threading.Thread):
         a mono channel's absent right leg would show a dead bar, so mono
         is the safer guess with incomplete information.
         """
-        modes = self.cache.get("/Console/Input_Channels/modes", [])
+        return self._mode_is_stereo("/Console/Input_Channels/modes", channel)
 
-        if not 1 <= channel <= len(modes):
+    def aux_is_stereo(self, aux):
+        """Whether aux bus is stereo, per /Console/Aux_Outputs/modes.
+
+        Falls back to mono, i.e. no pan, when the modes list is missing
+        or too short. Showing a pan control that silently does nothing is
+        worse than omitting one that would have worked, and the list is
+        fetched during boot so a missing entry means something is wrong
+        rather than merely slow.
+        """
+        return self._mode_is_stereo("/Console/Aux_Outputs/modes", aux)
+
+    def _mode_is_stereo(self, address, index):
+        modes = self.cache.get(address, [])
+
+        if not 1 <= index <= len(modes):
             return False
 
-        return int(modes[channel - 1]) == self.CHANNEL_MODE_STEREO
+        return int(modes[index - 1]) == self.MODE_STEREO
 
     def channel_legs(self, channel):
         """The meter legs to subscribe and draw for channel."""
@@ -574,10 +596,18 @@ class RoundSlider:
     both requiring workarounds of their own.
 
     Exposes the same get/set/configure/bind/pack surface AuxLevelsPanel
-    already used for tk.Scale, so call sites only needed the constructor
-    swapped, plus value_at() for the press/drag handlers to map a click
-    coordinate to a value directly (replacing the old cget-based
-    _scale_value_at, which assumed tk.Scale's own trough geometry).
+    already used for tk.Scale - including pack_forget/winfo_manager, so a
+    slider can be taken off a strip and put back - so call sites only
+    needed the constructor swapped, plus value_at() for the press/drag
+    handlers to map a click coordinate to a value directly (replacing the
+    old cget-based _scale_value_at, which assumed tk.Scale's own trough
+    geometry).
+
+    Note it is a plain wrapper, not a Widget subclass: it forwards to the
+    canvas it owns rather than inheriting Tk's API, so anything a call
+    site needs has to be forwarded explicitly. Passing one where Tk
+    itself expects a widget (pack's own before=/after=, for instance)
+    needs .canvas.
     """
 
     THUMB_RADIUS = 9
@@ -605,6 +635,14 @@ class RoundSlider:
 
     def pack(self, **kwargs):
         self.canvas.pack(**kwargs)
+
+    def pack_forget(self):
+        self.canvas.pack_forget()
+
+    def winfo_manager(self):
+        # "" while unpacked, "pack" once packed - the standard Tk way to
+        # ask whether a widget is currently on screen.
+        return self.canvas.winfo_manager()
 
     def bind(self, sequence, func, add=None):
         return self.canvas.bind(sequence, func, add=add)
@@ -1591,13 +1629,38 @@ class AuxLevelsPanel:
         if aux is None or self.worker is None or not self.worker.is_alive():
             return
 
+        # A mono bus sums its sends to one leg, so send_pan does nothing
+        # on it - the control comes off the strip and its value is never
+        # asked for, which also keeps a bank's worth of dead queries off
+        # the wire on every aux change.
+        stereo = self.worker.aux_is_stereo(aux)
+        self._show_pan_sliders(stereo)
+
         for channel in self.channels:
             self.command_queue.put(
                 f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level/?"
             )
-            self.command_queue.put(
-                f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan/?"
-            )
+
+            if stereo:
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan/?"
+                )
+
+    def _show_pan_sliders(self, shown):
+        for channel, pan_slider in self.pan_sliders.items():
+            # winfo_manager() is "" while unpacked and "pack" once packed,
+            # so it answers "is this on screen" without tracking a
+            # parallel flag that could drift out of step with Tk.
+            if bool(pan_slider.winfo_manager()) == shown:
+                continue
+
+            if shown:
+                # Packing appends to the end of the column, so without an
+                # explicit anchor a re-shown slider would reappear below
+                # the Mute button instead of above it.
+                pan_slider.pack(before=self.mute_buttons[channel], pady=(6, 0))
+            else:
+                pan_slider.pack_forget()
 
     def on_slider_change(self, channel, value):
         if self.suppress_send:

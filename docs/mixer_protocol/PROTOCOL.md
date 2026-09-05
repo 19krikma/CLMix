@@ -204,13 +204,13 @@ For reference, these are the addresses `ui/main_window.py` already speaks - all 
 | Address pattern | Purpose |
 |---|---|
 | `/Console/Channels/?` | Boot: triggers the topology burst above |
-| `/Console/Aux_Outputs/modes/?` | Boot: per-aux mono/stereo mode list (used for its length, i.e. the aux count) |
+| `/Console/Aux_Outputs/modes/?` | Boot: per-aux mono/stereo mode list. Gives the aux count (its length) and, per entry, whether that bus has a pan axis at all - see below |
 | `/Console/Input_Channels/modes/?` | Boot: per-channel mono/stereo mode list. Decides how many meter slots each channel takes - see below |
 | `/Aux_Outputs/{n}/Buss_Trim/name/?` | Aux bus display name |
 | `/Input_Channels/{n}/Channel_Input/name/?` | Channel display name |
 | `/Input_Channels/{n}/mute` (get/set) | Channel mute |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_level` (get/set) | Channel's send level to aux `a` |
-| `/Input_Channels/{n}/Aux_Send/{a}/send_pan` (get/set) | Channel's send pan to aux `a` |
+| `/Input_Channels/{n}/Aux_Send/{a}/send_pan` (get/set) | Channel's send pan to aux `a`. Only meaningful when aux `a` is stereo; CLMix hides the control and skips the query on a mono bus |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_on` (get/set) | Whether channel `n` is in aux `a`'s mix at all (`0.0` = out). What the phone apps' per-channel Mute button drives, since it affects only that one aux mix - unlike `/Input_Channels/{n}/mute` above, which cuts the source everywhere. |
 | `/Meters/clear`, `/Meters/request/{slot}` | Meter subscription for the visible strips: one slot on `.../post_meter/left` for a mono channel, two (`left` and `right`) for a stereo one |
 | `/Snapshots/Current_Snapshot/?` | Currently recalled snapshot number |
@@ -239,6 +239,8 @@ Console identity/topology. A single query ("/Console/Channels/?") triggers a bur
 `*/modes` lists carry one entry per channel/bus: `1` = mono, `2` = stereo. `/Console/Aux_Outputs/modes` (already used by CLMix) is the same shape with 30 entries.
 
 `/Console/Input_Channels/modes` is what tells you whether a channel's `.../post_meter/right` is worth a meter slot: the address exists on every channel regardless, so the modes list is the only way to know a right leg carries anything. CLMix subscribes one slot per leg on this basis - see [Metering](#metering).
+
+`/Console/Aux_Outputs/modes` answers the equivalent question for sends: **a mono aux bus has no pan axis**, so `/Input_Channels/{n}/Aux_Send/{a}/send_pan` is a no-op on one. The console accepts the write and echoes it back like any other parameter either way, so there is no way to discover this by trying it - the modes list is the only signal. CLMix reads it to drop the pan control from the strip and skip the per-channel `send_pan/?` queries on aux change, and passes the same fact to phone clients as a `stereo` flag on each entry of its aux list.
 
 `/Console/Session/Filename` is the currently loaded session file. The official client polls it every 2.0 s as its keep-alive - see [Connection lifecycle](#connection-lifecycle).
 
