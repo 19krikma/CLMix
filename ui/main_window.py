@@ -38,6 +38,10 @@ SETTINGS_PATH = Path.home() / ".clmix.json"
 # is "Clmix", which is the spelling packaging/linux/clmix.desktop matches.
 WM_CLASS_NAME = "CLMix"
 
+# Startup window size, and also its minimum - see MainWindow.__init__.
+WINDOW_WIDTH = 800
+WINDOW_HEIGHT = 500
+
 # How long after launch the update check fires. Late enough to stay out of
 # the way of connecting to the mixer, which is what the operator actually
 # opened the app to do.
@@ -560,6 +564,44 @@ def stripe_bg(widget):
     return "#292929" if sv_ttk.get_theme() == "dark" else "#e7e7e7"
 
 
+def section_bg(widget):
+    # The ground the channel strips sit on - a step darker than the
+    # window's own background in both themes, so every strip (including
+    # the un-striped ones, which used to be exactly panel_bg and so
+    # melted into the page) reads as its own rounded panel raised off
+    # the section rather than as part of it.
+    return "#0d0d0d" if sv_ttk.get_theme() == "dark" else "#dedede"
+
+
+def channel_bg(widget):
+    # The un-striped strip's own tone - also a step darker than the
+    # window background, sitting between section_bg below it and
+    # stripe_bg's alternate above it, so the two parities still band
+    # apart while both stay visible against the darker section.
+    return "#1a1a1a" if sv_ttk.get_theme() == "dark" else "#f0f0f0"
+
+
+def configure_section_styles(widget):
+    """Point the "Section.*" ttk styles at the current section color.
+
+    ttk widgets take their background from the style, not from a
+    per-instance option, so the frames that make up the mixer section
+    need a style of their own to sit on section_bg instead of the theme's
+    lighter window background. Called on build and again on every theme
+    change, since sv_ttk re-sources its theme underneath us.
+
+    Labels are the exception and stay plain tk.Label: sv_ttk's themes are
+    clam-parented, and a clam ttk.Label paints the *root* style's
+    background behind its text no matter what a derived style sets, so a
+    ttk.Label here would sit in a visible lighter box.
+    """
+    style = ttk.Style()
+    section = section_bg(widget)
+
+    style.configure("Section.TFrame", background=section)
+    style.configure("Section.TSeparator", background=section)
+
+
 def accent_color(widget):
     # sv_ttk's own selection/accent blue, reused so the plain tk widgets
     # below (Scale, Button - ttk versions of these render their trough/
@@ -656,6 +698,16 @@ class RoundSlider:
             self._thumb_color = activebackground
         self._redraw()
 
+    def resize(self, length):
+        self.length = length
+
+        if self.orient == "vertical":
+            self.canvas.configure(height=length)
+        else:
+            self.canvas.configure(width=length)
+
+        self._redraw()
+
     def get(self):
         return self._value
 
@@ -713,6 +765,199 @@ class RoundSlider:
             )
 
 
+
+def _rounded_rect(canvas, x0, y0, x1, y1, radius, **kwargs):
+    """Draw a rounded rectangle - Tk's canvas has no such primitive, so
+    it's a polygon whose corner points are doubled up and then smoothed:
+    the duplicate point pins the curve to the corner while the two
+    inset points either side of it become the arc's endpoints.
+    """
+    radius = max(0, min(radius, (x1 - x0) / 2, (y1 - y0) / 2))
+    points = [
+        x0 + radius, y0,
+        x1 - radius, y0,
+        x1, y0,
+        x1, y0 + radius,
+        x1, y1 - radius,
+        x1, y1,
+        x1 - radius, y1,
+        x0 + radius, y1,
+        x0, y1,
+        x0, y1 - radius,
+        x0, y0 + radius,
+        x0, y0,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
+
+
+class RoundedPanel:
+    """A rounded-corner container: a Canvas that paints the panel shape,
+    with a plain Frame floating on top of it holding the real content.
+    tk.Frame has no corner-radius option of any kind, and canvas window
+    items always stack above drawn items, so the shape underneath shows
+    through only at the corners the frame's own rectangle leaves free.
+
+    Content goes into .inner (the Frame), not the panel itself - it is a
+    plain wrapper rather than a Widget subclass, so anything a call site
+    needs from the canvas has to be forwarded explicitly (.canvas for
+    places Tk itself wants a widget, such as pack's before=/after=).
+    """
+
+    RADIUS = 12
+
+    # How far the painted panel extends past its content on every side -
+    # what gives the strip a margin of its own color below the Mute
+    # button instead of the color stopping at the button's edge.
+    PADDING = 7
+
+    def __init__(self, parent, bg, outer_bg):
+        self._bg = bg
+        self._shape = None
+
+        self.canvas = tk.Canvas(parent, highlightthickness=0, bg=outer_bg)
+        self.inner = tk.Frame(self.canvas, bg=bg)
+        self.canvas.create_window(
+            self.PADDING, self.PADDING, window=self.inner, anchor="nw"
+        )
+
+        # The frame's requested size drives the canvas size, and the
+        # canvas's actual size (which pack's fill= can stretch past that)
+        # drives the painted shape - so a strip packed fill="y" keeps its
+        # color all the way down instead of ending where its content does.
+        self.inner.bind("<Configure>", lambda event: self._resize())
+        self.canvas.bind("<Configure>", lambda event: self._redraw())
+        self._resize()
+
+    def pack(self, **kwargs):
+        self.canvas.pack(**kwargs)
+
+    def pack_forget(self):
+        self.canvas.pack_forget()
+
+    def configure(self, bg=None, outer_bg=None):
+        if bg is not None:
+            self._bg = bg
+            self.inner.configure(bg=bg)
+        if outer_bg is not None:
+            self.canvas.configure(bg=outer_bg)
+        self._redraw()
+
+    config = configure
+
+    def _resize(self):
+        self.canvas.configure(
+            width=self.inner.winfo_reqwidth() + self.PADDING * 2,
+            height=self.inner.winfo_reqheight() + self.PADDING * 2,
+        )
+        self._redraw()
+
+    def _redraw(self):
+        if self._shape is not None:
+            self.canvas.delete(self._shape)
+
+        width = self.canvas.winfo_width()
+        height = self.canvas.winfo_height()
+
+        # Before the first map winfo_width() reports 1; the <Configure>
+        # that follows redraws at the real size.
+        if width <= 1 or height <= 1:
+            width = int(self.canvas["width"])
+            height = int(self.canvas["height"])
+
+        self._shape = _rounded_rect(
+            self.canvas, 0, 0, width - 1, height - 1, self.RADIUS,
+            fill=self._bg, outline=""
+        )
+
+
+class RoundButton:
+    """Canvas-drawn button with rounded corners. tk.Button has no
+    corner-radius option, and sv_ttk's ttk.Button paints its fill from
+    fixed PNG assets a style's "background" cannot recolor - so neither
+    can be both rounded and per-channel colored the way the Mute buttons
+    need to be.
+
+    Mirrors the slice of tk.Button's surface the call sites already use
+    (config/configure/cget for text and colors, pack), plus .canvas for
+    places Tk itself wants a widget.
+    """
+
+    RADIUS = 8
+
+    def __init__(self, parent, text, width, height,
+                 bg, fg, outer_bg, command=None):
+        self._text = text
+        self._bg = bg
+        self._fg = fg
+        self.command = command
+
+        self.canvas = tk.Canvas(
+            parent, width=width, height=height,
+            highlightthickness=0, bg=outer_bg
+        )
+        self.canvas.bind("<ButtonRelease-1>", self._on_release)
+        self.canvas.bind("<Configure>", lambda event: self._redraw())
+        self._redraw()
+
+    def pack(self, **kwargs):
+        self.canvas.pack(**kwargs)
+
+    def pack_forget(self):
+        self.canvas.pack_forget()
+
+    def configure(self, text=None, bg=None, fg=None, outer_bg=None,
+                  activebackground=None, activeforeground=None, **_ignored):
+        if text is not None:
+            self._text = text
+        if bg is not None:
+            self._bg = bg
+        if fg is not None:
+            self._fg = fg
+        if outer_bg is not None:
+            # What shows through outside the rounded shape - the strip's
+            # own background, which changes with the theme.
+            self.canvas.configure(bg=outer_bg)
+        self._redraw()
+
+    config = configure
+
+    def cget(self, option):
+        if option == "text":
+            return self._text
+        if option == "bg" or option == "background":
+            return self._bg
+        if option == "fg" or option == "foreground":
+            return self._fg
+        return self.canvas.cget(option)
+
+    def _on_release(self, event):
+        # Only a release still over the button counts, matching how a
+        # real button lets you slide off it to cancel the press.
+        inside = 0 <= event.x < self.canvas.winfo_width() \
+            and 0 <= event.y < self.canvas.winfo_height()
+
+        if inside and self.command is not None:
+            self.command()
+
+    def _redraw(self):
+        self.canvas.delete("all")
+
+        width = self.canvas.winfo_width()
+        height = self.canvas.winfo_height()
+
+        if width <= 1 or height <= 1:
+            width = int(self.canvas["width"])
+            height = int(self.canvas["height"])
+
+        _rounded_rect(
+            self.canvas, 0, 0, width - 1, height - 1, self.RADIUS,
+            fill=self._bg, outline=""
+        )
+        self.canvas.create_text(
+            width / 2, height / 2, text=self._text, fill=self._fg
+        )
+
+
 class AuxLevelsPanel:
     REFRESH_MS = 150
     LEVEL_EPSILON = 0.005
@@ -726,8 +971,15 @@ class AuxLevelsPanel:
     BOTTOM_DB = -150.0
 
     # Pixel length of the level slider's trough - shared with the ruler
-    # drawn beside it.
+    # and the meter drawn beside it. This is the *minimum*: the strips
+    # stretch to whatever height the window gives them (self.level_length
+    # holds the live value), and MainWindow's minsize keeps the window
+    # from ever shrinking below the height that yields this.
     LEVEL_LENGTH = 220
+
+    # Padding inside channels_frame, subtracted when working out how much
+    # height is actually left for a fader.
+    CHANNELS_FRAME_PAD = 10
 
     # The fader's dB<->position curve (_fraction_to_db / _db_to_fraction
     # below) is a piecewise-linear interpolation through these points,
@@ -768,6 +1020,18 @@ class AuxLevelsPanel:
     # is not drawn against the fader's ruler.
     METER_WIDTH = 10
     METER_FLOOR_DB = -60.0
+
+    # Mute button size in pixels (RoundButton is canvas-drawn, so it has
+    # no character-width option like tk.Button did) - close to the
+    # fader/ruler/meter row's own width, so hiding the wider pan slider
+    # on a mono aux doesn't leave the button sticking out past the row.
+    MUTE_WIDTH = 62
+    MUTE_HEIGHT = 24
+
+    # pady the pan slider and the Mute button are packed with. Counted
+    # again in _strip_chrome_height, so the two have to agree.
+    STRIP_PAN_PAD = 6
+    STRIP_MUTE_PAD = 4
 
     # A stereo channel draws two bars inside that same total width rather
     # than widening its canvas, so a bank of mixed mono and stereo strips
@@ -929,6 +1193,7 @@ class AuxLevelsPanel:
         self.channel_fader_rows = {}
         self.channel_name_labels = {}
         self.channel_parity = {}
+        self.level_length = self.LEVEL_LENGTH
         self.suppress_send = False
         self.dragging = set()
         self.drag_released_at = {}
@@ -943,29 +1208,42 @@ class AuxLevelsPanel:
         self.master.after(self.METER_REFRESH_MS, self.refresh_meters)
 
     def build_ui(self):
-        self.top_bar = ttk.Frame(self.master, padding=10)
+        configure_section_styles(self.master)
+
+        self.top_bar = ttk.Frame(
+            self.master, padding=10, style="Section.TFrame"
+        )
         self.top_bar.pack(fill="x")
 
-        ttk.Label(self.top_bar, text="Aux Bus").pack(side="left")
+        section = section_bg(self.master)
+        fg = panel_fg(self.master)
+
+        self.aux_bus_label = tk.Label(
+            self.top_bar, text="Aux Bus", bg=section, fg=fg
+        )
+        self.aux_bus_label.pack(side="left")
 
         self.aux_combo = ttk.Combobox(self.top_bar, values=[], state="readonly")
         self.aux_combo.pack(side="left", padx=10)
         self.aux_combo.bind("<<ComboboxSelected>>", self.on_aux_selected)
 
-        ttk.Separator(self.top_bar, orient="vertical").pack(
-            side="left", fill="y", padx=10
+        ttk.Separator(
+            self.top_bar, orient="vertical", style="Section.TSeparator"
+        ).pack(side="left", fill="y", padx=10)
+
+        self.bank_label = tk.Label(
+            self.top_bar, text="Bank", bg=section, fg=fg
         )
+        self.bank_label.pack(side="left")
 
-        ttk.Label(self.top_bar, text="Bank").pack(side="left")
-
-        self.banks_frame = ttk.Frame(self.top_bar)
+        self.banks_frame = ttk.Frame(self.top_bar, style="Section.TFrame")
         self.banks_frame.pack(side="left", padx=10)
 
-        canvas_container = ttk.Frame(self.master)
+        canvas_container = ttk.Frame(self.master, style="Section.TFrame")
         canvas_container.pack(fill="both", expand=True)
 
         self.canvas = tk.Canvas(
-            canvas_container, highlightthickness=0, bg=panel_bg(self.master)
+            canvas_container, highlightthickness=0, bg=section_bg(self.master)
         )
         h_scroll = ttk.Scrollbar(
             canvas_container, orient="horizontal", command=self.canvas.xview
@@ -975,8 +1253,11 @@ class AuxLevelsPanel:
         self.canvas.pack(side="top", fill="both", expand=True)
         h_scroll.pack(side="bottom", fill="x")
 
-        self.channels_frame = ttk.Frame(self.canvas, padding=10)
-        self.canvas.create_window(
+        self.channels_frame = ttk.Frame(
+            self.canvas, padding=self.CHANNELS_FRAME_PAD,
+            style="Section.TFrame"
+        )
+        self.channels_window = self.canvas.create_window(
             (0, 0), window=self.channels_frame, anchor="nw"
         )
         self.channels_frame.bind(
@@ -986,15 +1267,103 @@ class AuxLevelsPanel:
             )
         )
 
+        # A canvas window item is only as tall as the widget inside it
+        # asks to be, so without this the strip row would keep its own
+        # height and leave dead section below it. Forcing the item to the
+        # canvas's height instead is what gives the columns' fill="y"
+        # something to fill, and so lands them on the window's bottom
+        # edge; _fit_level_length then spends the new height on the
+        # faders rather than on padding.
+        self.canvas.bind("<Configure>", self._on_canvas_resize)
+
+    def _on_canvas_resize(self, event):
+        self.canvas.itemconfigure(self.channels_window, height=event.height)
+        self._fit_level_length(event.height)
+
+    def _strip_chrome_height(self):
+        """Height a strip spends on everything that is not the fader.
+
+        Summed from the individual widgets rather than taken as (the
+        strip's requested height - the fader's): Tk recomputes a parent's
+        requested height at idle, so straight after the pan slider is
+        packed or unpacked the strip still reports its previous layout.
+        Sizing the fader off that number overruns the strip by exactly the
+        pan slider's height, which pushes the Mute button off the bottom
+        of the window - the widgets summed here each keep a requested
+        height of their own that is correct the moment it changes.
+        """
+        channel = next(iter(self.channel_columns), None)
+
+        if channel is None:
+            return None
+
+        chrome = self.channel_name_labels[channel].winfo_reqheight()
+        chrome += self.STRIP_MUTE_PAD + self.MUTE_HEIGHT
+
+        pan_slider = self.pan_sliders.get(channel)
+
+        # winfo_manager() is "" while unpacked - a hidden pan slider costs
+        # the strip nothing, and the fader gets that height instead.
+        if pan_slider is not None and pan_slider.winfo_manager():
+            chrome += self.STRIP_PAN_PAD + pan_slider.canvas.winfo_reqheight()
+
+        return chrome
+
+    def _fit_level_length(self, canvas_height):
+        chrome = self._strip_chrome_height()
+
+        if chrome is None:
+            return
+
+        length = (
+            canvas_height
+            - 2 * self.CHANNELS_FRAME_PAD
+            - 2 * RoundedPanel.PADDING
+            - chrome
+        )
+        length = max(self.LEVEL_LENGTH, length)
+
+        if length == self.level_length:
+            return
+
+        self.level_length = length
+
+        for channel in self.channel_columns:
+            ruler = self.level_rulers.get(channel)
+            if ruler is not None:
+                ruler.configure(height=length)
+                self._draw_level_ruler(ruler)
+
+            slider = self.sliders.get(channel)
+            if slider is not None:
+                slider.resize(length)
+
+            meter = self.channel_meters.get(channel)
+            if meter is not None:
+                # The slice count is a function of the length, so the bar
+                # is rebuilt rather than stretched; refresh_meters relights
+                # it on its next tick from the ballistics state, which is
+                # keyed by (channel, leg) and survives untouched.
+                meter.configure(height=length)
+                meter.delete("all")
+                self._build_meter_slices(
+                    channel, meter, self.channel_legs[channel]
+                )
+
     def apply_theme(self):
-        self.canvas.configure(bg=panel_bg(self.master))
+        section = section_bg(self.master)
+        self.canvas.configure(bg=section)
+        configure_section_styles(self.master)
 
         fg = panel_fg(self.master)
         accent = accent_color(self.master)
 
+        for label in (self.aux_bus_label, self.bank_label):
+            label.configure(bg=section, fg=fg)
+
         for channel, column in self.channel_columns.items():
             column_bg = self._channel_bg(self.channel_parity.get(channel, False))
-            column.configure(bg=column_bg)
+            column.configure(bg=column_bg, outer_bg=section)
 
             label = self.channel_name_labels.get(channel)
             if label is not None:
@@ -1031,9 +1400,7 @@ class AuxLevelsPanel:
             if button is not None:
                 muted = button.cget("text") == "Muted"
                 bg, btn_fg = self._mute_button_colors(channel, muted)
-                button.configure(
-                    bg=bg, fg=btn_fg, activebackground=bg, activeforeground=btn_fg
-                )
+                button.configure(bg=bg, fg=btn_fg, outer_bg=column_bg)
 
     def on_mixer_loaded(self, worker):
         self.worker = worker
@@ -1222,23 +1589,31 @@ class AuxLevelsPanel:
             # assets (see sv_ttk/theme/*.tcl), which a ttk style's
             # "background" option cannot recolor per-instance at all -
             # only plain tk widgets accept real background colors here.
-            column = tk.Frame(self.channels_frame, bg=column_bg)
-            column.pack(side="left", padx=4, fill="y")
+            column = RoundedPanel(
+                self.channels_frame, bg=column_bg,
+                outer_bg=section_bg(self.master)
+            )
+            # No gap between strips: with the two parities banding them
+            # apart and each one carrying its own PADDING of color, they
+            # read as separate columns while touching, and a bank fits
+            # that much more of itself on screen before scrolling.
+            column.pack(side="left", fill="y")
             self.channel_columns[i] = column
 
-            name_label = tk.Label(column, text=name, bg=column_bg, fg=fg)
+            name_label = tk.Label(column.inner, text=name, bg=column_bg, fg=fg)
             name_label.pack()
             self.channel_name_labels[i] = name_label
 
             # A row (not the slider alone) so the ruler and the slider
             # share the same top edge - and therefore line up - regardless
             # of the name label's height above them.
-            fader_row = tk.Frame(column, bg=column_bg)
+            fader_row = tk.Frame(column.inner, bg=column_bg)
             fader_row.pack()
             self.channel_fader_rows[i] = fader_row
 
             ruler = tk.Canvas(
-                fader_row, width=self.LEVEL_RULER_WIDTH, height=self.LEVEL_LENGTH,
+                fader_row, width=self.LEVEL_RULER_WIDTH,
+                height=self.level_length,
                 highlightthickness=0, bg=column_bg
             )
             ruler.pack(side="left", fill="y")
@@ -1250,7 +1625,7 @@ class AuxLevelsPanel:
                 orient="vertical",
                 from_=1.0,
                 to=0.0,
-                length=self.LEVEL_LENGTH,
+                length=self.level_length,
                 bg=column_bg,
                 troughcolor=track_color,
                 thumb_color=accent,
@@ -1280,7 +1655,7 @@ class AuxLevelsPanel:
             self.sliders[i] = slider
 
             meter = tk.Canvas(
-                fader_row, width=self.METER_WIDTH, height=self.LEVEL_LENGTH,
+                fader_row, width=self.METER_WIDTH, height=self.level_length,
                 highlightthickness=0, bg=column_bg
             )
             meter.pack(side="left", padx=(3, 0))
@@ -1292,7 +1667,7 @@ class AuxLevelsPanel:
             self._build_meter_slices(i, meter, legs)
 
             pan_slider = RoundSlider(
-                column,
+                column.inner,
                 orient="horizontal",
                 from_=-1.0,
                 to=1.0,
@@ -1321,29 +1696,31 @@ class AuxLevelsPanel:
                 "<Double-Button-1>",
                 lambda event, channel=i: self.on_pan_double_click(channel)
             )
-            pan_slider.pack(pady=(6, 0))
+            pan_slider.pack(pady=(self.STRIP_PAN_PAD, 0))
 
             self.pan_sliders[i] = pan_slider
 
             mute_bg, mute_fg = self._mute_button_colors(i, muted=False)
-            mute_btn = tk.Button(
-                column,
+            mute_btn = RoundButton(
+                column.inner,
                 text="Mute",
-                width=6,
-                bd=0,
-                highlightthickness=0,
+                width=self.MUTE_WIDTH,
+                height=self.MUTE_HEIGHT,
                 bg=mute_bg,
                 fg=mute_fg,
-                activebackground=mute_bg,
-                activeforeground=mute_fg,
+                outer_bg=column_bg,
                 command=lambda channel=i: self.on_mute_toggle(channel)
             )
-            mute_btn.pack(pady=(4, 0))
+            mute_btn.pack(pady=(self.STRIP_MUTE_PAD, 0))
 
             self.mute_buttons[i] = mute_btn
 
+        # Freshly built strips start at LEVEL_LENGTH; spend whatever the
+        # window is already giving us before they are first drawn.
+        self._fit_level_length(self.canvas.winfo_height())
+
     def _channel_bg(self, is_alt):
-        return stripe_bg(self.master) if is_alt else panel_bg(self.master)
+        return stripe_bg(self.master) if is_alt else channel_bg(self.master)
 
     def _track_color(self, column_bg):
         # A visible rail for the slider to ride on, without going back to
@@ -1382,7 +1759,7 @@ class AuxLevelsPanel:
     def _draw_level_ruler(self, ruler):
         ruler.delete("all")
         fg = panel_fg(self.master)
-        span = self.LEVEL_LENGTH - 2 * self.LEVEL_TICK_INSET
+        span = self.level_length - 2 * self.LEVEL_TICK_INSET
 
         # Same LEVEL_TICK_FRACTIONS the fader itself uses (_fraction_to_db
         # / _db_to_fraction), so a tick's printed position always matches
@@ -1402,14 +1779,25 @@ class AuxLevelsPanel:
         return min(1.0, max(0.0, (db - self.METER_FLOOR_DB) / span))
 
     @classmethod
-    def _meter_palette(cls):
-        """(lit, dim) hex colours per slice, bottom-up. Built once."""
-        cached = cls.__dict__.get("_meter_palette_cache")
+    def _meter_palette(cls, count):
+        """(lit, dim) hex colours per slice, bottom-up.
 
-        if cached is not None:
-            return cached
+        Cached per slice count rather than built once, since a strip that
+        stretched with the window has more slices to colour - the ramp
+        itself is defined by dB, so it re-derives to the same gradient at
+        any resolution.
+        """
+        # Read out of cls.__dict__ rather than off cls, so a subclass
+        # would build its own cache instead of filling the parent's.
+        cache = cls.__dict__.get("_meter_palette_cache")
 
-        count = cls.LEVEL_LENGTH // cls.METER_SLICE_H
+        if cache is None:
+            cache = {}
+            cls._meter_palette_cache = cache
+
+        if count in cache:
+            return cache[count]
+
         stops = cls.METER_GRADIENT
         lit = []
         dim = []
@@ -1438,8 +1826,8 @@ class AuxLevelsPanel:
                 round(channel * cls.METER_DIM_FACTOR) for channel in rgb
             ))
 
-        cls._meter_palette_cache = (lit, dim)
-        return cls._meter_palette_cache
+        cache[count] = (lit, dim)
+        return cache[count]
 
     @classmethod
     def _meter_leg_spans(cls, legs):
@@ -1463,8 +1851,8 @@ class AuxLevelsPanel:
     def _build_meter_slices(self, channel, meter, legs):
         # Created once per strip, one bar per leg. refresh_meters() then
         # only recolours the slices the level actually crossed.
-        _lit, dim = self._meter_palette()
-        count = self.LEVEL_LENGTH // self.METER_SLICE_H
+        count = self.level_length // self.METER_SLICE_H
+        _lit, dim = self._meter_palette(count)
         spans = self._meter_leg_spans(legs)
 
         for leg in legs:
@@ -1472,7 +1860,7 @@ class AuxLevelsPanel:
             slices = []
 
             for index in range(count):
-                bottom = self.LEVEL_LENGTH - index * self.METER_SLICE_H
+                bottom = self.level_length - index * self.METER_SLICE_H
                 slices.append(meter.create_rectangle(
                     x0, bottom - self.METER_SLICE_H, x1, bottom,
                     fill=dim[index], outline=""
@@ -1493,8 +1881,8 @@ class AuxLevelsPanel:
         if meter is None or not slices:
             return
 
-        lit_colors, dim_colors = self._meter_palette()
         count = len(slices)
+        lit_colors, dim_colors = self._meter_palette(count)
         lit = round(self._meter_fraction(level_db) * count)
         previous = self.meter_lit.get((channel, leg), 0)
 
@@ -1518,8 +1906,8 @@ class AuxLevelsPanel:
                 meter.itemconfig(peak_item, state="hidden")
             else:
                 x0, x1 = self.meter_leg_spans[(channel, leg)]
-                y = self.LEVEL_LENGTH - self._meter_fraction(peak_db) \
-                    * self.LEVEL_LENGTH
+                y = self.level_length - self._meter_fraction(peak_db) \
+                    * self.level_length
                 meter.coords(peak_item, x0, y, x1, y)
                 meter.itemconfig(peak_item, state="normal")
 
@@ -1658,9 +2046,16 @@ class AuxLevelsPanel:
                 # Packing appends to the end of the column, so without an
                 # explicit anchor a re-shown slider would reappear below
                 # the Mute button instead of above it.
-                pan_slider.pack(before=self.mute_buttons[channel], pady=(6, 0))
+                pan_slider.pack(
+                    before=self.mute_buttons[channel].canvas,
+                    pady=(self.STRIP_PAN_PAD, 0)
+                )
             else:
                 pan_slider.pack_forget()
+
+        # Showing or hiding the pan slider changes how much of a strip is
+        # chrome, so the faders get the freed height (or give it back).
+        self._fit_level_length(self.canvas.winfo_height())
 
     def on_slider_change(self, channel, value):
         if self.suppress_send:
@@ -1787,8 +2182,7 @@ class AuxLevelsPanel:
                 muted = bool(self.worker.cache[key][0])
                 bg, fg = self._mute_button_colors(channel, muted)
                 button.config(
-                    text="Muted" if muted else "Mute",
-                    bg=bg, fg=fg, activebackground=bg, activeforeground=fg
+                    text="Muted" if muted else "Mute", bg=bg, fg=fg
                 )
 
             self.build_bank_buttons()
@@ -1819,7 +2213,14 @@ class MainWindow:
         # change one without the other.
         self.root = tk.Tk(className=WM_CLASS_NAME)
         self.root.title("CLMix")
-        self.root.geometry("800x500")
+        self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+
+        # The startup size is also the floor. The channel strips stretch
+        # to fill whatever height the window has, and LEVEL_LENGTH is the
+        # shortest fader worth showing - so rather than letting the strips
+        # be squashed below that, the window itself refuses to go under
+        # the size that produces it. Growing is unrestricted.
+        self.root.minsize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
         # Keep a reference on root itself - iconphoto doesn't retain the
         # PhotoImage, so a local-only reference gets garbage collected and
@@ -1953,7 +2354,12 @@ class MainWindow:
 
         ttk.Separator(self.root, orient="horizontal").pack(fill="x")
 
-        frame = ttk.Frame(self.root, padding=15)
+        # No padding, and the section's own background: everything below
+        # the control bar's separator is the mixer section, edge to edge,
+        # with the breathing room coming from channels_frame's own
+        # padding inside it instead of a lighter margin around it.
+        configure_section_styles(self.root)
+        frame = ttk.Frame(self.root, style="Section.TFrame")
         frame.pack(fill="both", expand=True)
 
         self.aux_panel = AuxLevelsPanel(
