@@ -61,6 +61,9 @@ struct ConnectView: View {
                         .background(topReader("manual"))
                         .padding(.bottom, 18)
 
+                    demoBox
+                        .padding(.bottom, 18)
+
                     // Sits immediately above the credentials it refers to,
                     // rather than below the button - mirrors Android's
                     // message_label moving there in ConnectActivity.
@@ -196,6 +199,32 @@ struct ConnectView: View {
         }
         .padding(12)
         .overlay(boxBorder)
+    }
+
+    // Deliberately needs no server, no credentials and no network: App
+    // Review has no desktop app or console to connect to, and a demo they
+    // cannot reach is what got the first submission rejected under
+    // Guideline 2.1. Sits below Manual so it reads as the third way in,
+    // after "pick a discovered server" and "type one in".
+    //
+    // REMOVE WITH DEMO MODE.
+    private var demoBox: some View {
+        Button {
+            model.enterDemoMode()
+        } label: {
+            VStack(spacing: 4) {
+                Text("Demo Mode")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Explore CLMix without a mixer server")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.clmixOnSurfaceVariant)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+        }
+        .foregroundStyle(Color.primary)
+        .overlay(boxBorder)
+        .disabled(model.isConnecting)
     }
 
     // Rejected credentials tint both fields together, the one thing

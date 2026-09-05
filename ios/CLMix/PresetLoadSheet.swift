@@ -28,10 +28,36 @@ struct PresetLoadSheet: View {
                     .foregroundStyle(Color.clmixOnSurfaceVariant)
                 Spacer()
             } else {
-                List(model.presetNames, id: \.self, selection: $selectedName) { name in
-                    Text(name)
+                // Explicit rows rather than List(selection:): a plain
+                // List's selection binding only responds to taps while the
+                // list is in edit mode on iOS, so tapping a preset never
+                // set selectedName and Load stayed disabled forever.
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(model.presetNames, id: \.self) { name in
+                            Button {
+                                selectedName = name
+                            } label: {
+                                Text(name)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 48)
+                            }
+                            .foregroundStyle(
+                                selectedName == name ? Color.clmixOnPrimary : Color.primary
+                            )
+                            .background(selectedName == name ? Color.clmixPrimary : Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8).stroke(
+                                    selectedName == name ? Color.clear : Color.clmixOutline,
+                                    lineWidth: 1
+                                )
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                    .padding(.horizontal, 24)
                 }
-                .listStyle(.plain)
             }
 
             Button {

@@ -11,7 +11,8 @@ struct AuxListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Select your Aux")
+            // REMOVE WITH DEMO MODE: back to a plain "Select your Aux".
+            Text(model.isDemo ? "Select your Aux (Demo)" : "Select your Aux")
                 .font(.system(size: 20, weight: .bold))
                 .padding(.horizontal, 20)
                 .padding(.top, 24)

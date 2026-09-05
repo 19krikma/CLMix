@@ -36,6 +36,16 @@ final class AppModel: NSObject, ObservableObject {
     @Published var presetsAllowed = false
     @Published var presetNames: [String] = []
     @Published var discoveredServers: [DiscoveredServer] = []
+    // True while the session is a local demo rather than a real console.
+    // Drives the DEMO badge on the mixer screen, so there is never any
+    // doubt about whether moves are reaching real hardware.
+    // REMOVE WITH DEMO MODE.
+    @Published var isDemo = false
+
+    // Whichever session is live. Swapped to DemoMixer.shared by
+    // enterDemoMode() and back on logout or a real connect.
+    // REMOVE WITH DEMO MODE: fold back to MixerClient.shared throughout.
+    private var backend: MixerBackend = MixerClient.shared
 
     // Stashed from the form (or a saved session) at connect time so
     // mixerDidConnect knows how to log in once the socket is open, without
@@ -83,10 +93,11 @@ final class AppModel: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        MixerClient.shared.delegate = self
+        backend.delegate = self
     }
 
     func connect(host: String, port: Int, username: String, password: String) {
+        leaveDemoMode()
         pendingToken = nil
         pendingUsername = username
         pendingPassword = password
@@ -95,7 +106,39 @@ final class AppModel: NSObject, ObservableObject {
         statusIsError = false
         credentialsRejected = false
         statusMessage = "Connecting..."
-        MixerClient.shared.connect(host: host, port: port)
+        backend.connect(host: host, port: port)
+    }
+
+    /// Starts a local demo session: no server, no console, no network. Goes
+    /// through exactly the same connect -> login -> auxes sequence a real
+    /// session does (see DemoMixer), so nothing downstream of here knows the
+    /// difference.
+    ///
+    /// REMOVE WITH DEMO MODE.
+    func enterDemoMode() {
+        backend.disconnect()
+        backend = DemoMixer.shared
+        backend.delegate = self
+        isDemo = true
+
+        pendingToken = nil
+        pendingUsername = "demo"
+        pendingPassword = "demo"
+        resetButton()
+        isConnecting = true
+        statusIsError = false
+        credentialsRejected = false
+        statusMessage = "Starting demo..."
+        backend.connect(host: "demo", port: 0)
+    }
+
+    /// REMOVE WITH DEMO MODE.
+    private func leaveDemoMode() {
+        guard isDemo else { return }
+        backend.disconnect()
+        backend = MixerClient.shared
+        backend.delegate = self
+        isDemo = false
     }
 
     /// Reports a failure on the Login button itself: the spinner gives
@@ -141,7 +184,7 @@ final class AppModel: NSObject, ObservableObject {
     /// connect screen mid-session doesn't kill a perfectly good
     /// connection.
     func resumeSessionIfPossible() {
-        guard !MixerClient.shared.isConnected, !isConnecting,
+        guard !backend.isConnected, !isConnecting,
               let token = SessionStore.token(),
               let host = UserDefaults.standard.string(forKey: StorageKey.host),
               !host.isEmpty,
@@ -153,7 +196,7 @@ final class AppModel: NSObject, ObservableObject {
         pendingPassword = ""
         isConnecting = true
         statusMessage = "Resuming session..."
-        MixerClient.shared.connect(host: host, port: port)
+        backend.connect(host: host, port: port)
     }
 
     func startDiscovery() {
@@ -168,20 +211,20 @@ final class AppModel: NSObject, ObservableObject {
     func selectAux(_ aux: AuxBus) {
         channels = []
         screen = .mixer(aux)
-        MixerClient.shared.selectAux(aux.index)
-        MixerClient.shared.requestBanks()
+        backend.selectAux(aux.index)
+        backend.requestBanks()
     }
 
     func selectBank(_ bank: String?) {
-        MixerClient.shared.selectBank(bank)
+        backend.selectBank(bank)
     }
 
     func setLevel(channel: Int, db: Double) {
-        MixerClient.shared.setLevel(channel: channel, db: db)
+        backend.setLevel(channel: channel, db: db)
     }
 
     func setPan(channel: Int, pan: Double) {
-        MixerClient.shared.setPan(channel: channel, pan: pan)
+        backend.setPan(channel: channel, pan: pan)
     }
 
     /// Flips the channel's mute button straight away rather than waiting
@@ -194,21 +237,21 @@ final class AppModel: NSObject, ObservableObject {
         if let index = channels.firstIndex(where: { $0.channel == channel }) {
             channels[index].muted = muted
         }
-        MixerClient.shared.setMute(channel: channel, muted: muted)
+        backend.setMute(channel: channel, muted: muted)
     }
 
     func requestPresets() {
-        MixerClient.shared.requestPresets()
+        backend.requestPresets()
     }
 
     func savePreset(name: String, onSaved: @escaping () -> Void) {
         pendingPresetSaveCompletion = onSaved
-        MixerClient.shared.savePreset(name: name)
+        backend.savePreset(name: name)
     }
 
     func loadPreset(name: String, onLoaded: @escaping () -> Void) {
         pendingPresetLoadCompletion = onLoaded
-        MixerClient.shared.loadPreset(name: name)
+        backend.loadPreset(name: name)
     }
 
     /// Revokes the session server-side and drops the saved token before
@@ -217,8 +260,16 @@ final class AppModel: NSObject, ObservableObject {
     func logout() {
         // logout() closes the socket itself, once the revocation has
         // actually gone out on it.
-        MixerClient.shared.logout(token: SessionStore.token())
-        SessionStore.clear()
+        backend.logout(token: SessionStore.token())
+
+        // A demo session has no token to revoke, and the one in the Keychain
+        // (if any) belongs to a real session started before the demo - so
+        // leaving a demo must not log the user out of that. REMOVE WITH
+        // DEMO MODE: the guard goes, the clear() stays.
+        if !isDemo {
+            SessionStore.clear()
+        }
+        leaveDemoMode()
 
         pendingToken = nil
         pendingUsername = ""
@@ -240,10 +291,10 @@ extension AppModel: MixerClientDelegate {
     func mixerDidConnect() {
         if let pendingToken {
             statusMessage = "Resuming session..."
-            MixerClient.shared.login(token: pendingToken)
+            backend.login(token: pendingToken)
         } else {
             statusMessage = "Logging in..."
-            MixerClient.shared.login(username: pendingUsername, password: pendingPassword)
+            backend.login(username: pendingUsername, password: pendingPassword)
         }
     }
 
@@ -268,7 +319,7 @@ extension AppModel: MixerClientDelegate {
         // onError only until it navigates away.
         let stillConnecting = screen == .connect
 
-        if !MixerClient.shared.isConnected {
+        if !backend.isConnected {
             if stillConnecting {
                 // The socket never opened at all - bad address, server not
                 // running, wrong network. The specific cause isn't
@@ -310,9 +361,18 @@ extension AppModel: MixerClientDelegate {
                 credentialsRejected = false
                 statusMessage = message
             }
-            MixerClient.shared.disconnect()
+            backend.disconnect()
             return
         }
+
+        // A preset request that will now never get its reply must not
+        // leave the sheet that asked for it stuck on "Saving..." forever -
+        // every preset rejection ("Preset not found", "Not permitted for
+        // presets", "No aux selected") arrives here as a plain error.
+        pendingPresetSaveCompletion?()
+        pendingPresetSaveCompletion = nil
+        pendingPresetLoadCompletion?()
+        pendingPresetLoadCompletion = nil
 
         // A mid-session protocol error (e.g. "not permitted for this
         // aux") - shown in place, without navigating away or dropping the
@@ -337,8 +397,8 @@ extension AppModel: MixerClientDelegate {
             statusIsError = false
             credentialsRejected = false
             statusMessage = "Connected"
-            presetsAllowed = MixerClient.shared.presetsAllowed
-            MixerClient.shared.requestAuxes()
+            presetsAllowed = backend.presetsAllowed
+            backend.requestAuxes()
             return
         }
 
@@ -362,7 +422,7 @@ extension AppModel: MixerClientDelegate {
             statusMessage = message ?? "Invalid username or password"
         }
 
-        MixerClient.shared.disconnect()
+        backend.disconnect()
     }
 
     func mixerDidReceiveAuxes(_ auxes: [AuxBus]) {

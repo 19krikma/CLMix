@@ -85,6 +85,17 @@ struct MixerView: View {
                     .frame(width: 40, height: 40)
             }
 
+            // REMOVE WITH DEMO MODE.
+            if model.isDemo {
+                Text("DEMO")
+                    .font(.system(size: 10, weight: .heavy))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.clmixSecondary)
+                    .foregroundStyle(Color.clmixOnSecondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+
             Text("Bank")
                 .font(.system(size: 14))
                 .foregroundStyle(Color.clmixOnSurfaceVariant)

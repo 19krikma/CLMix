@@ -17,6 +17,36 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidLoadPreset(_ name: String)
 }
 
+/// What AppModel drives, so a demo session (DemoMixer) can stand in for a
+/// real one without AppModel branching on which it holds. Every member here
+/// already existed on MixerClient - this only names the surface.
+///
+/// REMOVE WITH DEMO MODE: once the app is published and DemoMixer.swift is
+/// deleted, this protocol has one implementer left and can be folded back
+/// into MixerClient, with AppModel's `backend` going back to
+/// `MixerClient.shared` directly. See ios/README.md's "Demo mode" section.
+protocol MixerBackend: AnyObject {
+    var delegate: MixerClientDelegate? { get set }
+    var isConnected: Bool { get }
+    var presetsAllowed: Bool { get }
+
+    func connect(host: String, port: Int)
+    func disconnect()
+    func login(username: String, password: String)
+    func login(token: String)
+    func logout(token: String?)
+    func requestAuxes()
+    func requestBanks()
+    func selectAux(_ aux: Int)
+    func selectBank(_ bank: String?)
+    func setLevel(channel: Int, db: Double)
+    func setPan(channel: Int, pan: Double)
+    func setMute(channel: Int, muted: Bool)
+    func requestPresets()
+    func savePreset(name: String)
+    func loadPreset(name: String)
+}
+
 /// Talks to the CLMix desktop app's RemoteServer
 /// (services/remote_server.py) over a WebSocket, using the same JSON
 /// protocol the Android app's MixerClient.kt speaks: login/list_auxes/
@@ -28,7 +58,7 @@ protocol MixerClientDelegate: AnyObject {
 /// must send credentials via login() and wait for a true
 /// mixerDidReceiveLoginResult before calling requestAuxes() or anything
 /// else.
-final class MixerClient: NSObject {
+final class MixerClient: NSObject, MixerBackend {
     static let shared = MixerClient()
 
     weak var delegate: MixerClientDelegate?

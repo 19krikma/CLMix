@@ -80,6 +80,30 @@ resolve a profile from that team. A machine whose Xcode is not signed in
 to an account with access to that team can still run the Simulator, but
 cannot archive.
 
+## Demo mode
+
+`DemoMixer.swift` is a stand-in for `MixerClient` that answers from memory
+- a fabricated aux list, channel list, banks and presets, with no socket,
+no desktop server and no console. It exists for App Review: a reviewer has
+no Windows machine running the desktop app and nothing to point it at, and
+Apple does not accept a video in place of a working build, so the first
+submission was rejected under Guideline 2.1. The "Demo Mode" button on the
+connect screen enters it, needing no server address and no credentials.
+
+It implements the same `MixerBackend` protocol the real client does and
+pushes levels on the same ~150ms cadence, so demo sessions run the app's
+ordinary code paths rather than a parallel set.
+
+**Removing it once the app is published.** Every piece is commented
+`REMOVE WITH DEMO MODE`; `grep -rn "REMOVE WITH DEMO MODE" ios/` finds all
+of them. In short: delete `DemoMixer.swift`, delete `demoBox` and its call
+site in `ConnectView.swift`, delete `enterDemoMode`/`leaveDemoMode`/
+`isDemo` and their uses in `AppModel.swift` (restoring the unconditional
+`SessionStore.clear()` in `logout()`), drop the DEMO badge in
+`MixerView.swift` and the title change in `AuxListView.swift`, and either
+keep `MixerBackend` or fold it back into `MixerClient` and point
+`AppModel.backend` at `MixerClient.shared` again.
+
 ## Structure
 
 | File | Mirrors (Android) | Purpose |
