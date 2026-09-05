@@ -87,33 +87,30 @@ Write-Host "==> Building installer with Inno Setup"
 
 $OutputExe = "packaging\windows\dist_installer\CLMixSetup-$Version.exe"
 
-# The app's own updater will not install anything it cannot check against a
-# published hash (see services/updater.py), so this sidecar is not optional
-# extra credit - a release without it can only be installed by hand. Written
-# in the same "<hash>  <filename>" shape sha256sum produces, which is what
-# fetch_checksum() parses.
-Write-Host "==> Writing SHA-256 sidecar"
+# Printed for the release notes and for a by-hand check against what the
+# GitHub release ends up reporting. No .sha256 sidecar is written any more:
+# GitHub hashes every uploaded asset itself and serves the result on the
+# releases API, which is where services/update_checker.py now reads it from.
+# The two are the same hash - this is only here so it can be eyeballed.
 $Hash = (Get-FileHash -Algorithm SHA256 -Path $OutputExe).Hash.ToLower()
-$OutputHash = "$OutputExe.sha256"
-"$Hash  CLMixSetup-$Version.exe" | Set-Content -Path $OutputHash -Encoding ascii -NoNewline
 
 Write-Host ""
 Write-Host "==> Done"
 Write-Host "    $OutputExe"
-Write-Host "    $OutputHash"
+Write-Host "    SHA-256 $Hash"
 Write-Host ""
 
-# Both files have to end up attached to the GitHub release: the updater
-# finds them through the releases API, so anything left sitting on the build
-# machine is invisible to every installation out there.
+# The installer has to end up attached to the GitHub release: the updater
+# finds it through the releases API, so a build left sitting on this machine
+# is invisible to every installation out there.
 $Gh = Get-Command "gh" -ErrorAction SilentlyContinue
 
 if ($Gh) {
     Write-Host "==> Upload to the GitHub release with:"
 } else {
-    Write-Host "==> Attach both files to the release. With the GitHub CLI:"
+    Write-Host "==> Attach the installer to the release. With the GitHub CLI:"
 }
 
-Write-Host "    gh release create $Version `"$OutputExe`" `"$OutputHash`" --title $Version --notes `"...`""
+Write-Host "    gh release create $Version `"$OutputExe`" --title $Version --notes `"...`""
 Write-Host "    (or, for a release that already exists:)"
-Write-Host "    gh release upload $Version `"$OutputExe`" `"$OutputHash`" --clobber"
+Write-Host "    gh release upload $Version `"$OutputExe`" --clobber"

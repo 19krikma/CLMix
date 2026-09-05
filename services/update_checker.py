@@ -12,13 +12,25 @@ LATEST_RELEASE_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 REQUEST_TIMEOUT_SECONDS = 8
 
 # The contract between packaging/windows/build.ps1 (which produces and
-# uploads these) and services/updater.py (which downloads them): a release
-# carries exactly one asset named like the installer pattern, plus a
-# sidecar of the same name with the checksum suffix appended. A release
-# missing either is still perfectly installable by hand from its page - it
-# just can't be installed by the app itself.
+# uploads it) and services/updater.py (which downloads it): a release
+# carries exactly one asset named like this. A release missing it is still
+# perfectly installable by hand from its page - it just can't be installed
+# by the app itself.
 INSTALLER_PATTERN = "CLMixSetup-*.exe"
-CHECKSUM_SUFFIX = ".sha256"
+
+# GitHub hashes every release asset itself and reports it here as
+# "<algorithm>:<hex>". This is what the app verifies downloads against.
+# It used to be a .sha256 sidecar uploaded next to the installer, which
+# was the same hash arrived at the same way - dropping it means one less
+# file to attach to a release, and one less way to publish a release that
+# the updater then refuses to install because half of it is missing.
+#
+# The trade is that this hash is computed by GitHub over the bytes it
+# received, not by the build machine over the bytes it built, so it can no
+# longer catch a corrupted *upload* - only a corrupted download. Releases
+# are small in number and the installer is smoke-tested by hand before the
+# tag goes up, so that gap is worth the simpler release.
+DIGEST_PREFIX = "sha256:"
 
 # Release assets are always served from this prefix. Worth asserting
 # because it is what stops a malformed (or tampered) API response from
@@ -44,12 +56,14 @@ def check_for_update(current_version):
 
     Returns a dict:
         {"available": bool, "latest_version": str|None, "url": str|None,
-         "installer": {"name": str, "url": str, "size": int}|None,
-         "checksum_url": str|None, "error": str|None}
+         "installer": {"name": str, "url": str, "size": int,
+                       "digest": str|None}|None,
+         "error": str|None}
 
-    "installer" and "checksum_url" are what services/updater.py needs to
-    install the update in place; either being None means this release can
-    only be installed by hand from "url", its release page.
+    "installer" is what services/updater.py needs to install the update in
+    place. It being None - or carrying no "digest" to verify against -
+    means this release can only be installed by hand from "url", its
+    release page.
 
     "error" is set for network/API failures. A repo with no releases
     published yet is not treated as an error - available is just False.
@@ -82,36 +96,32 @@ def check_for_update(current_version):
         return _result(error=f"Unexpected response: {ex}")
 
     latest_version = payload.get("tag_name", "").lstrip("vV")
-    installer, checksum_url = _release_files(payload)
 
     return _result(
         available=_is_newer(latest_version, current_version),
         latest_version=latest_version or None,
         url=payload.get("html_url"),
-        installer=installer,
-        checksum_url=checksum_url,
+        installer=_installer_asset(payload),
     )
 
 
 def _result(available=False, latest_version=None, url=None,
-            installer=None, checksum_url=None, error=None):
+            installer=None, error=None):
     return {
         "available": available,
         "latest_version": latest_version,
         "url": url,
         "installer": installer,
-        "checksum_url": checksum_url,
         "error": error,
     }
 
 
-def _release_files(payload):
-    """Picks the installer asset and its checksum sidecar out of a release.
+def _installer_asset(payload):
+    """Picks the installer asset out of a release, or None.
 
-    Returns (installer|None, checksum_url|None). Both are reported
-    independently of each other so a release that has the installer but no
-    checksum still reads as "found the installer, can't verify it" rather
-    than as no installer at all.
+    A missing "digest" is reported as the installer with digest None
+    rather than as no installer at all, so the caller can say "found the
+    installer, can't verify it" instead of "no installer here".
     """
     assets = {
         asset.get("name", ""): asset
@@ -126,18 +136,34 @@ def _release_files(payload):
     )
 
     if match is None:
-        return None, None
+        return None
 
-    checksum = assets.get(match + CHECKSUM_SUFFIX)
+    return {
+        "name": match,
+        "url": assets[match]["browser_download_url"],
+        "size": assets[match].get("size"),
+        "digest": _sha256_digest(assets[match]),
+    }
 
-    return (
-        {
-            "name": match,
-            "url": assets[match]["browser_download_url"],
-            "size": assets[match].get("size"),
-        },
-        checksum["browser_download_url"] if checksum else None,
-    )
+
+def _sha256_digest(asset):
+    """The asset's SHA-256 as bare lower-case hex, or None.
+
+    A digest announced as anything other than sha256 is discarded rather
+    than trusted: the field carries its algorithm for a reason, and a hash
+    of some other kind would never match what updater.py computes, so it
+    would fail verification in a way that reads like a tampered download.
+    Better to report "nothing to verify against" and send the operator to
+    the release page.
+    """
+    value = str(asset.get("digest") or "").strip().lower()
+
+    if not value.startswith(DIGEST_PREFIX):
+        return None
+
+    hexdigest = value[len(DIGEST_PREFIX):]
+
+    return hexdigest if re.fullmatch(r"[0-9a-f]{64}", hexdigest) else None
 
 
 def _parse_version(version):

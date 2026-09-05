@@ -107,10 +107,12 @@ def _self_install_blocker(result):
     if not updater.can_self_install():
         return "Running from source"
 
-    if not result.get("installer"):
+    installer = result.get("installer")
+
+    if not installer:
         return "This release has no Windows installer attached"
 
-    if not result.get("checksum_url"):
+    if not installer.get("digest"):
         return "This release has no checksum to verify against"
 
     return None
@@ -774,8 +776,9 @@ class AboutWindow:
             )
 
             self._results.put(("status", "Verifying..."))
-            expected = updater.fetch_checksum(result["checksum_url"])
-            updater.verify_installer(path, digest, expected, installer.get("size"))
+            updater.verify_installer(
+                path, digest, installer["digest"], installer.get("size")
+            )
 
         except updater.UpdateError as ex:
             self._results.put((

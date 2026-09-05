@@ -43,18 +43,21 @@ create a desktop shortcut, no Python required on the target machine.
 1. Bump `VERSION` in `version.py` (see the comment there for the
    convention). The installer filename and the version shown in the app's
    About window both follow it automatically.
-2. Re-run `build.ps1`. It produces two files in `dist_installer\`:
-   `CLMixSetup-<version>.exe` and `CLMixSetup-<version>.exe.sha256`.
-3. **Attach both of them to a GitHub release tagged `<version>`.** The
-   script prints the `gh release create` / `gh release upload` command to
-   copy.
+2. Re-run `build.ps1`. It produces `CLMixSetup-<version>.exe` in
+   `dist_installer\`, and prints that file's SHA-256.
+3. **Attach it to a GitHub release tagged `<version>`.** The script prints
+   the `gh release create` / `gh release upload` command to copy.
 
 Step 3 is not optional. Installed copies of CLMix find updates by asking
-the releases API for those two asset names (`services/update_checker.py`),
-download the installer and refuse to run it unless it matches the published
-hash (`services/updater.py`). A release with no assets is invisible to
-every installation out there, and one with the installer but no `.sha256`
-falls back to opening the release page for a manual install.
+the releases API for that asset name (`services/update_checker.py`),
+download the installer and refuse to run it unless it matches the hash
+GitHub publishes alongside the asset (`services/updater.py`). A release
+with no assets is invisible to every installation out there.
+
+There is no `.sha256` sidecar to upload any more - GitHub hashes each
+asset on upload and reports it on the releases API as the asset's
+`digest`, which is the same hash `build.ps1` prints and what the updater
+now checks against.
 
 Publish as a **draft or prerelease** to stage a build without offering it to
 anyone: `/releases/latest` skips both, so nothing will see it until it is

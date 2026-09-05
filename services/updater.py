@@ -23,7 +23,7 @@ import urllib.request
 from pathlib import Path
 
 from services.log_store import log
-from services.update_checker import REQUEST_TIMEOUT_SECONDS, SSL_CONTEXT
+from services.update_checker import SSL_CONTEXT
 
 # Where the installer is downloaded to. Cleared and recreated at the start
 # of every download, and swept once at app startup - which is the only
@@ -155,36 +155,13 @@ def download_installer(installer, on_progress=None, cancel=None):
     return destination, digest.hexdigest()
 
 
-def fetch_checksum(url):
-    """Reads a .sha256 sidecar, returning the bare lower-case hex digest.
-
-    The file is in the usual `<hash>  <filename>` shape that sha256sum and
-    PowerShell's Get-FileHash both produce, so only the first field is
-    taken.
-    """
-    try:
-        request = urllib.request.Request(
-            url, headers={"User-Agent": "CLMix-Updater"}
-        )
-
-        with urllib.request.urlopen(
-            request, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
-        ) as response:
-            text = response.read(4096).decode("utf-8", "replace")
-
-    except (urllib.error.URLError, TimeoutError, OSError) as ex:
-        raise UpdateError(f"Could not fetch checksum: {ex}") from ex
-
-    fields = text.split()
-
-    if not fields or len(fields[0]) != 64:
-        raise UpdateError("Checksum file is not in the expected format")
-
-    return fields[0].lower()
-
-
 def verify_installer(path, digest, expected_digest, expected_size=None):
     """Refuses anything that isn't byte-for-byte the published installer.
+
+    `expected_digest` is the SHA-256 GitHub publishes with the release
+    asset, handed over by services/update_checker.py - there is no second
+    request to make here, so a hash that disagrees with the download is
+    the only way this fails.
 
     Raises UpdateError and deletes the file if it fails any check, so a
     rejected download can never be left lying around for something else to
