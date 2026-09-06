@@ -116,7 +116,12 @@ final class AppModel: NSObject, ObservableObject {
     ///
     /// REMOVE WITH DEMO MODE.
     func enterDemoMode() {
+        // Drop the outgoing backend's delegate as well as closing it: a
+        // socket teardown can still deliver a didClose callback afterwards,
+        // and mixerDidDisconnect would bounce the demo straight back to the
+        // connect screen.
         backend.disconnect()
+        backend.delegate = nil
         backend = DemoMixer.shared
         backend.delegate = self
         isDemo = true
@@ -136,6 +141,7 @@ final class AppModel: NSObject, ObservableObject {
     private func leaveDemoMode() {
         guard isDemo else { return }
         backend.disconnect()
+        backend.delegate = nil
         backend = MixerClient.shared
         backend.delegate = self
         isDemo = false

@@ -74,6 +74,20 @@ final class DemoMixer: MixerBackend {
 
     private static let banks = ["Drums", "Band", "Vocals"]
 
+    /// What each wedge's owner most wants to hear, seeded loudest in their
+    /// own mix - so the demo opens on something shaped like a real monitor
+    /// mix instead of a wall of identical faders.
+    private static let featuredChannel: [Int: Int] = [
+        1: 17,  // Wedge 1 - Lead Vox -> Lead Vox
+        2: 12,  // Wedge 2 - Guitar   -> Gtr Stage L
+        3: 10,  // Wedge 3 - Bass     -> Bass DI
+        4: 14,  // Wedge 4 - Keys     -> Keys L
+        5: 1,   // IEM - Drums        -> Kick In
+        6: 16,  // IEM - MD           -> Acoustic
+        7: 17,  // Side Fills         -> Lead Vox
+        8: 3,   // Drum Sub           -> Snare Top
+    ]
+
     private struct Send {
         var level: Double
         var pan: Double
@@ -103,10 +117,11 @@ final class DemoMixer: MixerBackend {
                 // varying per aux so switching aux visibly changes the mix.
                 let spread = Double((entry.channel * 7 + aux.index * 13) % 24)
                 var level = -6.0 - spread
-                let isOwnInstrument = (entry.channel % Self.auxes.count) == (aux.index % Self.auxes.count)
 
-                if isOwnInstrument { level = -2.0 }
+                // The vocal is up in everybody's mix, but whatever this
+                // particular wedge is for sits above even that.
                 if entry.name == "Lead Vox" { level = -4.0 }
+                if entry.channel == Self.featuredChannel[aux.index] { level = -2.0 }
 
                 // Pan follows the stage picture: anything named L/R sits
                 // off-center, everything else stays up the middle.
@@ -182,7 +197,11 @@ final class DemoMixer: MixerBackend {
 
     func selectAux(_ aux: Int) {
         selectedAux = aux
-        selectedBank = nil
+        // The bank filter deliberately survives an aux change, matching
+        // RemoteServer._handle (select_aux sets state["aux"] and leaves
+        // state["bank"] alone). MixerView's own bank picker keeps its
+        // selection across the switch too, so resetting here would leave the
+        // picker reading "Drums" while every channel was actually showing.
         startPushing()
     }
 
@@ -212,14 +231,22 @@ final class DemoMixer: MixerBackend {
     }
 
     func savePreset(name: String) {
-        guard let aux = selectedAux, let mix = sends[aux] else { return }
+        guard let aux = selectedAux, let mix = sends[aux] else {
+            // Never leave the sheet waiting on a reply that is not coming -
+            // AppModel releases its pending completion on a failure.
+            Task { @MainActor in self.delegate?.mixerDidFail(message: "No aux selected") }
+            return
+        }
         presets[name] = mix
 
         Task { @MainActor in self.delegate?.mixerDidSavePreset(name) }
     }
 
     func loadPreset(name: String) {
-        guard let aux = selectedAux, let stored = presets[name] else { return }
+        guard let aux = selectedAux, let stored = presets[name] else {
+            Task { @MainActor in self.delegate?.mixerDidFail(message: "Preset not found") }
+            return
+        }
 
         // Applied as ordinary level/pan changes, exactly as the desktop app
         // recalls a preset - the next push reflects it like any other move.
@@ -240,9 +267,15 @@ final class DemoMixer: MixerBackend {
         stopPushing()
         pushLevels()
 
-        pushTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+        // .common rather than scheduledTimer's default mode: the default
+        // mode is suspended while the run loop tracks touches, which would
+        // stall every push for the length of a fader drag or a sideways
+        // scroll of the channel grid.
+        let timer = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in
             self?.pushLevels()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        pushTimer = timer
     }
 
     private func stopPushing() {
