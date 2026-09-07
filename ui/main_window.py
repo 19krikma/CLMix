@@ -83,6 +83,15 @@ class MixerWorker(threading.Thread):
     HEARTBEAT_INTERVAL_SECONDS = 3.0
     HEARTBEAT_TIMEOUT_SECONDS = 10.0
 
+    # How long a boot query goes unanswered before it is sent again. UDP
+    # promises no delivery, so a dropped request has to be retried or the
+    # load stalls at that parameter forever - but retrying on every
+    # inbound message (which is what having no in-flight tracking
+    # amounted to) turned each surplus message into a duplicate of every
+    # remaining query. Long enough that a LAN round trip never trips it,
+    # short enough that a real loss is not noticeable.
+    BOOT_RETRY_SECONDS = 0.5
+
     # Meter wire format, reverse-engineered from captures of the official
     # DiGiCo client - see docs/mixer_protocol/PROTOCOL.md "Metering".
     # Each /Meters/values int packs two 8-bit fields (the middle byte is
@@ -141,6 +150,18 @@ class MixerWorker(threading.Thread):
         self._last_received_at = None
         self._last_heartbeat_sent_at = 0.0
 
+        # (address, sent_at) for the one outstanding boot query, so a
+        # reply that arrives while it is still in flight does not cause
+        # it to be asked for a second time. See request_next_parameter().
+        self._pending_request = (None, 0.0)
+
+        # What loading is currently waiting on, as a phrase to show the
+        # operator ("Channels 12/72"). Read from the UI thread every
+        # frame rather than pushed through message_queue: the stage
+        # changes on nearly every reply, and that queue is drained at
+        # 100ms and logs every entry it carries.
+        self.loading_stage = None
+
         # slot number -> (channel index, leg), mirroring whatever the UI
         # last subscribed via subscribe_meters(). /Meters/values reports
         # slots, not addresses, so this is the only way back to a channel.
@@ -174,12 +195,31 @@ class MixerWorker(threading.Thread):
             log("info", "Connected to mixer, loading parameters...")
 
             self._last_received_at = time.monotonic()
+
+            # Start the heartbeat clock here rather than leaving it at 0,
+            # which made the very first loop iteration fire one - its
+            # reply then landed in the middle of loading as a message the
+            # boot sequence had not asked for, and (before the in-flight
+            # check in request_next_parameter) that alone was enough to
+            # start duplicating every remaining query. Nothing needs a
+            # liveness probe during load anyway: the replies are the
+            # liveness.
+            self._last_heartbeat_sent_at = time.monotonic()
+
             self.request_next_parameter()
 
             while self.running:
                 self.receive_osc()
                 self._check_heartbeat()
                 self._drain_commands()
+
+                # Loading is otherwise driven entirely by inbound replies,
+                # so a request that never arrives (or whose reply does
+                # not) would stall it with nothing left to restart it.
+                # The in-flight check makes this a no-op until the
+                # outstanding query has actually timed out.
+                if not self.loaded:
+                    self.request_next_parameter()
 
         except Exception as ex:
             log("error", f"Worker error: {ex!r}")
@@ -317,47 +357,82 @@ class MixerWorker(threading.Thread):
         if channels:
             self.banks[name] = channels
 
-    def request_next_parameter(self):
+    def _next_boot_query(self):
+        """(query, stage) for the next boot parameter still missing.
+
+        (None, None) once everything below is cached. Pure lookup - it
+        decides what to ask for without asking, so
+        request_next_parameter() can compare it against what is already
+        in flight before sending anything. The stage travels with the
+        query because the counts that make it useful ("Channels 12/72")
+        are only known here.
+        """
         if "/Console/Input_Channels" not in self.cache:
-            self.send_osc("/Console/Channels/?", [])
-            return
+            return "/Console/Channels/?", "Console"
 
         if "/Console/Aux_Outputs/modes" not in self.cache:
-            self.send_osc("/Console/Aux_Outputs/modes/?", [])
-            return
+            return "/Console/Aux_Outputs/modes/?", "Aux layout"
 
         # Needed before the first meter subscription, since it decides how
         # many slots each channel takes - see subscribe_meters().
         if "/Console/Input_Channels/modes" not in self.cache:
-            self.send_osc("/Console/Input_Channels/modes/?", [])
-            return
+            return "/Console/Input_Channels/modes/?", "Channel layout"
 
         aux_modes = self.cache["/Console/Aux_Outputs/modes"]
-        for i in range(1, len(aux_modes) + 1):
+        total = len(aux_modes)
+        for i in range(1, total + 1):
             address = f"/Aux_Outputs/{i}/Buss_Trim/name"
             if address not in self.cache:
-                self.send_osc(f"{address}/?", [])
-                return
+                return f"{address}/?", f"Auxes {i}/{total}"
 
         channel_count = int(self.cache["/Console/Input_Channels"][0])
         for i in range(1, channel_count + 1):
             address = f"/Input_Channels/{i}/Channel_Input/name"
             if address not in self.cache:
-                self.send_osc(f"{address}/?", [])
-                return
+                return f"{address}/?", f"Channels {i}/{channel_count}"
 
         if "/Snapshots/Current_Snapshot" not in self.cache:
-            self.send_osc("/Snapshots/Current_Snapshot/?", [])
+            return "/Snapshots/Current_Snapshot/?", "Snapshots"
+
+        return None, None
+
+    def request_next_parameter(self):
+        query, stage = self._next_boot_query()
+        self.loading_stage = stage
+
+        if query is None:
+            if self.snapshot_name is None:
+                # Self-guarding on _snapshot_name_requested, so unlike the
+                # address queries above it never needed in-flight tracking.
+                self.loading_stage = "Snapshot names"
+                self._request_snapshot_name()
+                return
+
+            # Named rather than cleared: "Loaded" reaches the UI through
+            # message_queue, which is drained at 100ms, and a stage of
+            # None in that gap renders as a bare "Loading". The layout
+            # query below is genuinely what is outstanding there.
+            self.loading_stage = "Layout"
+            self.loaded = True
+            log("info", "Mixer fully loaded and ready")
+            self.message_queue.put(("status", "Loaded"))
+            self.send_osc("/Layout/Layout/Banks/?", [])
             return
 
-        if self.snapshot_name is None:
-            self._request_snapshot_name()
+        # Ask once, then wait for the answer. This runs on every inbound
+        # message during load, and without the check below it re-sent
+        # whatever was still uncached each time - so any message beyond
+        # the one reply being waited for (the console's nine-message
+        # topology burst, a heartbeat reply, an unsolicited broadcast)
+        # duplicated every remaining boot query, permanently.
+        now = time.monotonic()
+        pending, sent_at = self._pending_request
+
+        if query == pending and now - sent_at < self.BOOT_RETRY_SECONDS:
             return
 
-        self.loaded = True
-        log("info", "Mixer fully loaded and ready")
-        self.message_queue.put(("status", "Loaded"))
-        self.send_osc("/Layout/Layout/Banks/?", [])
+        self._pending_request = (query, now)
+        self.send_osc(query, [])
 
     @classmethod
     def decode_meter(cls, value):
@@ -960,6 +1035,14 @@ class RoundButton:
 
 class AuxLevelsPanel:
     REFRESH_MS = 150
+
+    # How long to wait for /Layout/Layout/Banks replies before giving up
+    # and showing every channel instead. The opening bank comes from the
+    # console's own layout, which is only asked for once loading
+    # finishes, so it is never known at load time - but a console that
+    # reports no banks at all must not leave the operator staring at an
+    # empty window.
+    BANK_WAIT_SECONDS = 2.0
     LEVEL_EPSILON = 0.005
 
     # How long after the user releases a slider we keep ignoring
@@ -1200,6 +1283,10 @@ class AuxLevelsPanel:
         self.pan_dragging = set()
         self.pan_drag_released_at = {}
         self.bank_names_shown = None
+        # Which bank is on screen, and when we started waiting for the
+        # console to tell us what the banks are. See _open_default_bank().
+        self.current_bank = None
+        self._bank_wait_started_at = None
         self.meter_ticked_at = time.monotonic()
 
         self.build_ui()
@@ -1407,7 +1494,20 @@ class AuxLevelsPanel:
 
         channel_count = int(worker.cache["/Console/Input_Channels"][0])
         self.all_channels = list(range(1, channel_count + 1))
-        self.channels = self.all_channels
+
+        # Deliberately empty rather than every channel. The console's
+        # banks are not known yet - /Layout/Layout/Banks/? is only sent
+        # as loading completes, and its replies land over the following
+        # frames - so _open_default_bank() fills this in as soon as the
+        # layout arrives. Building all 72 strips here just to replace
+        # them a moment later is what made connecting expensive: it cost
+        # a full set of widgets, a per-channel level/pan query for the
+        # selected aux, and a meter subscription covering the whole
+        # console, none of which survived the first bank selection.
+        self.channels = []
+        self.current_bank = None
+        self._bank_wait_started_at = time.monotonic()
+
         self.aux_list = build_aux_list(worker, hidden=self.get_hidden_auxes())
         self.bank_names_shown = None
 
@@ -1458,6 +1558,10 @@ class AuxLevelsPanel:
         self.channels = []
         self.aux_list = []
         self.bank_names_shown = None
+        # Which bank is on screen, and when we started waiting for the
+        # console to tell us what the banks are. See _open_default_bank().
+        self.current_bank = None
+        self._bank_wait_started_at = None
 
         self.aux_combo.configure(values=[])
         self.aux_combo.set("")
@@ -1504,12 +1608,6 @@ class AuxLevelsPanel:
         for child in self.banks_frame.winfo_children():
             child.destroy()
 
-        ttk.Button(
-            self.banks_frame,
-            text="All",
-            command=self.show_all_channels
-        ).pack(side="left", padx=2)
-
         for name in bank_names:
             ttk.Button(
                 self.banks_frame,
@@ -1517,8 +1615,27 @@ class AuxLevelsPanel:
                 command=lambda n=name: self.select_bank(n)
             ).pack(side="left", padx=2)
 
-    def show_all_channels(self):
-        self.set_channels(self.all_channels)
+    def _open_default_bank(self):
+        """Open the console's first bank once its layout has arrived.
+
+        Polled from refresh_levels because the layout is pushed, not
+        awaited: one /Layout/Layout/Banks message per bank, arriving
+        after loading has already finished. The first one to land is the
+        console's own first bank, which is what opens.
+        """
+        if self.current_bank is not None or self.channels:
+            return
+
+        bank_names = tuple(self.worker.banks.keys())
+
+        if bank_names:
+            self.select_bank(bank_names[0])
+        elif self._bank_wait_started_at is not None and \
+                time.monotonic() - self._bank_wait_started_at > \
+                self.BANK_WAIT_SECONDS:
+            # No banks at all: better every channel than a blank window.
+            self._bank_wait_started_at = None
+            self.set_channels(self.all_channels)
 
     def select_bank(self, bank_name):
         channels = self.worker.banks.get(bank_name)
@@ -1526,6 +1643,7 @@ class AuxLevelsPanel:
         if not channels:
             return
 
+        self.current_bank = bank_name
         self.set_channels(channels)
 
     def set_channels(self, channels):
@@ -2186,6 +2304,7 @@ class AuxLevelsPanel:
                 )
 
             self.build_bank_buttons()
+            self._open_default_bank()
 
         self.master.after(self.REFRESH_MS, self.refresh_levels)
 
@@ -2196,6 +2315,20 @@ class MainWindow:
     # dropped on its own (mixer power loss, network blip, ...) rather
     # than one the user explicitly disconnected.
     RECONNECT_DELAY_SECONDS = 5
+
+    # Phases in which something is still in progress: the spinner turns,
+    # the status line repaints every tick, and the connect button offers
+    # "Disconnect". One definition so those three can never disagree.
+    BUSY_PHASES = ("connecting", "loading", "reconnecting")
+
+    # Spinner/countdown repaint rate. Fast enough that the arc reads as
+    # motion rather than a stutter, slow enough to be free next to the
+    # 33ms meter repaint already running.
+    STATUS_TICK_MS = 80
+
+    # How far the spinner arc sweeps, and how far it advances per tick.
+    SPINNER_EXTENT = 100
+    SPINNER_STEP_DEGREES = 24
 
     def __init__(self):
 
@@ -2243,6 +2376,23 @@ class MainWindow:
         self._user_disconnected = True
         self._reconnect_job = None
 
+        # Everything the status line renders from. _status_phase is the
+        # single source of truth for both the label and the connect
+        # button, so the two can never disagree about whether something
+        # is still in progress:
+        #   idle         nothing running - the only phase showing "Connect"
+        #   connecting   socket opening
+        #   loading      pulling parameters (worker.loading_stage says which)
+        #   ready        loaded
+        #   reconnecting waiting out RECONNECT_DELAY_SECONDS after a drop
+        self._status_phase = "idle"
+        self._failure_reason = None
+        self._reconnect_at = None
+        self._spinner_angle = 0
+        # Whether this attempt ever finished loading, which is what
+        # separates "could not reach the mixer" from "the mixer went away".
+        self._was_loaded = False
+
         # Last check_for_update() result, from the startup check below or
         # from the About window's own Check button. Held here rather than
         # in AboutWindow because that window is built and destroyed on
@@ -2268,6 +2418,7 @@ class MainWindow:
         updater.sweep_download_dir()
 
         self.root.after(100, self.process_messages)
+        self.root.after(self.STATUS_TICK_MS, self._tick_status)
         self.root.after(STARTUP_UPDATE_CHECK_MS, self._start_update_check)
 
     def build_menu_bar(self):
@@ -2340,6 +2491,16 @@ class MainWindow:
         )
         self.indicator.pack(side="left")
         self.light = self.indicator.create_oval(2, 2, 14, 14, fill="red")
+
+        # Same 16x16 cell as the status light, one shown at a time: a
+        # solid dot when the state is settled, a rotating arc while
+        # something is still in progress. Sharing the cell keeps the row
+        # from reflowing every time the phase changes.
+        self.spinner = self.indicator.create_arc(
+            2, 2, 14, 14,
+            start=0, extent=self.SPINNER_EXTENT, style="arc",
+            outline="orange", width=2, state="hidden"
+        )
 
         self.status_label = ttk.Label(
             mixer_row, text="Disconnected", font=("TkDefaultFont", 10, "bold")
@@ -2563,8 +2724,87 @@ class MainWindow:
             self.settings["theme"] = theme
             self.save_settings()
 
+    def _session_active(self):
+        """Whether a connection is up, being made, or queued to retry.
+
+        Deliberately not "is there a worker": between a dropped link and
+        the retry firing there is no worker, yet the app is still working
+        on the operator's behalf and the button has to offer a way out of
+        that.
+        """
+        # The phase matters as well as the worker: connect() enters
+        # "connecting" before the worker exists, and without this that
+        # gap would show "Connect" - and a click landing in it would
+        # start a second worker rather than cancelling the first.
+        return (self.worker is not None
+                or self._reconnect_job is not None
+                or self._status_phase in self.BUSY_PHASES)
+
+    def _update_connect_button(self):
+        self.connect_btn.config(
+            text="Disconnect" if self._session_active() else "Connect"
+        )
+
+    def _status_text_and_color(self):
+        """What the status line should read right now."""
+        if self._status_phase == "connecting":
+            return "Connecting", "orange"
+
+        if self._status_phase == "loading":
+            # Published by the worker as it walks the boot sequence, so
+            # this names the parameter actually outstanding rather than
+            # just saying "busy".
+            stage = self.worker.loading_stage if self.worker else None
+            return f"Loading {stage}" if stage else "Loading", "orange"
+
+        if self._status_phase == "ready":
+            return "Connected", "green"
+
+        if self._status_phase == "reconnecting":
+            reason = self._failure_reason or "Disconnected"
+            remaining = 0
+
+            if self._reconnect_at is not None:
+                remaining = max(0, math.ceil(self._reconnect_at - time.monotonic()))
+
+            return f"{reason} - trying again in {remaining}s", "orange"
+
+        return "Disconnected", "red"
+
+    def _render_status(self):
+        text, color = self._status_text_and_color()
+        self.status_label.config(text=text)
+
+        busy = self._status_phase in self.BUSY_PHASES
+
+        if busy:
+            self.indicator.itemconfig(self.light, state="hidden")
+            self.indicator.itemconfig(
+                self.spinner, state="normal",
+                outline=color, start=self._spinner_angle
+            )
+        else:
+            self.indicator.itemconfig(self.spinner, state="hidden")
+            self.indicator.itemconfig(self.light, state="normal", fill=color)
+
+    def _tick_status(self):
+        if self._status_phase in self.BUSY_PHASES:
+            self._spinner_angle = \
+                (self._spinner_angle + self.SPINNER_STEP_DEGREES) % 360
+            # Repainted every tick regardless of whether the phase moved:
+            # the loading stage and the retry countdown both change
+            # underneath a phase that stays put.
+            self._render_status()
+
+        self.root.after(self.STATUS_TICK_MS, self._tick_status)
+
+    def _set_status_phase(self, phase):
+        self._status_phase = phase
+        self._update_connect_button()
+        self._render_status()
+
     def on_connect_button(self):
-        if self.worker is not None:
+        if self._session_active():
             self.disconnect()
         else:
             self.connect()
@@ -2618,7 +2858,12 @@ class MainWindow:
             self.root.after_cancel(self._reconnect_job)
             self._reconnect_job = None
 
-        self.connect_btn.config(text="Disconnect")
+        self._was_loaded = False
+        self._reconnect_at = None
+        # Cleared per attempt, so the reason shown always belongs to the
+        # attempt that just failed rather than an older one.
+        self._failure_reason = None
+        self._set_status_phase("connecting")
 
         self.worker = MixerWorker(
             mixer_ip,
@@ -2646,7 +2891,15 @@ class MainWindow:
             self.root.after_cancel(self._reconnect_job)
             self._reconnect_job = None
 
-        self.connect_btn.config(text="Connect")
+        self._reconnect_at = None
+
+        if user_initiated:
+            # An explicit disconnect clears the failure notice too - the
+            # operator is no longer waiting on anything, so the status
+            # line should not keep explaining why the last attempt died.
+            self._failure_reason = None
+
+        self._set_status_phase("idle")
 
         if self.worker:
             # Stopping the running flag is enough - the worker's own loop
@@ -2669,12 +2922,20 @@ class MainWindow:
         log("warning", f"Mixer disconnected - retrying in "
             f"{self.RECONNECT_DELAY_SECONDS}s")
 
+        self._reconnect_at = time.monotonic() + self.RECONNECT_DELAY_SECONDS
+
         self._reconnect_job = self.root.after(
             self.RECONNECT_DELAY_SECONDS * 1000, self._attempt_reconnect
         )
 
+        # Set last: _session_active() reads _reconnect_job, so the button
+        # only flips to "Disconnect" once the retry is genuinely pending.
+        self._set_status_phase("reconnecting")
+
     def _attempt_reconnect(self):
         self._reconnect_job = None
+        # user_initiated=False so the failure reason survives into the
+        # next attempt, ready to be shown again if that one fails too.
         self.disconnect(user_initiated=False)
         self.connect()
 
@@ -2824,21 +3085,40 @@ class MainWindow:
 
         self.root.after(100, self.process_messages)
 
-    def _apply_mixer_status(self, value):
-        if value in ("Connecting", "Connected"):
-            text, color = "Loading", "orange"
-        elif value == "Loaded":
-            text, color = "Connected", "green"
-        elif value == "Disconnected":
-            text, color = "Disconnected", "red"
-        else:
-            text, color = value, "red"
+    def _failure_notice(self, value):
+        """Why the last attempt ended, phrased for the status line."""
+        if value.startswith("Error"):
+            # Carries the exception text - a bound port, a bad address -
+            # which is more use than any wording of our own.
+            return value
 
-        self.status_label.config(text=text)
-        self.indicator.itemconfig(self.light, fill=color)
+        if self._was_loaded:
+            return "Connection lost"
+
+        # Never finished loading, so the mixer never answered: either
+        # nothing is at that address or it is not reachable. The worker
+        # gives up on it after HEARTBEAT_TIMEOUT_SECONDS.
+        return "Connection failed"
+
+    def _apply_mixer_status(self, value):
+        if value == "Connecting":
+            self._set_status_phase("connecting")
+        elif value == "Connected":
+            # Socket is up; the boot sequence is now pulling parameters,
+            # and worker.loading_stage names whichever one is in flight.
+            self._set_status_phase("loading")
+        elif value == "Loaded":
+            self._was_loaded = True
+            self._failure_reason = None
+            self._set_status_phase("ready")
 
         if value == "Disconnected" or value.startswith("Error"):
-            self.connect_btn.config(text="Connect")
+            # First reason wins. A worker that dies on an exception
+            # reports it and then still reports "Disconnected" on its way
+            # out, and the generic follow-up must not overwrite the
+            # specific cause the operator actually needs to see.
+            if self._failure_reason is None:
+                self._failure_reason = self._failure_notice(value)
             self.snapshot_label.config(text="Snapshot: --")
             self.aux_panel.on_mixer_disconnected()
 
@@ -2854,10 +3134,12 @@ class MainWindow:
                     self.remote_server.stop()
                     self.remote_server = None
 
-            if not self._user_disconnected:
+            if self._user_disconnected:
+                self._set_status_phase("idle")
+            else:
+                # Sets the phase to "reconnecting" itself, once the retry
+                # is actually scheduled.
                 self._schedule_reconnect()
-        else:
-            self.connect_btn.config(text="Disconnect")
 
         if value == "Loaded":
             self.aux_panel.on_mixer_loaded(self.worker)
