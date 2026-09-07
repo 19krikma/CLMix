@@ -203,7 +203,12 @@ class RemoteServer:
         log("info", f"Client connected: {websocket.remote_address}")
         self._clients.add(websocket)
         state = {
-            "aux": None, "bank": None, "user": None, "permission": None, "token": None
+            "aux": None, "bank": None, "user": None, "permission": None,
+            "token": None,
+            # Last worker.snapshot_epoch this client has been re-primed
+            # for. None until it picks an aux, since there is nothing to
+            # prime before that.
+            "snapshot_epoch": None,
         }
 
         push_task = asyncio.create_task(self._push_loop(websocket, state))
@@ -384,6 +389,10 @@ class RemoteServer:
             )
             return
 
+        if await self._reject_if_snapshot_denied(websocket, entry):
+            log("info", f"Login refused for {username!r}: outside their snapshot")
+            return
+
         new_token = secrets.token_urlsafe(32)
         self._prune_expired_sessions()
         self._sessions[new_token] = {
@@ -432,12 +441,19 @@ class RemoteServer:
             )
             return
 
-        # Sliding window: using a token renews it, so an app in continuous
-        # use never expires out from under the user mid-show.
-        session["expires_at"] = time.monotonic() + SESSION_TTL_SECONDS
-
         username = session["username"]
         entry = session["entry"]
+
+        if await self._reject_if_snapshot_denied(websocket, entry):
+            log("info", f"Token login refused for {username!r}: "
+                f"outside their snapshot")
+            return
+
+        # Sliding window: using a token renews it, so an app in continuous
+        # use never expires out from under the user mid-show. Renewed only
+        # after the snapshot check, so a refused attempt cannot keep a
+        # session alive indefinitely.
+        session["expires_at"] = time.monotonic() + SESSION_TTL_SECONDS
 
         state["user"] = username
         state["permission"] = entry
@@ -479,6 +495,46 @@ class RemoteServer:
     def _snapshot_allowed(worker, entry):
         return entry["snapshot"] == ALL_SNAPSHOTS or entry["snapshot"] == worker.snapshot_name
 
+    async def _reject_if_snapshot_denied(self, websocket, entry):
+        """Refuse a login when the desk is on a snapshot this account lacks.
+
+        Without this the kick in _push_loop achieves nothing: the phone
+        drops to its login screen, auto-submits the token it still holds,
+        and is straight back in on a snapshot it may not touch.
+        """
+        worker = self.get_worker()
+
+        if not worker or not worker.is_alive():
+            # Nothing to check against yet. The push loop re-checks once
+            # a console is actually there.
+            return False
+
+        if not self._snapshot_denied(worker, entry):
+            return False
+
+        await self._send(websocket, {
+            "type": "login_result", "ok": False,
+            "message": "Not permitted for the current snapshot",
+        })
+        return True
+
+    @classmethod
+    def _snapshot_denied(cls, worker, entry):
+        """Whether we KNOW this account may not be on the current snapshot.
+
+        Deliberately weaker than "not allowed". A recall clears
+        worker.snapshot_name and only refills it when the console answers
+        with the name, so every name-scoped account fails an allowed-check
+        in that gap. Denying there would throw every scoped user off on
+        every recall - including recalls onto a snapshot they are
+        entitled to - so an unknown name is not a denial, just a "not
+        yet".
+        """
+        if worker.snapshot_name is None:
+            return False
+
+        return not cls._snapshot_allowed(worker, entry)
+
     @classmethod
     def _aux_allowed(cls, worker, entry, aux_index):
         if entry["aux"] == ALL_AUX:
@@ -505,8 +561,36 @@ class RemoteServer:
             if not worker or not worker.is_alive() or aux is None or entry is None:
                 continue
 
+            if self._snapshot_denied(worker, entry):
+                # The console has moved to a snapshot this account is not
+                # scoped to. Going quiet (which is all that used to
+                # happen) leaves the operator holding faders that no
+                # longer do anything, with nothing on screen saying so -
+                # so say it, then drop the connection.
+                log("info", f"User {state.get('user')!r} disconnected: "
+                    f"snapshot {worker.snapshot_name!r} is outside their access")
+                try:
+                    await self._send(websocket, {
+                        "type": "error",
+                        "message": "Not permitted for the current snapshot",
+                    })
+                    await websocket.close()
+                except websockets.ConnectionClosed:
+                    pass
+                return
+
             if not self._snapshot_allowed(worker, entry):
                 continue
+
+            # A snapshot recall rewrites levels, pans and mutes across
+            # the desk without announcing each one, so the cache this
+            # push reads from is stale until something asks again. Each
+            # client re-primes for its own aux and bank - the desktop's
+            # refresh only covers whatever the desktop happens to be
+            # showing, which is rarely the same strips.
+            if state.get("snapshot_epoch") != worker.snapshot_epoch:
+                state["snapshot_epoch"] = worker.snapshot_epoch
+                self._request_channel_states(worker, state)
 
             channels = self._channels_for(worker, state.get("bank"))
             payload = {

@@ -147,6 +147,17 @@ class MixerWorker(threading.Thread):
         self._snapshot_name_requested = False
         self.snapshot_names = {}
 
+        # Bumped every time the console moves to a different snapshot.
+        # A recall rewrites levels, pans and mutes across the whole desk
+        # at once, and the console does not broadcast the thousands of
+        # individual parameter changes that implies - so cached values
+        # are stale from that moment until something asks again. Both the
+        # desktop panel and each connected phone watch this and re-query
+        # what they are actually showing; a plain counter rather than a
+        # queued message because there is more than one such watcher and
+        # they live on different threads.
+        self.snapshot_epoch = 0
+
         self._last_received_at = None
         self._last_heartbeat_sent_at = 0.0
 
@@ -298,6 +309,7 @@ class MixerWorker(threading.Thread):
         self.cache["/Snapshots/Current_Snapshot"] = args
 
         if changed:
+            self.snapshot_epoch += 1
             self.snapshot_name = None
             self._snapshot_name_requested = False
             self._request_snapshot_name()
@@ -1287,6 +1299,8 @@ class AuxLevelsPanel:
         # console to tell us what the banks are. See _open_default_bank().
         self.current_bank = None
         self._bank_wait_started_at = None
+        # Last worker.snapshot_epoch this panel has re-queried for.
+        self._snapshot_epoch_seen = 0
         self.meter_ticked_at = time.monotonic()
 
         self.build_ui()
@@ -1507,6 +1521,9 @@ class AuxLevelsPanel:
         self.channels = []
         self.current_bank = None
         self._bank_wait_started_at = time.monotonic()
+        # Adopt the console's current epoch rather than 0: loading has
+        # just fetched everything, so there is nothing stale to correct.
+        self._snapshot_epoch_seen = worker.snapshot_epoch
 
         self.aux_list = build_aux_list(worker, hidden=self.get_hidden_auxes())
         self.bank_names_shown = None
@@ -1562,6 +1579,8 @@ class AuxLevelsPanel:
         # console to tell us what the banks are. See _open_default_bank().
         self.current_bank = None
         self._bank_wait_started_at = None
+        # Last worker.snapshot_epoch this panel has re-queried for.
+        self._snapshot_epoch_seen = 0
 
         self.aux_combo.configure(values=[])
         self.aux_combo.set("")
@@ -1614,6 +1633,31 @@ class AuxLevelsPanel:
                 text=name,
                 command=lambda n=name: self.select_bank(n)
             ).pack(side="left", padx=2)
+
+    def _resync_after_snapshot(self):
+        """Re-read what a snapshot recall just changed underneath us.
+
+        Only the values a recall rewrites - levels, pans and mutes -
+        and only for the strips actually on screen. Names, modes and
+        the bank layout survive a recall, so re-reading those would be
+        the expensive half of a reload for nothing.
+        """
+        if self.worker is None or not self.worker.is_alive():
+            return
+
+        if self.worker.snapshot_epoch == self._snapshot_epoch_seen:
+            return
+
+        self._snapshot_epoch_seen = self.worker.snapshot_epoch
+
+        if not self.channels:
+            return
+
+        log("info", "Snapshot changed - refreshing levels, pans and mutes")
+
+        # Queries send_level, plus send_pan when the aux is stereo.
+        self.on_aux_selected()
+        self.request_mute_states()
 
     def _open_default_bank(self):
         """Open the console's first bank once its layout has arrived.
@@ -2305,6 +2349,7 @@ class AuxLevelsPanel:
 
             self.build_bank_buttons()
             self._open_default_bank()
+            self._resync_after_snapshot()
 
         self.master.after(self.REFRESH_MS, self.refresh_levels)
 

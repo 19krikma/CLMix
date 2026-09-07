@@ -75,7 +75,7 @@ AUX_NAMES = ["Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send"]
 # which is also how they usually are on a real desk.
 AUX_MODES = [MODE_STEREO, MODE_MONO, MODE_MONO, MODE_MONO, MODE_STEREO]
 
-SNAPSHOT_NAME = "Show 1"
+SNAPSHOT_NAMES = ["Show 1", "Show 2", "Soundcheck", "Support Band"]
 
 STEREO_CHANCE = 0.25
 
@@ -230,10 +230,20 @@ def build_banks():
 
 
 class MockMixer:
-    def __init__(self, listen_port, client_host, client_port, mic=None):
+    def __init__(self, listen_port, client_host, client_port, mic=None,
+                 recall_every=None):
         self.client_host = client_host
         self.client_port = client_port
         self.mic = mic
+
+        # Simulated snapshot recalls, as if someone were working the
+        # surface. A recall rewrites levels, pans and mutes across the
+        # whole desk and announces only the recall itself - which is the
+        # behaviour a client has to cope with, so it is the behaviour
+        # worth being able to reproduce here.
+        self.recall_every = recall_every
+        self.snapshot = 1
+        self.last_recall_at = time.monotonic()
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", listen_port))
@@ -276,9 +286,11 @@ class MockMixer:
                 data, _ = self.sock.recvfrom(65535)
             except socket.timeout:
                 self.tick_meters()
+                self.maybe_recall_snapshot()
                 continue
 
             self.tick_meters()
+            self.maybe_recall_snapshot()
 
             try:
                 message = OscMessage(data)
@@ -348,6 +360,36 @@ class MockMixer:
         self.meter_levels[slot] = level
 
         return (level, level)
+
+    def maybe_recall_snapshot(self):
+        """Every recall_every seconds, act as if the surface recalled one.
+
+        Levels, pans and mutes all change; the ONLY thing sent is the
+        recall broadcast itself, exactly as a console does it. A client
+        that does not re-read after seeing this will sit on stale values.
+        """
+        if self.recall_every is None:
+            return
+
+        now = time.monotonic()
+
+        if now - self.last_recall_at < self.recall_every:
+            return
+
+        self.last_recall_at = now
+        self.snapshot = self.snapshot % len(SNAPSHOT_NAMES) + 1
+
+        for key in self.levels:
+            self.levels[key] = round(random.uniform(-40.0, 0.0), 2)
+        for key in self.pans:
+            self.pans[key] = round(random.random(), 2)
+        for channel in self.mutes:
+            self.mutes[channel] = float(random.random() < 0.3)
+
+        print(f"* snapshot recall -> {self.snapshot} "
+              f"({SNAPSHOT_NAMES[self.snapshot - 1]}); "
+              f"levels/pans/mutes rewritten, nothing else announced")
+        self.send(f"/Snapshots/Recall_Snapshot/{self.snapshot}", [])
 
     def tick_meters(self):
         """Push one /Meters/values packet if a tick's worth of time passed."""
@@ -425,10 +467,11 @@ class MockMixer:
             self.send(address, [CHANNEL_NAMES[channel - 1]])
 
         elif address == "/Snapshots/Current_Snapshot":
-            self.send(address, [1])
+            self.send(address, [self.snapshot])
 
         elif address == "/Snapshots/names":
-            self.send("/Snapshots/name", [1, SNAPSHOT_NAME])
+            for index, name in enumerate(SNAPSHOT_NAMES, start=1):
+                self.send("/Snapshots/name", [index, name])
 
         elif address == "/Layout/Layout/Banks":
             # One message per bank, mirroring how a real console answers
@@ -505,6 +548,10 @@ def main():
     parser.add_argument("--client-port", type=int, default=10024)
     parser.add_argument("--seed", type=int, default=None,
                          help="Random seed for a reproducible bank/channel layout")
+    parser.add_argument("--recall-every", type=float, default=None,
+                         metavar="SECONDS",
+                         help="Periodically recall a snapshot, rewriting all "
+                              "levels/pans/mutes and announcing only the recall")
     parser.add_argument("--no-mic", action="store_true",
                          help="Drive the meters with a synthetic random walk "
                               "instead of the default recording device")
@@ -545,7 +592,11 @@ def main():
     else:
         print(f"  meters: synthetic ({MIC_COMMAND} not found)")
 
-    MockMixer(args.listen_port, args.client_host, args.client_port, mic=mic).run()
+    if args.recall_every:
+        print(f"  snapshots: recalling one every {args.recall_every}s")
+
+    MockMixer(args.listen_port, args.client_host, args.client_port, mic=mic,
+              recall_every=args.recall_every).run()
 
 
 if __name__ == "__main__":
