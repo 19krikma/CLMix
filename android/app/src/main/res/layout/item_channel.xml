@@ -56,6 +56,15 @@
 
         </FrameLayout>
 
+        <!-- Same 0..-60dB scale the console prints on its own meters,
+             deliberately not the fader's -150..+10 - so it is placed
+             beside the fader rather than against the ruler. -->
+        <com.clmix.ChannelMeterView
+            android:id="@+id/channel_meter"
+            android:layout_width="10dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="4dp" />
+
     </LinearLayout>
 
     <com.google.android.material.button.MaterialButton

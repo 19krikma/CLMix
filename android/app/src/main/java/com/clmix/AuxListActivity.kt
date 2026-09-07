@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.clmix.databinding.ActivityAuxListBinding
 import com.clmix.databinding.ItemAuxBinding
@@ -116,6 +117,19 @@ class AuxAdapter(
     private val onClick: (AuxBus) -> Unit
 ) : RecyclerView.Adapter<AuxAdapter.ViewHolder>() {
 
+    /**
+     * Aux index currently being mixed, or -1 when there is not one yet -
+     * which is the case on the initial "Select your Aux" screen, where
+     * nothing has been chosen to highlight.
+     */
+    var selectedAux: Int = -1
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
     class ViewHolder(val binding: ItemAuxBinding) : RecyclerView.ViewHolder(binding.root)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -127,8 +141,28 @@ class AuxAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
+        val context = holder.binding.root.context
+        val isSelected = item.index == selectedAux
+
         holder.binding.auxName.text = item.name
         holder.binding.root.setOnClickListener { onClick(item) }
+
+        // Filled in the accent rather than merely outlined: the drawer is
+        // opened to change mix, so "which one am I on" has to be
+        // answerable at a glance, not by reading every row.
+        holder.binding.root.setCardBackgroundColor(
+            ContextCompat.getColor(
+                context, if (isSelected) R.color.primary else R.color.surface
+            )
+        )
+        holder.binding.root.strokeColor = ContextCompat.getColor(
+            context, if (isSelected) R.color.primary else R.color.surface_variant
+        )
+        holder.binding.auxName.setTextColor(
+            ContextCompat.getColor(
+                context, if (isSelected) R.color.on_primary else R.color.on_surface
+            )
+        )
     }
 
     override fun getItemCount() = items.size

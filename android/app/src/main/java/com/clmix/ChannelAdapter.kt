@@ -27,7 +27,37 @@ class ChannelAdapter(
     // rotated travel normally allows.
     var smoothEnabled: Boolean = false
 
+    // Both mirror a server-side truth rather than deciding anything: the
+    // server rejects a pan write to a mono bus and a mute from an account
+    // without the permission regardless of what is drawn here. Hiding
+    // them just avoids offering an action that could only come back as an
+    // error - or worse, a pan control that the console accepts and then
+    // does nothing with.
+    var panSupported: Boolean = true
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
+    var muteSupported: Boolean = true
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
     private var channels: List<ChannelState> = emptyList()
+
+    // Latest meter frame, kept here rather than folded into ChannelState
+    // because it arrives ~20x a second against the levels push's ~7x -
+    // rebuilding the channel list at meter rate would defeat all the
+    // rebind-avoidance below. Applied straight to the meter views, which
+    // animate themselves.
+    private var meters: Map<Int, MeterLevels> = emptyMap()
+    private var meterSequence: Long = 0
 
     // What's actually on screen right now, per channel - used to skip
     // rebinding items whose displayed state wouldn't change, which is
@@ -49,6 +79,36 @@ class ChannelAdapter(
     private class PendingMute(val expected: Boolean, val sentAt: Long)
 
     private val pendingMutes = mutableMapOf<Int, PendingMute>()
+
+    fun updateMeters(sequence: Long, frame: Map<Int, MeterLevels>, recycler: RecyclerView) {
+        meters = frame
+        meterSequence = sequence
+
+        // Straight at the visible holders: notifyItemChanged would
+        // rebind whole rows 20 times a second, and there is nothing in a
+        // row but the meter that changes that fast.
+        for (index in 0 until recycler.childCount) {
+            val child = recycler.getChildAt(index)
+            val holder = recycler.getChildViewHolder(child) as? ViewHolder ?: continue
+            val position = holder.bindingAdapterPosition
+
+            if (position == RecyclerView.NO_POSITION || position >= channels.size) continue
+
+            applyMeter(holder, channels[position])
+        }
+    }
+
+    private fun applyMeter(holder: ViewHolder, channel: ChannelState) {
+        val meter = holder.binding.channelMeter
+        meter.setStereo(channel.stereo)
+
+        val levels = meters[channel.channel] ?: return
+        meter.setLevels(
+            meterSequence,
+            levels.leftPeak, levels.leftRms,
+            levels.rightPeak, levels.rightRms
+        )
+    }
 
     fun updateChannels(
         newChannels: List<ChannelState>,
@@ -259,6 +319,13 @@ class ChannelAdapter(
             holder.binding.levelSeekBar.progress = progress
             displayedProgress[channel.channel] = progress
         }
+
+        holder.binding.channelMeter.setStereo(channel.stereo)
+
+        holder.binding.panButton.visibility =
+            if (panSupported) View.VISIBLE else View.GONE
+        holder.binding.muteButton.visibility =
+            if (muteSupported) View.VISIBLE else View.GONE
 
         holder.binding.panButton.text = PanFormat.buttonLabel(channel.pan)
         displayedPan[channel.channel] = channel.pan

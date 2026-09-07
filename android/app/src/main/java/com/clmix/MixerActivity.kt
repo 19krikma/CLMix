@@ -35,6 +35,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     private var smoothEnabled = false
     private val draggingChannels = mutableSetOf<Int>()
     private val dragReleasedAt = mutableMapOf<Int, Long>()
+    // Kept so switchAux() can look up the incoming bus's width - the
+    // drawer hands over an AuxBus, but a rebuild restores only auxIndex.
+    private var auxBuses: List<AuxBus> = emptyList()
+    private var auxAdapter: AuxAdapter? = null
     private var panSheet: PanBottomSheet? = null
     private var presetSaveSheet: PresetSaveBottomSheet? = null
     private var presetLoadSheet: PresetLoadBottomSheet? = null
@@ -58,6 +62,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
 
         @Suppress("UNCHECKED_CAST")
         val auxes = intent.getSerializableExtra("auxes") as? ArrayList<AuxBus> ?: arrayListOf()
+        auxBuses = auxes
 
         adapter = ChannelAdapter(
             onLevelChanged = { channel, db -> MixerClient.setLevel(channel, db) },
@@ -83,6 +88,21 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.channelRecycler.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
             if (bottom - top != oldBottom - oldTop) {
                 adapter.syncAllFaderWidths(binding.channelRecycler)
+
+                // The strips themselves were measured against the old
+                // height and RecyclerView will happily reuse them at that
+                // size - which pushes whatever is at the bottom of a
+                // strip (the Mute button) past the recycler's edge. A
+                // rebind alone is not enough; the item views have to be
+                // asked to measure again. Posted because this fires
+                // during a layout pass, where a synchronous
+                // requestLayout() is swallowed - the same reason
+                // syncFaderWidth defers its own.
+                binding.channelRecycler.post {
+                    for (i in 0 until binding.channelRecycler.childCount) {
+                        binding.channelRecycler.getChildAt(i).requestLayout()
+                    }
+                }
             }
         }
 
@@ -91,7 +111,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
                 parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long
             ) {
                 val selected = parent?.getItemAtPosition(position) as? String ?: return
-                selectedBank = if (selected == "All") null else selected
+                selectedBank = selected
                 MixerClient.selectBank(selectedBank)
             }
 
@@ -103,13 +123,18 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         }
 
         binding.drawerAuxRecycler.layoutManager = LinearLayoutManager(this)
-        binding.drawerAuxRecycler.adapter = AuxAdapter(auxes) { aux -> switchAux(aux) }
+        auxAdapter = AuxAdapter(auxes) { aux -> switchAux(aux) }
+        binding.drawerAuxRecycler.adapter = auxAdapter
 
         // Only accounts with Preset Access (Setup > Accounts on desktop)
         // get this button at all - the server enforces the same check
         // independently, but there's no point showing an action that
         // would just come back as an error.
         binding.presetsButton.visibility = if (MixerClient.presetsAllowed) View.VISIBLE else View.GONE
+
+        adapter.muteSupported = MixerClient.muteAllowed
+        applyAuxWidth()
+        showCurrentAux()
         binding.presetsButton.setOnClickListener { togglePresetsExpanded() }
         binding.presetSaveButton.setOnClickListener { showPresetSaveSheet() }
         binding.presetLoadButton.setOnClickListener { showPresetLoadSheet() }
@@ -143,6 +168,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         outState.putInt(STATE_AUX_INDEX, auxIndex)
         outState.putString(STATE_AUX_NAME, title?.toString())
         outState.putString(STATE_BANK, selectedBank)
+    }
+
+    override fun onMeters(sequence: Long, meters: Map<Int, MeterLevels>) {
+        adapter.updateMeters(sequence, meters, binding.channelRecycler)
     }
 
     private fun updateSmoothButtonAppearance() {
@@ -236,7 +265,31 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
 
         auxIndex = aux.index
         title = aux.name
+        applyAuxWidth()
+        showCurrentAux()
         MixerClient.selectAux(auxIndex)
+    }
+
+    // A mono aux has no pan axis, so the Pan button comes off the strip
+    // entirely - the same thing the desktop does with its pan slider.
+    // Unknown aux (an older server, or a rebuild before the list
+    // arrives) is treated as stereo, which is how it always behaved.
+    // Everything that names the aux currently being mixed: the bar along
+    // the bottom of the strips, and the highlight in the drawer's list.
+    // Called from the same places as applyAuxWidth so the two can never
+    // describe different auxes.
+    private fun showCurrentAux() {
+        binding.currentAuxLabel.text = title?.toString().orEmpty()
+        auxAdapter?.selectedAux = auxIndex
+    }
+
+    private fun applyAuxWidth() {
+        val aux = auxBuses.firstOrNull { it.index == auxIndex }
+        adapter.panSupported = aux?.stereo ?: true
+
+        if (aux?.stereo == false) {
+            dismissPanSheet()
+        }
     }
 
     private fun dismissPanSheet() {
@@ -289,15 +342,31 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     override fun onBanks(banks: List<String>) {
-        val items = listOf("All") + banks
+        // No synthetic "All" entry: every channel at once is a whole
+        // console's worth of strips, faders and meters for a phone that
+        // can show a dozen - the same reason the desktop dropped its own
+        // All button. The console's banks are the only choices.
         binding.bankSpinner.adapter =
-            ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, items)
+            ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, banks)
 
-        // Put the spinner back on the bank that was showing before a
-        // rebuild. Selecting it re-fires the listener, which re-sends
-        // select_bank for the same bank - harmless, and it means the
-        // server's idea of the filter always matches the spinner's.
-        val index = items.indexOf(selectedBank)
+        if (banks.isEmpty()) {
+            // A console that reports no banks at all: fall back to every
+            // channel rather than leaving the operator with an empty
+            // screen. A fallback, not a choice - there is still nothing
+            // in the spinner to pick.
+            if (selectedBank != null) {
+                selectedBank = null
+                MixerClient.selectBank(null)
+            }
+            return
+        }
+
+        // Back to whatever was showing before a rebuild, else the
+        // console's first bank. Setting the adapter already selects
+        // position 0 and fires the listener, so the opening bank is
+        // requested without anything further here; this only matters
+        // when restoring a different one.
+        val index = banks.indexOf(selectedBank)
         if (index > 0) {
             binding.bankSpinner.setSelection(index)
         }

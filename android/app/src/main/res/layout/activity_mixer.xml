@@ -76,6 +76,23 @@
             android:clipToPadding="false"
             android:padding="10dp" />
 
+        <!-- Which mix these faders are actually feeding. The top bar is
+             about the strips on screen (which bank, how the faders
+             behave); this answers the question that matters most when
+             someone else asks for "more me" - and at the bottom it sits
+             right by the thumbs, out of the way of the meters. -->
+        <TextView
+            android:id="@+id/current_aux_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/colorSurface"
+            android:gravity="center"
+            android:paddingVertical="10dp"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary"
+            android:text="" />
+
     </LinearLayout>
 
     <LinearLayout

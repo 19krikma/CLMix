@@ -8,6 +8,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -28,6 +29,12 @@ interface MixerClientListener {
     // do with it. Null when ok is false.
     fun onLoginResult(ok: Boolean, message: String?, token: String? = null) {}
     fun onAuxes(auxes: List<AuxBus>) {}
+
+    // Arrives ~20x a second while a mix is moving, carrying one row per
+    // visible channel. sequence advances per frame so views can tell a
+    // fresh sample from a redraw of the same one - the meter ballistics
+    // depend on that distinction (see ChannelMeterView).
+    fun onMeters(sequence: Long, meters: Map<Int, MeterLevels>) {}
     fun onBanks(banks: List<String>) {}
     fun onLevels(aux: Int, channels: List<ChannelState>) {}
     fun onPresets(names: List<String>) {}
@@ -91,6 +98,20 @@ object MixerClient {
     var presetsAllowed: Boolean = false
         private set
 
+    // Set from login_result - gates whether the Mute button is offered,
+    // mirroring the server's own per-user check (which still applies
+    // regardless of what the client shows). Defaults true: an account
+    // with no explicit setting, and an older server that never sends the
+    // field, both mean "allowed".
+    var muteAllowed: Boolean = true
+        private set
+
+    // Advances once per received meter frame. The server only sends a
+    // frame when something actually changed, so a bar that stops being
+    // fed stops being pushed back up and releases away, exactly as on
+    // the desk.
+    private var meterSequence: Long = 0
+
     // The one protocol error callers treat specially rather than just
     // displaying: the account is scoped to a different snapshot than the
     // one currently live on the console, which is a standing permissions
@@ -143,6 +164,7 @@ object MixerClient {
         webSocket = null
         isConnected = false
         presetsAllowed = false
+        muteAllowed = true
         appContext?.let(MixerConnectionService::stop)
     }
 
@@ -234,6 +256,7 @@ object MixerClient {
                 val message = json.optString("message").takeIf { it.isNotEmpty() }
                 val token = json.optString("token").takeIf { it.isNotEmpty() }
                 presetsAllowed = ok && json.optBoolean("presets", false)
+                muteAllowed = !ok || json.optBoolean("mute", true)
                 onMain { listener?.onLoginResult(ok, message, token) }
             }
 
@@ -241,7 +264,11 @@ object MixerClient {
                 val arr = json.getJSONArray("auxes")
                 val list = (0 until arr.length()).map {
                     val o = arr.getJSONObject(it)
-                    AuxBus(o.getInt("index"), o.getString("name"))
+                    AuxBus(
+                        o.getInt("index"),
+                        o.getString("name"),
+                        o.optBoolean("stereo", true)
+                    )
                 }
                 onMain { listener?.onAuxes(list) }
             }
@@ -262,10 +289,33 @@ object MixerClient {
                         name = o.getString("name"),
                         level = if (o.isNull("level")) null else o.getDouble("level"),
                         pan = if (o.isNull("pan")) null else o.getDouble("pan"),
-                        muted = o.getBoolean("muted")
+                        muted = o.getBoolean("muted"),
+                        stereo = o.optBoolean("stereo", false)
                     )
                 }
                 onMain { listener?.onLevels(aux, list) }
+            }
+
+            "meters" -> {
+                val arr = json.getJSONArray("meters")
+                val map = HashMap<Int, MeterLevels>(arr.length())
+
+                for (i in 0 until arr.length()) {
+                    // Positional [channel, peakL, rmsL, peakR, rmsR] -
+                    // see RemoteServer._meter_states for why it is not
+                    // an object.
+                    val row = arr.getJSONArray(i)
+                    map[row.getInt(0)] = MeterLevels(
+                        leftPeak = row.optDoubleOrNull(1),
+                        leftRms = row.optDoubleOrNull(2),
+                        rightPeak = row.optDoubleOrNull(3),
+                        rightRms = row.optDoubleOrNull(4)
+                    )
+                }
+
+                meterSequence++
+                val sequence = meterSequence
+                onMain { listener?.onMeters(sequence, map) }
             }
 
             "presets" -> {
@@ -309,3 +359,14 @@ private fun friendlyServerMessage(raw: String): String = when (raw) {
     "Not authenticated" -> "Not logged in"
     else -> raw
 }
+
+/** Null where the console reported its no-signal sentinel. */
+data class MeterLevels(
+    val leftPeak: Double?,
+    val leftRms: Double?,
+    val rightPeak: Double?,
+    val rightRms: Double?
+)
+
+private fun JSONArray.optDoubleOrNull(index: Int): Double? =
+    if (isNull(index)) null else optDouble(index)

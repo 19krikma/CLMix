@@ -92,6 +92,14 @@ class MixerWorker(threading.Thread):
     # short enough that a real loss is not noticeable.
     BOOT_RETRY_SECONDS = 0.5
 
+    # Ceiling on how many meter slots to ask the console for at once.
+    # The only hard evidence is the official client using 12; no maximum
+    # is documented, so this is a deliberately generous guess that still
+    # refuses to ask for something absurd when several phones each pick a
+    # different bank. Sources are filled desktop-first, so overflow costs
+    # a phone its meters, never the operator at the desk.
+    MAX_METER_SLOTS = 64
+
     # Meter wire format, reverse-engineered from captures of the official
     # DiGiCo client - see docs/mixer_protocol/PROTOCOL.md "Metering".
     # Each /Meters/values int packs two 8-bit fields (the middle byte is
@@ -172,6 +180,14 @@ class MixerWorker(threading.Thread):
         # changes on nearly every reply, and that queue is drained at
         # 100ms and logs every entry it carries.
         self.loading_stage = None
+
+        # Who wants meters, by source name -> channels. The console has a
+        # single global slot table, so every surface that wants metering
+        # has to share it: the desktop panel registers its visible bank,
+        # each connected phone registers its own, and the subscription
+        # sent to the console is the union. Without this a phone on a
+        # different bank than the desktop would meter nothing at all.
+        self._meter_sources = {}
 
         # slot number -> (channel index, leg), mirroring whatever the UI
         # last subscribed via subscribe_meters(). /Meters/values reports
@@ -507,25 +523,52 @@ class MixerWorker(threading.Thread):
         return self.METER_LEGS_STEREO if self.channel_is_stereo(channel) \
             else self.METER_LEGS_MONO
 
-    def subscribe_meters(self, channels):
-        """Bind meter slots for channels, replacing any previous set.
+    def subscribe_meters(self, channels, source="desktop"):
+        """Register one surface's channels and re-bind the console's slots.
 
         One slot per leg: mono channels take a single slot, stereo
         channels two. Slot numbers are ours to assign and are handed back
         verbatim in /Meters/values, so nothing but this mapping needs to
         know that a strip's two bars are adjacent slots.
 
-        Safe to call from the UI thread: the actual sends go out through
-        command_queue on the worker thread. Only subscribe what's on
-        screen - this is a continuous ~30Hz stream, not a poll, and a
-        bank of stereo channels now costs twice the slots it used to.
+        Safe to call from any thread: the actual sends go out through
+        command_queue on the worker thread. Only register what is on
+        screen - this is a continuous ~30Hz stream, not a poll.
         """
+        channels = list(channels)
+
+        if self._meter_sources.get(source) == channels:
+            # Re-registering the same set would otherwise clear and
+            # rebuild the console's whole slot table for nothing, which
+            # blanks every other surface's meters for a moment.
+            return
+
+        self._meter_sources[source] = channels
+        self._rebuild_meter_subscription()
+
+    def release_meters(self, source):
+        """Drop a surface's claim - a phone disconnecting, say."""
+        if self._meter_sources.pop(source, None) is not None:
+            self._rebuild_meter_subscription()
+
+    def _rebuild_meter_subscription(self):
+        # Ordered union: the desktop's own strips claim slots first, so
+        # if the cap below ever bites it is a phone that loses metering
+        # rather than the operator at the console.
+        wanted = []
+        for source in sorted(self._meter_sources, key=lambda s: s != "desktop"):
+            for channel in self._meter_sources[source]:
+                if channel not in wanted:
+                    wanted.append(channel)
+
         self.meter_slots = {}
         self.meter_levels = {}
         self.meter_seq = {}
 
-        for channel in channels:
+        for channel in wanted:
             for leg in self.channel_legs(channel):
+                if len(self.meter_slots) >= self.MAX_METER_SLOTS:
+                    break
                 self.meter_slots[len(self.meter_slots)] = (channel, leg)
 
         self.command_queue.put("/Meters/clear")

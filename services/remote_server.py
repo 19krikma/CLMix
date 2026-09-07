@@ -15,6 +15,13 @@ from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
 PUSH_INTERVAL_SECONDS = 0.15
 
+# Meters get their own, faster loop. The console streams them at ~29Hz
+# and they are the one thing on the strip that has to look continuous -
+# at the 150ms of the levels push a meter reads as a row of steps rather
+# than a moving bar. Values are sent compactly (see _meter_states) so the
+# extra rate costs a few KB/s, not a multiple of the existing traffic.
+METER_PUSH_INTERVAL_SECONDS = 0.05
+
 # How long a session token stays redeemable after it was last used. This
 # is a *sliding* window, refreshed on every successful token login, so an
 # app in active use through a long show day never expires mid-session -
@@ -209,9 +216,13 @@ class RemoteServer:
             # for. None until it picks an aux, since there is nothing to
             # prime before that.
             "snapshot_epoch": None,
+            # Identifies this client's claim on the console's shared
+            # meter slots - see _claim_meters.
+            "meter_source": f"client:{id(websocket):x}",
         }
 
         push_task = asyncio.create_task(self._push_loop(websocket, state))
+        meter_task = asyncio.create_task(self._meter_loop(websocket, state))
 
         try:
             async for message in websocket:
@@ -220,6 +231,15 @@ class RemoteServer:
             pass
         finally:
             push_task.cancel()
+            meter_task.cancel()
+
+            # Give back this client's share of the console's meter slots,
+            # so a phone that disconnects stops costing everyone else
+            # bandwidth for strips nobody is looking at any more.
+            worker = self.get_worker()
+            if worker is not None:
+                worker.release_meters(state["meter_source"])
+
             self._clients.discard(websocket)
             log("info", f"Client disconnected: {websocket.remote_address}")
 
@@ -287,10 +307,12 @@ class RemoteServer:
 
             state["aux"] = aux
             self._request_channel_states(worker, state)
+            self._claim_meters(worker, state)
 
         elif action == "select_bank":
             state["bank"] = msg.get("bank")
             self._request_channel_states(worker, state)
+            self._claim_meters(worker, state)
 
         elif action == "set_level":
             if not self._aux_allowed(worker, entry, state.get("aux")):
@@ -609,6 +631,78 @@ class RemoteServer:
     # explicit query first a channel nobody has touched this session has
     # no cached value at all - which is what used to leave every strip
     # reading as unmuted until something happened to move.
+    async def _meter_loop(self, websocket, state):
+        last = None
+
+        while True:
+            await asyncio.sleep(METER_PUSH_INTERVAL_SECONDS)
+
+            worker = self.get_worker()
+            aux = state.get("aux")
+
+            if not worker or not worker.is_alive() or aux is None:
+                continue
+
+            if state.get("permission") is None:
+                continue
+
+            channels = self._channels_for(worker, state.get("bank"))
+            meters = self._meter_states(worker, channels)
+
+            # Silence is identical frame after frame; sending it 20 times
+            # a second to a phone whose mix is idle is pure waste. Any
+            # change at all goes out in full.
+            if meters == last:
+                continue
+
+            last = meters
+
+            try:
+                await self._send(websocket, {"type": "meters", "meters": meters})
+            except websockets.ConnectionClosed:
+                return
+
+    @staticmethod
+    def _meter_states(worker, channels):
+        """Compact per-channel meter rows: [channel, pL, rL, pR, rR].
+
+        dB below zero as negative numbers, null where the console reports
+        its no-signal sentinel. The right pair is null on a mono channel.
+        Deliberately positional rather than named: this goes out 20 times
+        a second, and the field names would be most of the payload.
+        """
+        rows = []
+
+        for channel in channels:
+            legs = worker.channel_legs(channel)
+            values = []
+
+            for leg in ("left", "right"):
+                peak, rms = (worker.meter_levels.get((channel, leg), (None, None))
+                             if leg in legs else (None, None))
+                values += [peak, rms]
+
+            rows.append([channel] + values)
+
+        return rows
+
+    def _claim_meters(self, worker, state):
+        """Tell the worker which channels this client needs metered.
+
+        The console keeps one global slot table, so this is a claim on a
+        shared resource rather than a private subscription - the worker
+        unions every claim and re-binds. Keyed by the client's own
+        identity so switching bank replaces that claim instead of adding
+        to it.
+        """
+        if state.get("aux") is None:
+            return
+
+        worker.subscribe_meters(
+            self._channels_for(worker, state.get("bank")),
+            source=state["meter_source"],
+        )
+
     def _request_channel_states(self, worker, state):
         aux = state.get("aux")
 
@@ -808,6 +902,11 @@ class RemoteServer:
                 "level": level,
                 "pan": pan,
                 "muted": muted,
+                # Says whether this strip's meter has a second leg. Sent
+                # here rather than with the meter rows because it changes
+                # only with the console's configuration, while those go
+                # out 20 times a second.
+                "stereo": worker.channel_is_stereo(channel),
             })
 
         return states
