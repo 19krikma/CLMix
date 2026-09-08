@@ -24,6 +24,9 @@ final class DemoMixer: MixerBackend {
     // rather than hidden - "all of the features and functionality" is what
     // Guideline 2.1 asks a demonstration mode to show.
     private(set) var presetsAllowed = false
+    // Same default the real client uses - an account with no explicit
+    // setting means "allowed".
+    private(set) var muteAllowed = true
 
     private init() {}
 
@@ -33,34 +36,54 @@ final class DemoMixer: MixerBackend {
         let channel: Int
         let name: String
         let bank: String
+        // Whether the strip's meter draws two bars rather than one.
+        var stereo: Bool = false
+        // How this input behaves on a meter, so the demo's bars move like
+        // a band playing rather than like noise. See meterAmplitude.
+        var voice: Voice = .sustained
+    }
+
+    private enum Voice {
+        case kick
+        case snare
+        case hats
+        case toms
+        case sustained
+        case silent
     }
 
     /// A plausible small-band input list, in console order. `bank` mirrors
     /// how the desktop app groups channels into banks the phone can filter
     /// by; "All" is not a bank here, it is the absence of a filter.
+    ///
+    /// Two of them are stereo pairs, so the two-bar meter is exercised
+    /// rather than only ever drawn as a single wide bar.
     private static let catalog: [DemoChannel] = [
-        DemoChannel(channel: 1, name: "Kick In", bank: "Drums"),
-        DemoChannel(channel: 2, name: "Kick Out", bank: "Drums"),
-        DemoChannel(channel: 3, name: "Snare Top", bank: "Drums"),
-        DemoChannel(channel: 4, name: "Snare Bot", bank: "Drums"),
-        DemoChannel(channel: 5, name: "Hi-Hat", bank: "Drums"),
-        DemoChannel(channel: 6, name: "Rack Tom", bank: "Drums"),
-        DemoChannel(channel: 7, name: "Floor Tom", bank: "Drums"),
-        DemoChannel(channel: 8, name: "OH L", bank: "Drums"),
-        DemoChannel(channel: 9, name: "OH R", bank: "Drums"),
+        DemoChannel(channel: 1, name: "Kick In", bank: "Drums", voice: .kick),
+        DemoChannel(channel: 2, name: "Kick Out", bank: "Drums", voice: .kick),
+        DemoChannel(channel: 3, name: "Snare Top", bank: "Drums", voice: .snare),
+        DemoChannel(channel: 4, name: "Snare Bot", bank: "Drums", voice: .snare),
+        DemoChannel(channel: 5, name: "Hi-Hat", bank: "Drums", voice: .hats),
+        DemoChannel(channel: 6, name: "Rack Tom", bank: "Drums", voice: .toms),
+        DemoChannel(channel: 7, name: "Floor Tom", bank: "Drums", voice: .toms),
+        DemoChannel(channel: 8, name: "OH L", bank: "Drums", voice: .hats),
+        DemoChannel(channel: 9, name: "OH R", bank: "Drums", voice: .hats),
         DemoChannel(channel: 10, name: "Bass DI", bank: "Band"),
         DemoChannel(channel: 11, name: "Bass Amp", bank: "Band"),
         DemoChannel(channel: 12, name: "Gtr Stage L", bank: "Band"),
         DemoChannel(channel: 13, name: "Gtr Stage R", bank: "Band"),
-        DemoChannel(channel: 14, name: "Keys L", bank: "Band"),
-        DemoChannel(channel: 15, name: "Keys R", bank: "Band"),
+        DemoChannel(channel: 14, name: "Keys", bank: "Band", stereo: true),
+        DemoChannel(channel: 15, name: "Playback", bank: "Band", stereo: true),
         DemoChannel(channel: 16, name: "Acoustic", bank: "Band"),
         DemoChannel(channel: 17, name: "Lead Vox", bank: "Vocals"),
         DemoChannel(channel: 18, name: "BV Stage L", bank: "Vocals"),
         DemoChannel(channel: 19, name: "BV Stage R", bank: "Vocals"),
-        DemoChannel(channel: 20, name: "Talkback", bank: "Vocals"),
+        DemoChannel(channel: 20, name: "Talkback", bank: "Vocals", voice: .silent),
     ]
 
+    /// "Drum Sub" is deliberately mono - a real rig usually has one, and
+    /// it is what makes the Pan button's disappearance on a bus with no
+    /// pan axis visible in the demo rather than only against a console.
     private static let auxes: [AuxBus] = [
         AuxBus(index: 1, name: "Wedge 1 - Lead Vox"),
         AuxBus(index: 2, name: "Wedge 2 - Guitar"),
@@ -69,7 +92,7 @@ final class DemoMixer: MixerBackend {
         AuxBus(index: 5, name: "IEM - Drums"),
         AuxBus(index: 6, name: "IEM - MD"),
         AuxBus(index: 7, name: "Side Fills"),
-        AuxBus(index: 8, name: "Drum Sub"),
+        AuxBus(index: 8, name: "Drum Sub", stereo: false),
     ]
 
     private static let banks = ["Drums", "Band", "Vocals"]
@@ -81,7 +104,7 @@ final class DemoMixer: MixerBackend {
         1: 17,  // Wedge 1 - Lead Vox -> Lead Vox
         2: 12,  // Wedge 2 - Guitar   -> Gtr Stage L
         3: 10,  // Wedge 3 - Bass     -> Bass DI
-        4: 14,  // Wedge 4 - Keys     -> Keys L
+        4: 14,  // Wedge 4 - Keys     -> Keys
         5: 1,   // IEM - Drums        -> Kick In
         6: 16,  // IEM - MD           -> Acoustic
         7: 17,  // Side Fills         -> Lead Vox
@@ -101,6 +124,8 @@ final class DemoMixer: MixerBackend {
     private var selectedAux: Int?
     private var selectedBank: String?
     private var pushTimer: Timer?
+    private var meterTimer: Timer?
+    private var meterSequence: Int64 = 0
 
     /// Deterministic starting positions, so the demo opens on something
     /// that reads as a real monitor mix rather than a wall of identical
@@ -160,6 +185,7 @@ final class DemoMixer: MixerBackend {
         stopPushing()
         isConnected = false
         presetsAllowed = false
+        muteAllowed = true
         selectedAux = nil
         selectedBank = nil
     }
@@ -168,6 +194,7 @@ final class DemoMixer: MixerBackend {
         // Any credentials are accepted: the demo exists to be walked into,
         // and there is no account behind it to get wrong.
         presetsAllowed = true
+        muteAllowed = true
 
         // No token is handed back, so SessionStore stores nothing and a
         // relaunch returns to the connect screen rather than silently
@@ -276,11 +303,23 @@ final class DemoMixer: MixerBackend {
         }
         RunLoop.main.add(timer, forMode: .common)
         pushTimer = timer
+
+        // Meters get their own, faster loop, matching
+        // METER_PUSH_INTERVAL_SECONDS in services/remote_server.py - at
+        // the levels push's 150ms a meter reads as a row of steps rather
+        // than a moving bar.
+        let meters = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            self?.pushMeters()
+        }
+        RunLoop.main.add(meters, forMode: .common)
+        meterTimer = meters
     }
 
     private func stopPushing() {
         pushTimer?.invalidate()
         pushTimer = nil
+        meterTimer?.invalidate()
+        meterTimer = nil
     }
 
     private func pushLevels() {
@@ -294,7 +333,8 @@ final class DemoMixer: MixerBackend {
                 name: entry.name,
                 level: send.level,
                 pan: send.pan,
-                muted: send.muted
+                muted: send.muted,
+                stereo: entry.stereo
             )
         }
 
@@ -302,4 +342,113 @@ final class DemoMixer: MixerBackend {
             self.delegate?.mixerDidReceiveLevels(aux: aux, channels: channels)
         }
     }
+
+    // MARK: - Fabricated meters
+
+    /// Bars that move like a band playing rather than like noise: each
+    /// input is given a voice (see Voice) driven off a shared 120bpm
+    /// clock, so the kick pulses on the beat, the snare answers on 2 and
+    /// 4, and the sustained sources breathe underneath. Entirely
+    /// deterministic - a function of the wall clock and the channel
+    /// number, with no state to keep between frames.
+    private func pushMeters() {
+        guard let aux = selectedAux, let mix = sends[aux] else { return }
+
+        let now = Date.timeIntervalSinceReferenceDate
+        let visible = Self.catalog.filter { selectedBank == nil || $0.bank == selectedBank }
+        var frame = [Int: MeterLevels](minimumCapacity: visible.count)
+
+        for entry in visible {
+            guard let send = mix[entry.channel] else { continue }
+
+            let left = meterDb(entry, send, at: now, leg: 0)
+            // A stereo pair's two legs never sit at exactly the same
+            // level; a mono channel reports nothing at all on the right,
+            // the same way the console's no-signal sentinel comes through
+            // as null.
+            let right = entry.stereo ? meterDb(entry, send, at: now, leg: 1) : nil
+
+            frame[entry.channel] = MeterLevels(
+                leftPeak: left,
+                leftRms: left.map { $0 - 4 },
+                rightPeak: right,
+                rightRms: right.map { $0 - 4 }
+            )
+        }
+
+        meterSequence += 1
+        let sequence = meterSequence
+
+        Task { @MainActor in
+            self.delegate?.mixerDidReceiveMeters(sequence: sequence, meters: frame)
+        }
+    }
+
+    private func meterDb(_ entry: DemoChannel, _ send: Send, at t: Double, leg: Int) -> Double? {
+        // A muted send is not in this mix, so its post-fader meter reads
+        // nothing - the same as the console's no-signal sentinel.
+        if send.muted { return nil }
+
+        let offset = Double(entry.channel) * 0.37 + Double(leg) * 0.11
+        let amplitude = meterAmplitude(entry.voice, at: t, offset: offset)
+
+        if amplitude <= 0 { return nil }
+
+        let base = Self.meterFloorDb + amplitude * (Self.meterCeilingDb - Self.meterFloorDb)
+
+        // These are post-fader meters, so pulling a fader down has to pull
+        // its bar down with it. The fader's contribution is clamped rather
+        // than applied in full: the seeded mix sits well below unity, and
+        // at face value every bar would start pinned to the floor with
+        // nothing to show.
+        let fader = max(-24, min(0, send.level + 6))
+        let db = base + fader
+
+        return db <= Self.meterFloorDb ? nil : db
+    }
+
+    private func meterAmplitude(_ voice: Voice, at t: Double, offset: Double) -> Double {
+        let bar = (t / Self.beatSeconds).truncatingRemainder(dividingBy: 4)
+
+        switch voice {
+        case .kick:
+            return percussive(bar, hits: [0, 2, 2.75], decay: 9)
+        case .snare:
+            return percussive(bar, hits: [1, 3], decay: 7)
+        case .hats:
+            return percussive(bar, hits: [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5], decay: 12) * 0.65
+        case .toms:
+            // Only around the turnaround, so they sit still most of the
+            // bar the way a real fill does.
+            return percussive(bar, hits: [3.5, 3.75], decay: 10) * 0.8
+        case .sustained:
+            let slow = sin(t * 0.7 + offset) * 0.5 + 0.5
+            let fast = sin(t * 5.3 + offset * 2.1) * 0.5 + 0.5
+            return min(1, 0.45 + 0.35 * slow + 0.15 * fast)
+        case .silent:
+            return 0
+        }
+    }
+
+    /// A decaying hit at each of `hits`, wrapping around the bar so the
+    /// last one still rings into the first beat of the next.
+    private func percussive(_ bar: Double, hits: [Double], decay: Double) -> Double {
+        var loudest = 0.0
+
+        for hit in hits {
+            var since = bar - hit
+            if since < 0 { since += 4 }
+            loudest = max(loudest, exp(-since * decay))
+        }
+
+        return loudest
+    }
+
+    // 120bpm, which is where most of a soundcheck lives.
+    private static let beatSeconds = 60.0 / 120.0
+    // The meter's own floor (ChannelMeterUIView.floorDb) - repeated as a
+    // literal rather than referenced, so this file stays free of any
+    // dependency on the view layer.
+    private static let meterFloorDb = -60.0
+    private static let meterCeilingDb = -3.0
 }

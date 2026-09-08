@@ -1,24 +1,34 @@
 import SwiftUI
 
 /// Mirrors Android's MixerActivity: a custom top control row (menu
-/// button, bank picker, Fine toggle, inline error label) directly over
+/// button, Fine toggle, bank pull-down, inline error label) directly over
 /// the channel grid rather than a system nav bar - Android's theme has no
 /// action bar here at all, and enterFullScreen() hides the system bars
-/// too, so every pixel goes to the fader grid. The menu button opens
-/// everything Android's side drawer holds - Aux Buses, Presets (expands
-/// in place to Save/Load), Dark mode, Log Out - as one sheet, since iOS
-/// has no equivalent slide-out drawer.
+/// too, so every pixel goes to the fader grid.
+///
+/// The aux picker is the bottom sheet, within thumb reach (AuxSheetView).
+/// The menu button opens what is left of Android's side drawer - Presets
+/// (expands in place to Save/Load), Dark mode, Log Out - as one sheet,
+/// since iOS has no equivalent slide-out drawer.
 struct MixerView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var themeStore: ThemeStore
     @Environment(\.colorScheme) var systemColorScheme
     let aux: AuxBus
 
-    @State private var selectedBank: String?
+    @State private var banksExpanded = false
     @State private var showMenu = false
     @State private var presetsExpanded = false
     @State private var showPresetSave = false
     @State private var showPresetLoad = false
+
+    // Deliberately well under Android's own 200ms "short" duration: this
+    // is a control being operated mid-show, not a screen transition, so
+    // it only has to take the hard edge off the strips jumping - any
+    // longer reads as waiting for the panel. Decelerating suits a panel
+    // being pulled down and released: it arrives rather than stopping
+    // dead.
+    private let bankPanelAnimation = Animation.easeOut(duration: 0.1)
 
     // What the toggle should show. With no saved choice there's nothing
     // stored to read, so this falls back to what's actually on screen
@@ -32,34 +42,40 @@ struct MixerView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                topBar
 
-            // A horizontal ScrollView only sizes itself to its content's
-            // height by default, not the space available in the VStack's
-            // own (vertical) stacking axis - without forcing it to fill,
-            // the fader grid hugs its own height and everything below
-            // that height renders as bare background instead of scrolling
-            // real estate. alignment: .top on that forced frame matters
-            // just as much as the frame itself: frame(maxHeight:)'s
-            // default alignment is .center, which would otherwise center
-            // the (still content-sized) HStack within the new taller
-            // frame instead of pinning it to the top - Android's
-            // RecyclerView lays channels out from the top with no such
-            // centering, and the .top on the HStack itself only aligns
-            // children within its own bounds, not the enclosing frame.
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(Array(model.channels.enumerated()), id: \.element.id) { index, channel in
-                        ChannelStripView(
-                            channel: channel, fineMode: model.fineMode, alternate: index % 2 == 1
-                        )
-                    }
+                if banksExpanded {
+                    BankPanelView(
+                        banks: model.banks,
+                        selectedBank: model.selectedBank,
+                        onSelect: { bank in
+                            // Fold away on pick: the panel exists to make
+                            // the choice, and leaving it open would keep a
+                            // third of the faders pushed off screen after
+                            // the choice is made.
+                            withAnimation(bankPanelAnimation) { banksExpanded = false }
+                            model.selectBank(bank)
+                        }
+                    )
+                    .transition(.opacity)
                 }
-                .padding(10)
-                .frame(maxHeight: .infinity, alignment: .top)
+
+                channelGrid
             }
-            .frame(maxHeight: .infinity)
+            // Reserves the collapsed sheet's strip of screen. Done here
+            // rather than inside the grid: the sheet floats over the
+            // strips and takes no layout height of its own, so without
+            // this they would measure themselves all the way to the
+            // bottom edge and put their Mute buttons underneath it.
+            .padding(.bottom, AuxSheetView.peekHeight)
+
+            AuxSheetView(
+                auxes: model.auxes,
+                currentIndex: aux.index,
+                onSelect: { model.switchAux($0) }
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clmixBackground)
@@ -73,6 +89,40 @@ struct MixerView: View {
             PresetLoadSheet()
                 .presentationDetents([.medium, .large])
         }
+        // Presets are per-aux-send, so a sheet left open from the
+        // previous aux would otherwise keep acting against the new one -
+        // mirrors Android's switchAux dismissing them. The pan sheet
+        // needs no equivalent: it belongs to a channel strip, and
+        // switching aux clears the strips out from under it.
+        .onChange(of: aux.index) { _, _ in
+            showPresetSave = false
+            showPresetLoad = false
+        }
+    }
+
+    private var channelGrid: some View {
+        // A horizontal ScrollView only sizes itself to its content's
+        // height by default, not the space available in the VStack's own
+        // (vertical) stacking axis - without forcing it to fill, the
+        // fader grid hugs its own height and everything below that height
+        // renders as bare background instead of scrolling real estate.
+        // alignment: .top on that forced frame matters just as much as
+        // the frame itself: frame(maxHeight:)'s default alignment is
+        // .center, which would otherwise center the (still content-sized)
+        // HStack within the new taller frame instead of pinning it to the
+        // top.
+        ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(Array(model.channels.enumerated()), id: \.element.id) { index, channel in
+                    ChannelStripView(
+                        channel: channel, fineMode: model.fineMode, alternate: index % 2 == 1
+                    )
+                }
+            }
+            .padding(10)
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .frame(maxHeight: .infinity)
     }
 
     private var topBar: some View {
@@ -96,25 +146,12 @@ struct MixerView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
-            Text("Bank")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.clmixOnSurfaceVariant)
-
-            Menu(selectedBank ?? "All") {
-                Button("All") {
-                    selectedBank = nil
-                    model.selectBank(nil)
-                }
-                ForEach(model.banks, id: \.self) { bank in
-                    Button(bank) {
-                        selectedBank = bank
-                        model.selectBank(bank)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // Takes the room the bank dropdown used to, so Fine and the
+            // bank toggle stay pinned to the right edge.
+            Spacer(minLength: 0)
 
             fineButton
+            bankToggle
 
             // Surfaces a mid-session protocol rejection (e.g. "not
             // permitted for this aux") in place - mirrors Android's
@@ -122,8 +159,7 @@ struct MixerView: View {
             // statusMessage still holds "Connected" from the login flow
             // at this point (AppModel never clears it on screen
             // transitions), which isn't an error and was never meant to
-            // show here - Android's status_label only ever carries error
-            // text on this screen to begin with.
+            // show here.
             if model.statusIsError && !model.statusMessage.isEmpty {
                 Text(model.statusMessage)
                     .font(.system(size: 12))
@@ -133,7 +169,7 @@ struct MixerView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(Color.clmixSurface)
     }
 
     private var fineButton: some View {
@@ -148,26 +184,28 @@ struct MixerView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
+    // Pulls the bank panel down. Points the way it will move, not at what
+    // it is - so it flips to point up while the panel is open.
+    private var bankToggle: some View {
+        Button {
+            withAnimation(bankPanelAnimation) { banksExpanded.toggle() }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 16, weight: .semibold))
+                .rotationEffect(.degrees(banksExpanded ? 180 : 0))
+                .frame(width: 40, height: 40)
+        }
+        .disabled(model.banks.isEmpty)
+        .opacity(model.banks.isEmpty ? 0.35 : 1)
+        .accessibilityLabel(banksExpanded ? "Hide banks" : "Show banks")
+    }
+
+    // What is left of Android's drawer once the aux list moved out of it
+    // and became the bottom sheet: the settings-ish actions that were
+    // always underneath it.
     private var menuSheet: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Aux Buses")
-                .font(.system(size: 16, weight: .bold))
-                .padding(.horizontal, 18)
-                .padding(.top, 20)
-                .padding(.bottom, 8)
-
-            List(model.auxes) { otherAux in
-                Button(otherAux.name) {
-                    showMenu = false
-                    if otherAux.index != aux.index {
-                        model.selectAux(otherAux)
-                    }
-                }
-                .foregroundStyle(.primary)
-            }
-            .listStyle(.plain)
-
-            Divider()
+            Spacer()
 
             // Only accounts with Preset Access (Setup > Accounts on
             // desktop) get this at all - the server enforces the same
@@ -213,7 +251,9 @@ struct MixerView: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .padding(14)
         }
-        .presentationDetents([.medium, .large])
+        .frame(maxWidth: .infinity)
+        .background(Color.clmixSurface)
+        .presentationDetents([.medium])
     }
 
     private func tonalButton(_ title: String, action: @escaping () -> Void) -> some View {

@@ -31,9 +31,21 @@ final class AppModel: NSObject, ObservableObject {
     @Published var buttonResultIsRejection = false
     @Published var auxes: [AuxBus] = []
     @Published var banks: [String] = []
+    // Which bank's channels are on screen. Lives here rather than in
+    // MixerView so it survives the view being rebuilt, and so the
+    // opening-bank logic in mixerDidReceiveBanks has one place to write
+    // it. Null only before the first bank arrives, or on a console that
+    // reports none at all - there is no "All" choice any more.
+    @Published var selectedBank: String?
     @Published var channels: [ChannelState] = []
     @Published var fineMode = false
     @Published var presetsAllowed = false
+    // Gates whether the Mute button is offered at all, mirroring the
+    // server's own per-user check (which still applies regardless of
+    // what is drawn). True by default: an account with no explicit
+    // setting, and an older server that never sends the field, both mean
+    // "allowed".
+    @Published var muteAllowed = true
     @Published var presetNames: [String] = []
     @Published var discoveredServers: [DiscoveredServer] = []
     // True while the session is a local demo rather than a real console.
@@ -90,6 +102,20 @@ final class AppModel: NSObject, ObservableObject {
     }
     private var pendingMutes: [Int: PendingMute] = [:]
     private let muteConfirmTimeout: TimeInterval = 2
+
+    /// The aux being mixed, resolved against the live aux list so its
+    /// `stereo` flag is whatever the server last reported rather than
+    /// whatever was captured when the screen was opened.
+    var currentAux: AuxBus? {
+        guard case .mixer(let aux) = screen else { return nil }
+        return auxes.first { $0.index == aux.index } ?? aux
+    }
+
+    /// A mono aux has no pan axis, so the Pan button comes off the strip
+    /// entirely - the same thing the desktop does with its pan slider.
+    /// An unknown aux (an older server, or before the list arrives) is
+    /// treated as stereo, which is how it always behaved.
+    var panSupported: Bool { currentAux?.stereo ?? true }
 
     override init() {
         super.init()
@@ -221,7 +247,21 @@ final class AppModel: NSObject, ObservableObject {
         backend.requestBanks()
     }
 
-    func selectBank(_ bank: String?) {
+    /// Switches the mix being edited without leaving the mixer screen -
+    /// what the aux bottom sheet does. The bank filter deliberately
+    /// survives the switch, matching RemoteServer._handle (select_aux
+    /// sets state["aux"] and leaves state["bank"] alone).
+    func switchAux(_ aux: AuxBus) {
+        guard case .mixer(let current) = screen, current.index != aux.index else { return }
+
+        channels = []
+        screen = .mixer(aux)
+        backend.selectAux(aux.index)
+    }
+
+    func selectBank(_ bank: String) {
+        guard bank != selectedBank else { return }
+        selectedBank = bank
         backend.selectBank(bank)
     }
 
@@ -277,12 +317,17 @@ final class AppModel: NSObject, ObservableObject {
         }
         leaveDemoMode()
 
+        MeterCenter.shared.clear()
+
         pendingToken = nil
         pendingUsername = ""
         pendingPassword = ""
         channels = []
         auxes = []
+        banks = []
+        selectedBank = nil
         presetsAllowed = false
+        muteAllowed = true
         presetNames = []
         isConnecting = false
         statusIsError = false
@@ -311,6 +356,8 @@ extension AppModel: MixerClientDelegate {
         // Android's ConnectActivity.onDisconnected.
         if statusIsError || buttonResultLabel != nil { return }
 
+        MeterCenter.shared.clear()
+
         let wasMidSession = screen != .connect
         isConnecting = false
         statusMessage = wasMidSession ? "Disconnected" : ""
@@ -337,6 +384,7 @@ extension AppModel: MixerClientDelegate {
                 credentialsRejected = false
                 showButtonResult("Can't Reach Server", isRejection: false)
             } else {
+                MeterCenter.shared.clear()
                 isConnecting = false
                 statusIsError = true
                 statusMessage = "Disconnected"
@@ -404,6 +452,7 @@ extension AppModel: MixerClientDelegate {
             credentialsRejected = false
             statusMessage = "Connected"
             presetsAllowed = backend.presetsAllowed
+            muteAllowed = backend.muteAllowed
             backend.requestAuxes()
             return
         }
@@ -436,8 +485,41 @@ extension AppModel: MixerClientDelegate {
         screen = .auxList
     }
 
+    /// No synthetic "All" entry: every channel at once is a whole
+    /// console's worth of strips, faders and meters for a phone that can
+    /// show a dozen - the same reason the desktop dropped its own All
+    /// button. The console's banks are the only choices. Mirrors
+    /// Android's MixerActivity.onBanks.
     func mixerDidReceiveBanks(_ banks: [String]) {
         self.banks = banks
+
+        if banks.isEmpty {
+            // A console that reports no banks at all: fall back to every
+            // channel rather than leaving the operator with an empty
+            // screen. A fallback, not a choice - there is still nothing
+            // to pick.
+            if selectedBank != nil {
+                selectedBank = nil
+                backend.selectBank(nil)
+            }
+            return
+        }
+
+        // Whatever was showing before, else the console's own first
+        // bank. Nothing selects itself here, so the opening bank has to
+        // be asked for explicitly.
+        let bank = selectedBank.flatMap { banks.contains($0) ? $0 : nil } ?? banks[0]
+
+        if bank != selectedBank {
+            selectedBank = bank
+            backend.selectBank(bank)
+        }
+    }
+
+    // Straight through to the meter views, deliberately not into any
+    // @Published property - see MeterCenter for why.
+    func mixerDidReceiveMeters(sequence: Int64, meters: [Int: MeterLevels]) {
+        MeterCenter.shared.publish(sequence: sequence, frame: meters)
     }
 
     func mixerDidReceiveLevels(aux: Int, channels: [ChannelState]) {

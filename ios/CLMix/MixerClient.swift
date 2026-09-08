@@ -11,6 +11,11 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidReceiveLoginResult(ok: Bool, message: String?, token: String?)
     func mixerDidReceiveAuxes(_ auxes: [AuxBus])
     func mixerDidReceiveBanks(_ banks: [String])
+    /// Arrives ~20x a second while a mix is moving, carrying one entry
+    /// per visible channel. `sequence` advances per frame so views can
+    /// tell a fresh sample from a redraw of the same one - the meter
+    /// ballistics depend on that distinction (see ChannelMeterView).
+    func mixerDidReceiveMeters(sequence: Int64, meters: [Int: MeterLevels])
     func mixerDidReceiveLevels(aux: Int, channels: [ChannelState])
     func mixerDidReceivePresets(_ names: [String])
     func mixerDidSavePreset(_ name: String)
@@ -29,6 +34,7 @@ protocol MixerBackend: AnyObject {
     var delegate: MixerClientDelegate? { get set }
     var isConnected: Bool { get }
     var presetsAllowed: Bool { get }
+    var muteAllowed: Bool { get }
 
     func connect(host: String, port: Int)
     func disconnect()
@@ -68,6 +74,19 @@ final class MixerClient: NSObject, MixerBackend {
     // UI at all, mirroring the server's own per-user permission check
     // (which still applies regardless of what the client shows).
     private(set) var presetsAllowed = false
+
+    // Set from login_result - gates whether the Mute button is offered,
+    // mirroring the server's own per-user check (which still applies
+    // regardless of what the client shows). Defaults true: an account
+    // with no explicit setting, and an older server that never sends the
+    // field, both mean "allowed".
+    private(set) var muteAllowed = true
+
+    // Advances once per received meter frame. The server only sends a
+    // frame when something actually changed, so a bar that stops being
+    // fed stops being pushed back up and releases away, exactly as on
+    // the desk.
+    private var meterSequence: Int64 = 0
 
     // The one protocol error AppModel treats specially rather than just
     // displaying: the account is scoped to a different snapshot than the
@@ -112,6 +131,7 @@ final class MixerClient: NSObject, MixerBackend {
         task = nil
         isConnected = false
         presetsAllowed = false
+        muteAllowed = true
     }
 
     func login(username: String, password: String) {
@@ -240,6 +260,7 @@ final class MixerClient: NSObject, MixerBackend {
             case "login_result":
                 let ok = json["ok"] as? Bool ?? false
                 presetsAllowed = ok && (json["presets"] as? Bool ?? false)
+                muteAllowed = !ok || (json["mute"] as? Bool ?? true)
                 let token = (json["token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 delegate?.mixerDidReceiveLoginResult(
                     ok: ok, message: json["message"] as? String, token: token
@@ -252,7 +273,10 @@ final class MixerClient: NSObject, MixerBackend {
                           let name = entry["name"] as? String else {
                         return nil
                     }
-                    return AuxBus(index: index, name: name)
+                    return AuxBus(
+                        index: index, name: name,
+                        stereo: entry["stereo"] as? Bool ?? true
+                    )
                 }
                 delegate?.mixerDidReceiveAuxes(list)
 
@@ -273,10 +297,38 @@ final class MixerClient: NSObject, MixerBackend {
                         name: name,
                         level: entry["level"] as? Double,
                         pan: entry["pan"] as? Double,
-                        muted: entry["muted"] as? Bool ?? false
+                        muted: entry["muted"] as? Bool ?? false,
+                        stereo: entry["stereo"] as? Bool ?? false
                     )
                 }
                 delegate?.mixerDidReceiveLevels(aux: aux, channels: channels)
+
+            case "meters":
+                // Positional [channel, peakL, rmsL, peakR, rmsR] rows -
+                // see RemoteServer._meter_states for why they are not
+                // objects: this goes out 20 times a second, and field
+                // names would be most of the payload.
+                let rows = json["meters"] as? [[Any]] ?? []
+                var frame = [Int: MeterLevels](minimumCapacity: rows.count)
+
+                for row in rows {
+                    guard let channel = row.first as? Int else { continue }
+
+                    // Anything the console reported at its no-signal
+                    // sentinel arrives as null, which fails the cast and
+                    // lands as nil - exactly what MeterLevels wants.
+                    let values = (1...4).map { index -> Double? in
+                        index < row.count ? row[index] as? Double : nil
+                    }
+
+                    frame[channel] = MeterLevels(
+                        leftPeak: values[0], leftRms: values[1],
+                        rightPeak: values[2], rightRms: values[3]
+                    )
+                }
+
+                meterSequence += 1
+                delegate?.mixerDidReceiveMeters(sequence: meterSequence, meters: frame)
 
             case "presets":
                 delegate?.mixerDidReceivePresets(json["presets"] as? [String] ?? [])

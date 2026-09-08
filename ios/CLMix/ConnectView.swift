@@ -42,6 +42,9 @@ struct ConnectView: View {
     @State private var discoveredTop: CGFloat = 0
     @State private var manualTop: CGFloat = 1
 
+    private enum Field { case username, password }
+    @FocusState private var focusedField: Field?
+
     var body: some View {
         GeometryReader { outerGeo in
             // The banner replaced the old "CLMix" / "Remote Aux Control"
@@ -74,10 +77,14 @@ struct ConnectView: View {
                             .padding(.bottom, 12)
                     }
 
-                    credentialField("Username", text: $username, isSecure: false)
-                        .padding(.bottom, 14)
-                    credentialField("Password", text: $password, isSecure: true)
-                        .padding(.bottom, 24)
+                    credentialField(
+                        "Username", text: $username, isSecure: false, field: .username
+                    )
+                    .padding(.bottom, 14)
+                    credentialField(
+                        "Password", text: $password, isSecure: true, field: .password
+                    )
+                    .padding(.bottom, 24)
 
                     loginButton
                 }
@@ -231,11 +238,34 @@ struct ConnectView: View {
     // typing into either of them clears - mirrors Android's
     // ConnectActivity marking username_layout/password_layout in red and
     // clearing on the first keystroke that follows.
-    private func credentialField(_ title: String, text: Binding<String>, isSecure: Bool) -> some View {
-        outlinedField(
-            title, text: text, isSecure: isSecure,
-            borderColor: model.credentialsRejected ? Color.clmixMuteActive : Color.clmixOutline
-        )
+    @ViewBuilder
+    private func credentialField(
+        _ title: String, text: Binding<String>, isSecure: Bool, field: Field
+    ) -> some View {
+        let border = model.credentialsRejected ? Color.clmixMuteActive : Color.clmixOutline
+
+        // The focus binding has to sit on the field itself rather than on
+        // anything wrapping it, which is why this doesn't go through
+        // outlinedField the way the host/port fields do.
+        Group {
+            if isSecure {
+                SecureField(title, text: text)
+                    .focused($focusedField, equals: field)
+                    // Enter on the password field logs in; on username it
+                    // moves to password. Both routed through the same
+                    // guard as the button - see submit().
+                    .submitLabel(.go)
+                    .onSubmit(submit)
+            } else {
+                TextField(title, text: text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: field)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .password }
+            }
+        }
+        .fieldBox(borderColor: border)
         .disabled(!credentialsEnabled)
         .onChange(of: text.wrappedValue) { _, _ in model.clearError() }
     }
@@ -253,9 +283,7 @@ struct ConnectView: View {
                     .autocorrectionDisabled()
             }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 52)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 1))
+        .fieldBox(borderColor: borderColor)
     }
 
     private var boxBorder: some View {
@@ -267,11 +295,25 @@ struct ConnectView: View {
     // label and tints the button red for a few seconds, then both revert
     // to plain "Login" - mirrors Android's connect_button/connect_label/
     // connect_progress trio.
+    // Everything a login attempt needs, in one place: the button and
+    // Enter on the password field both go through it, so there is one
+    // login path rather than two that could drift - in particular a
+    // second attempt cannot be started while one is already in flight.
+    // Mirrors Android's ConnectActivity routing its editor action through
+    // the same guard and the same attemptConnect() as the button.
+    private var canSubmit: Bool {
+        !host.isEmpty && !port.isEmpty && !username.isEmpty
+            && !password.isEmpty && !model.isConnecting
+    }
+
+    private func submit() {
+        guard canSubmit, let portNumber = Int(port) else { return }
+        focusedField = nil
+        model.connect(host: host, port: portNumber, username: username, password: password)
+    }
+
     private var loginButton: some View {
-        Button {
-            guard let portNumber = Int(port) else { return }
-            model.connect(host: host, port: portNumber, username: username, password: password)
-        } label: {
+        Button(action: submit) {
             Group {
                 if model.isConnecting {
                     ProgressView()
@@ -288,9 +330,18 @@ struct ConnectView: View {
         .background(model.buttonResultIsRejection ? Color.clmixMuteActive : Color.clmixPrimary)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .animation(.easeInOut(duration: 0.25), value: model.buttonResultIsRejection)
-        .disabled(
-            host.isEmpty || port.isEmpty || username.isEmpty
-                || password.isEmpty || model.isConnecting
-        )
+        .disabled(!canSubmit)
+    }
+}
+
+private extension View {
+    /// The connect screen's outlined text-field box - shared by the
+    /// host/port fields and the credential ones, which build their own
+    /// TextField/SecureField so a @FocusState binding can sit on it.
+    func fieldBox(borderColor: Color) -> some View {
+        self
+            .padding(.horizontal, 14)
+            .frame(height: 52)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 1))
     }
 }

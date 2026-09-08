@@ -32,19 +32,37 @@ struct ChannelStripView: View {
                     fineMode: fineMode,
                     onChange: { db in model.setLevel(channel: channel.channel, db: db) }
                 )
-                .frame(width: 44)
+                .frame(maxWidth: .infinity)
+
+                // Beside the fader rather than against its ruler: this is
+                // the console's own 0..-60 dB scale, not the fader's
+                // -150..+10, and the two are not interchangeable.
+                ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                    .frame(width: 10)
+                    .padding(.leading, 4)
             }
             .frame(maxHeight: .infinity)
 
-            tonalButton(PanFormat.buttonLabel(channel.pan)) {
-                showPanSheet = true
+            // Both of these mirror a server-side truth rather than
+            // deciding anything: the server rejects a pan write to a mono
+            // bus and a mute from an account without the permission
+            // regardless of what is drawn here. Hiding them just avoids
+            // offering an action that could only come back as an error -
+            // or worse, a pan control the console accepts and then does
+            // nothing with.
+            if model.panSupported {
+                tonalButton(PanFormat.buttonLabel(channel.pan)) {
+                    showPanSheet = true
+                }
             }
 
-            // A tap flips the button straight away rather than waiting for
-            // the console's echo (see AppModel.setMute) - the server
-            // stays the authority on what's actually muted.
-            tonalButton(channel.muted ? "Muted" : "Mute", active: channel.muted) {
-                model.setMute(channel: channel.channel, muted: !channel.muted)
+            if model.muteAllowed {
+                // A tap flips the button straight away rather than waiting
+                // for the console's echo (see AppModel.setMute) - the
+                // server stays the authority on what's actually muted.
+                tonalButton(channel.muted ? "Muted" : "Mute", active: channel.muted) {
+                    model.setMute(channel: channel.channel, muted: !channel.muted)
+                }
             }
         }
         .padding(.horizontal, 6)
@@ -58,6 +76,12 @@ struct ChannelStripView: View {
                 onChange: { pan in model.setPan(channel: channel.channel, pan: pan) }
             )
             .presentationDetents([.height(280)])
+        }
+        // Switching to a mono aux with the sheet already open would
+        // otherwise leave a pan control on screen for a bus that has no
+        // pan axis - mirrors Android's applyAuxWidth dismissing it.
+        .onChange(of: model.panSupported) { _, supported in
+            if !supported { showPanSheet = false }
         }
     }
 

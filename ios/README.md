@@ -63,10 +63,20 @@ project and run.
 Builds clean and has been run in the Simulator via the XcodeGen path
 above (connect screen and the light/dark toggle confirmed live). The
 custom gesture-driven controls (`LevelFaderView`, `PanSheetView`'s
-`CenteredPanSlider`) haven't been exercised against a real `RemoteServer`
-yet - SwiftUI `DragGesture` geometry math is fiddly to get exactly right
-without live testing against real fader input, so expect to need some
-hands-on adjustment there.
+`CenteredPanSlider`, and now `AuxSheetView`'s drag-to-open) haven't been
+exercised against a real `RemoteServer` yet - SwiftUI `DragGesture`
+geometry math is fiddly to get exactly right without live testing against
+real fader input, so expect to need some hands-on adjustment there.
+
+`ChannelMeterView` is a `UIViewRepresentable` rather than a SwiftUI view,
+and deliberately so: meter frames arrive ~20x a second against the levels
+push's ~7x, and publishing them through `AppModel` would re-render every
+strip in the grid twenty times a second to move one bar. `MeterCenter`
+hands each frame straight to the meter views instead, the same way
+Android's `ChannelAdapter.updateMeters` walks the visible holders rather
+than calling `notifyItemChanged`. Its ballistics are a direct port of
+`ChannelMeterView.kt` and have not been watched against real console
+meters on this platform yet.
 
 Has an `AppIcon.appiconset` (from `images/cl-icon-1024.png`, the same
 source the Android launcher icon and the feature graphics come from) and
@@ -108,17 +118,20 @@ keep `MixerBackend` or fold it back into `MixerClient` and point
 
 | File | Mirrors (Android) | Purpose |
 |---|---|---|
-| `Models.swift` | `Models.kt` | `AuxBus`, `ChannelState` |
+| `Models.swift` | `Models.kt` | `AuxBus`, `ChannelState`, `MeterLevels` |
 | `AuxTaper.swift` | `AuxTaper.kt` | dB <-> fader-fraction taper math |
 | `PanFormat.swift` | `PanFormat.kt` | Pan value <-> "C"/"L35"/"R20" labels |
 | `MixerClient.swift` | `MixerClient.kt` | WebSocket client, JSON protocol |
 | `SessionStore.swift` | `SessionStore.kt` | Keychain-backed session token, so a relaunch resumes instead of asking for the password again |
 | `MdnsDiscovery.swift` | `MdnsDiscovery.kt` | Finds CLMix servers on the LAN via Bonjour/mDNS |
 | `AppModel.swift` | `ConnectActivity`/`AuxListActivity`/`MixerActivity` | Navigation + mixer state |
+| `AuxSheetView.swift` | `activity_mixer.xml`'s aux `BottomSheetBehavior` | Persistent aux picker along the bottom of the mixer screen |
+| `BankPanelView.swift` | `BankAdapter.kt` + `item_bank.xml` | Pull-down grid of bank buttons |
+| `ChannelMeterView.swift` | `ChannelMeterView.kt` | Post-fader meter, plus `MeterCenter` routing frames past SwiftUI |
 | `ConnectView.swift` | `ConnectActivity` | Login screen |
-| `AuxListView.swift` | `AuxListActivity` | Aux bus picker |
-| `MixerView.swift` | `MixerActivity` | Bank picker, channel grid, aux switcher |
-| `ChannelStripView.swift` | `ChannelAdapter.kt` | Per-channel fader/pan/mute |
+| `AuxListView.swift` | `AuxListActivity` | Aux bus picker, plus the shared `AuxRow` |
+| `MixerView.swift` | `MixerActivity` | Bank pull-down, channel grid, menu sheet |
+| `ChannelStripView.swift` | `ChannelAdapter.kt` | Per-channel fader/meter/pan/mute |
 | `LevelFaderView.swift` | `ChannelAdapter.kt`'s fine-drag handling | Vertical fader with Fine-mode precision drag |
 | `LevelRulerView.swift` | `LevelRulerView.kt` | dB scale beside the fader, ticks packed tight near -infinity |
 | `PanSheetView.swift` | `PanBottomSheet.kt` + `PanTrackDrawable.kt` | Full-width pan control, center-anchored fill |
