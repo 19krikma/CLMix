@@ -66,14 +66,33 @@ INSTRUMENT_POOL = [
     "Synth", "Pad", "Strings", "Loop",
 ]
 
-AUX_NAMES = ["Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send"]
+# The first few are fixed so the mono/stereo mix below is predictable;
+# past those, IEM sends are generated to whatever --auxes asks for. A
+# real SD7Q reports 30, so five is a small console, not a typical one.
+AUX_NAME_SEED = ["Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send"]
+AUX_NAMES = list(AUX_NAME_SEED)
 
 # Fixed rather than randomized: an aux's width decides whether the pan
 # control appears at all, so having a known mono bus and a known stereo
 # one next to each other in the list is what makes that switchable by
 # hand. Reverb and FX Send are stereo; the wedge/IEM monitors are mono,
 # which is also how they usually are on a real desk.
-AUX_MODES = [MODE_STEREO, MODE_MONO, MODE_MONO, MODE_MONO, MODE_STEREO]
+AUX_MODE_SEED = [MODE_STEREO, MODE_MONO, MODE_MONO, MODE_MONO, MODE_STEREO]
+AUX_MODES = list(AUX_MODE_SEED)
+
+
+def build_auxes(count):
+    """Aux names/modes for `count` buses, keeping the seeded ones first."""
+    names = list(AUX_NAME_SEED)
+    modes = list(AUX_MODE_SEED)
+
+    while len(names) < count:
+        names.append(f"IEM {len(names) - len(AUX_NAME_SEED) + 1}")
+        # IEMs are usually stereo; alternate anyway so both paths stay
+        # exercised however many are asked for.
+        modes.append(MODE_STEREO if len(modes) % 2 else MODE_MONO)
+
+    return names[:count], modes[:count]
 
 SNAPSHOT_NAMES = ["Show 1", "Show 2", "Soundcheck", "Support Band"]
 
@@ -548,6 +567,10 @@ def main():
     parser.add_argument("--client-port", type=int, default=10024)
     parser.add_argument("--seed", type=int, default=None,
                          help="Random seed for a reproducible bank/channel layout")
+    parser.add_argument("--auxes", type=int, default=len(AUX_NAME_SEED),
+                         metavar="N",
+                         help=f"How many aux buses to report "
+                              f"(default {len(AUX_NAME_SEED)}; a real SD7Q has 30)")
     parser.add_argument("--recall-every", type=float, default=None,
                          metavar="SECONDS",
                          help="Periodically recall a snapshot, rewriting all "
@@ -560,8 +583,9 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
 
-    global BANKS, CHANNEL_NAMES, CHANNEL_MODES
+    global BANKS, CHANNEL_NAMES, CHANNEL_MODES, AUX_NAMES, AUX_MODES
     BANKS, CHANNEL_NAMES, CHANNEL_MODES = build_banks()
+    AUX_NAMES, AUX_MODES = build_auxes(max(1, args.auxes))
 
     stereo = [
         index + 1 for index, mode in enumerate(CHANNEL_MODES)

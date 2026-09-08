@@ -1,11 +1,14 @@
 package com.clmix
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
+import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -13,12 +16,31 @@ import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.clmix.databinding.ActivityMixerBinding
 
 private const val STATE_AUX_INDEX = "auxIndex"
 private const val STATE_AUX_NAME = "auxName"
 private const val STATE_BANK = "bank"
+
+// Bank buttons per row in the pull-down panel. Four keeps a typical
+// name readable at phone width while still showing a couple of dozen
+// banks without scrolling.
+private const val BANK_COLUMNS = 4
+
+// Bank panel open/close. Deliberately well under Android's own 200ms
+// "short" duration: this is a control being operated mid-show, not a
+// screen transition, so it only has to take the hard edge off the
+// strips jumping - any longer reads as waiting for the panel.
+private const val BANK_PANEL_ANIM_MS = 100L
+
+// How much of the screen the expanded aux sheet covers. Enough to show
+// a handful of mixes at once, short of swallowing the whole display -
+// the strips behind it stay partly visible, which is the point of it
+// floating over them rather than replacing them.
+private const val AUX_SHEET_SCREEN_FRACTION = 0.55f
 
 class MixerActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerBinding
@@ -39,6 +61,12 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     // drawer hands over an AuxBus, but a rebuild restores only auxIndex.
     private var auxBuses: List<AuxBus> = emptyList()
     private var auxAdapter: AuxAdapter? = null
+    private lateinit var bankAdapter: BankAdapter
+    private var bankPanelAnimator: ValueAnimator? = null
+    private var auxSheet: BottomSheetBehavior<android.widget.LinearLayout>? = null
+    // Guards the scroll-to-selection so it runs once per opening rather
+    // than on every frame of the drag, which would fight the finger.
+    private var auxListScrolled = false
     private var panSheet: PanBottomSheet? = null
     private var presetSaveSheet: PresetSaveBottomSheet? = null
     private var presetLoadSheet: PresetLoadBottomSheet? = null
@@ -106,25 +134,116 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             }
         }
 
-        binding.bankSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long
-            ) {
-                val selected = parent?.getItemAtPosition(position) as? String ?: return
-                selectedBank = selected
-                MixerClient.selectBank(selectedBank)
-            }
+        bankAdapter = BankAdapter { bank ->
+            // Fold away on pick: the panel exists to make the choice, and
+            // leaving it open would keep a third of the faders pushed off
+            // screen after the choice is made.
+            setBanksExpanded(false)
 
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            if (bank != selectedBank) {
+                selectedBank = bank
+                bankAdapter.selectedBank = bank
+                MixerClient.selectBank(bank)
+            }
+        }
+
+        // A grid rather than a row: a console can report a couple of dozen
+        // banks, and a single scrolling line would put most of them off
+        // the edge - the point of the panel is seeing them all at once.
+        binding.bankRecycler.layoutManager = GridLayoutManager(this, BANK_COLUMNS)
+        binding.bankRecycler.adapter = bankAdapter
+
+        binding.bankToggle.setOnClickListener {
+            setBanksExpanded(binding.bankRecycler.visibility != View.VISIBLE)
         }
 
         binding.menuButton.setOnClickListener {
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
-        binding.drawerAuxRecycler.layoutManager = LinearLayoutManager(this)
+        binding.auxSheetRecycler.layoutManager = LinearLayoutManager(this)
         auxAdapter = AuxAdapter(auxes) { aux -> switchAux(aux) }
-        binding.drawerAuxRecycler.adapter = auxAdapter
+        binding.auxSheetRecycler.adapter = auxAdapter
+
+        // An explicit height rather than wrap_content. Left to wrap, the
+        // sheet measured its list at a fraction of one row and ended up
+        // barely taller than its own handle - so "collapsed" still showed
+        // part of the list and covered the Mute buttons. A fixed fraction
+        // of the screen also gives the list a bound to scroll within when
+        // a console has more auxes than fit.
+        binding.auxSheet.layoutParams.height =
+            (resources.displayMetrics.heightPixels * AUX_SHEET_SCREEN_FRACTION).toInt()
+
+        auxSheet = BottomSheetBehavior.from(binding.auxSheet).apply {
+            // Never dismissable: collapsed, this sheet is the label that
+            // names the live mix, so there is no state where it should
+            // not be on screen.
+            isHideable = false
+
+            // Set in code as well as XML, and the state forced once the
+            // sheet has actually been laid out - asking for a state
+            // before that happens is silently dropped, which left the
+            // sheet sitting at its expanded height over the strips.
+            // BottomSheetBehavior adds the bottom gesture inset to the
+            // peek height by default, to keep a collapsed sheet clear of
+            // the navigation pill. Here that made the collapsed sheet
+            // taller than the space the strips reserve for it, so it sat
+            // over the Mute buttons. This screen already draws
+            // edge-to-edge with the bars hidden, so the peek is exactly
+            // what is asked for and the reservation matches it.
+            isGestureInsetBottomIgnored = true
+            peekHeight = resources.getDimensionPixelSize(R.dimen.aux_sheet_peek)
+            binding.auxSheet.post { state = BottomSheetBehavior.STATE_COLLAPSED }
+
+            addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
+                override fun onStateChanged(sheet: View, newState: Int) {}
+
+                override fun onSlide(sheet: View, offset: Float) {
+                    // The moment it starts to move, so the list is
+                    // already in the right place by the time it is
+                    // readable rather than jumping once it settles.
+                    if (offset > 0f && !auxListScrolled) {
+                        auxListScrolled = true
+                        scrollAuxListToSelection()
+                    } else if (offset == 0f) {
+                        auxListScrolled = false
+                    }
+                }
+            })
+
+            addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
+                override fun onStateChanged(sheet: View, newState: Int) {
+                    if (newState == BottomSheetBehavior.STATE_EXPANDED ||
+                        newState == BottomSheetBehavior.STATE_COLLAPSED
+                    ) {
+                        setAuxArrows(newState == BottomSheetBehavior.STATE_EXPANDED)
+                    }
+                }
+
+                override fun onSlide(sheet: View, offset: Float) {
+                    // Turn with the drag rather than snapping at the end,
+                    // so the arrows track the finger while it moves.
+                    setAuxArrowRotation(offset * 180f)
+                }
+            })
+        }
+
+        // Dragging the handle is BottomSheetBehavior's own doing; this
+        // only adds the tap, which it does not provide.
+        binding.auxHandle.setOnClickListener {
+            val opening = auxSheet?.state != BottomSheetBehavior.STATE_EXPANDED
+
+            if (opening) {
+                auxListScrolled = true
+                scrollAuxListToSelection()
+            }
+
+            auxSheet?.state = if (opening) {
+                BottomSheetBehavior.STATE_EXPANDED
+            } else {
+                BottomSheetBehavior.STATE_COLLAPSED
+            }
+        }
 
         // Only accounts with Preset Access (Setup > Accounts on desktop)
         // get this button at all - the server enforces the same check
@@ -254,7 +373,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun switchAux(aux: AuxBus) {
-        binding.drawerLayout.closeDrawer(GravityCompat.START)
+        auxSheet?.state = BottomSheetBehavior.STATE_COLLAPSED
 
         if (aux.index == auxIndex) return
 
@@ -278,6 +397,111 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     // the bottom of the strips, and the highlight in the drawer's list.
     // Called from the same places as applyAuxWidth so the two can never
     // describe different auxes.
+    private fun setBanksExpanded(expanded: Boolean) {
+        val panel = binding.bankRecycler
+        val alreadyThere = (panel.visibility == View.VISIBLE) == expanded
+
+        // Nothing to do, and nothing to animate - this is also what makes
+        // the collapse calls from onBanks and from picking a bank free
+        // when the panel was never open.
+        if (alreadyThere && bankPanelAnimator == null) return
+
+        bankPanelAnimator?.cancel()
+
+        // Points the way it will move, not at what it is.
+        binding.bankToggle.animate()
+            .rotation(if (expanded) 180f else 0f)
+            .setDuration(BANK_PANEL_ANIM_MS)
+            .start()
+        binding.bankToggle.contentDescription =
+            if (expanded) "Hide banks" else "Show banks"
+
+        val from = if (panel.visibility == View.VISIBLE) panel.height else 0
+        val to = if (expanded) measureBankPanelHeight(panel) else 0
+
+        if (to == from) {
+            finishBankPanel(panel, expanded)
+            return
+        }
+
+        panel.visibility = View.VISIBLE
+
+        bankPanelAnimator = ValueAnimator.ofInt(from, to).apply {
+            duration = BANK_PANEL_ANIM_MS
+            // Decelerating suits a panel being pulled down and released:
+            // it arrives rather than stopping dead.
+            interpolator = DecelerateInterpolator()
+
+            addUpdateListener { anim ->
+                panel.layoutParams.height = anim.animatedValue as Int
+                panel.requestLayout()
+            }
+
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    bankPanelAnimator = null
+                    finishBankPanel(panel, expanded)
+                }
+            })
+
+            start()
+        }
+    }
+
+    /**
+     * Hands the panel back to the layout once the animation is done: a
+     * pinned pixel height would stop it growing if the bank list changed
+     * under it.
+     */
+    private fun finishBankPanel(panel: View, expanded: Boolean) {
+        panel.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        panel.visibility = if (expanded) View.VISIBLE else View.GONE
+        panel.requestLayout()
+    }
+
+    /** How tall the panel wants to be, without showing it at that size first. */
+    private fun measureBankPanelHeight(panel: View): Int {
+        val available = (panel.parent as? View)?.width ?: return 0
+
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(available, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+
+        return panel.measuredHeight
+    }
+
+    /**
+     * Brings the live mix into view before the sheet arrives at it.
+     *
+     * With a handful of auxes everything fits and this does nothing. On
+     * a console with thirty, opening the sheet would otherwise land on
+     * the top of the list with the mix you are actually on somewhere
+     * below the fold - so the first thing you would do every time is
+     * scroll to find it.
+     */
+    private fun scrollAuxListToSelection() {
+        val manager = binding.auxSheetRecycler.layoutManager as? LinearLayoutManager ?: return
+        val index = auxBuses.indexOfFirst { it.index == auxIndex }
+
+        if (index < 0) return
+
+        // One row above the selection where there is room, so it arrives
+        // with some context rather than jammed against the top edge.
+        manager.scrollToPositionWithOffset(maxOf(0, index - 1), 0)
+    }
+
+    private fun setAuxArrows(expanded: Boolean) {
+        setAuxArrowRotation(if (expanded) 180f else 0f)
+        binding.auxHandle.contentDescription =
+            if (expanded) "Hide aux list" else "Show aux list"
+    }
+
+    private fun setAuxArrowRotation(degrees: Float) {
+        binding.auxArrowStart.rotation = degrees
+        binding.auxArrowEnd.rotation = degrees
+    }
+
     private fun showCurrentAux() {
         binding.currentAuxLabel.text = title?.toString().orEmpty()
         auxAdapter?.selectedAux = auxIndex
@@ -346,8 +570,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         // console's worth of strips, faders and meters for a phone that
         // can show a dozen - the same reason the desktop dropped its own
         // All button. The console's banks are the only choices.
-        binding.bankSpinner.adapter =
-            ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, banks)
+        bankAdapter.submit(banks)
 
         if (banks.isEmpty()) {
             // A console that reports no banks at all: fall back to every
@@ -356,20 +579,26 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             // in the spinner to pick.
             if (selectedBank != null) {
                 selectedBank = null
+                bankAdapter.selectedBank = null
                 MixerClient.selectBank(null)
             }
+
+            setBanksExpanded(false)
             return
         }
 
-        // Back to whatever was showing before a rebuild, else the
-        // console's first bank. Setting the adapter already selects
-        // position 0 and fires the listener, so the opening bank is
-        // requested without anything further here; this only matters
-        // when restoring a different one.
-        val index = banks.indexOf(selectedBank)
-        if (index > 0) {
-            binding.bankSpinner.setSelection(index)
+        // Whatever was showing before a rebuild, else the console's own
+        // first bank. Unlike the spinner this replaced, nothing selects
+        // itself here - so the opening bank has to be asked for
+        // explicitly rather than falling out of an adapter callback.
+        val bank = selectedBank.takeIf { it in banks } ?: banks.first()
+
+        if (bank != selectedBank) {
+            selectedBank = bank
+            MixerClient.selectBank(bank)
         }
+
+        bankAdapter.selectedBank = bank
     }
 
     override fun onLevels(aux: Int, channels: List<ChannelState>) {

@@ -1,0 +1,10 @@
+<resources>
+    <!-- Collapsed height of the aux sheet: tall enough to read the aux
+         name and hit the arrows, short enough not to eat fader travel. -->
+    <dimen name="aux_sheet_peek">52dp</dimen>
+
+    <!-- What the channel strips reserve at the bottom so the collapsed
+         sheet never covers a Mute button. The strips' own 10dp padding
+         is included in this rather than added to it. -->
+    <dimen name="aux_sheet_clearance">62dp</dimen>
+</resources>

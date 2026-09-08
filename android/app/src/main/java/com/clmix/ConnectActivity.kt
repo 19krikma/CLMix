@@ -15,6 +15,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
 import android.transition.AutoTransition
 import android.transition.TransitionManager
 import android.view.Gravity
@@ -202,6 +204,27 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
 
         binding.connectButton.setOnClickListener {
             if (!loading) attemptConnect()
+        }
+
+        // Enter on the password field submits, the way it already moves
+        // from username to password. Goes through the same guard and the
+        // same call as the button so there is one login path, not two
+        // that could drift - in particular a second attempt cannot be
+        // started while one is already in flight.
+        binding.passwordInput.setOnEditorActionListener { _, actionId, event ->
+            val submitted = actionId == EditorInfo.IME_ACTION_DONE ||
+                actionId == EditorInfo.IME_ACTION_GO ||
+                // A hardware or Bluetooth keyboard sends the key itself
+                // rather than an IME action id. ACTION_DOWN only, or the
+                // matching ACTION_UP would submit a second time.
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER &&
+                    event.action == KeyEvent.ACTION_DOWN)
+
+            if (submitted && !loading) {
+                attemptConnect()
+            }
+
+            submitted
         }
 
         mdnsDiscovery = MdnsDiscovery(this)

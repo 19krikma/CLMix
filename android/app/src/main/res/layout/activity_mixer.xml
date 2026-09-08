@@ -6,10 +6,20 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+    <!-- paddingBottom reserves the collapsed sheet's strip of screen.
+         Done here rather than on the channel list: the sheet floats in
+         the CoordinatorLayout and takes no layout height of its own, so
+         without this the strips would measure themselves all the way to
+         the bottom edge and put their Mute buttons underneath it. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
+        android:paddingBottom="@dimen/aux_sheet_peek"
         android:background="?android:attr/colorBackground">
 
         <LinearLayout
@@ -30,17 +40,11 @@
                 android:contentDescription="Menu"
                 android:src="@drawable/ic_menu" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Bank"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:layout_marginEnd="10dp" />
-
-            <Spinner
-                android:id="@+id/bank_spinner"
+            <!-- Takes the room the bank spinner used to, so Fine and the
+                 bank toggle stay pinned to the right edge. -->
+            <Space
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="1dp"
                 android:layout_weight="1" />
 
             <com.google.android.material.button.MaterialButton
@@ -57,6 +61,18 @@
                 app:backgroundTint="@color/mute_inactive"
                 android:textColor="@color/on_mute_inactive" />
 
+            <!-- Pulls the bank panel below down. Rotates to point up
+                 while it is open, so the control says which way it will
+                 move rather than what it currently is. -->
+            <ImageButton
+                android:id="@+id/bank_toggle"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Show banks"
+                android:src="@drawable/ic_arrow_down" />
+
             <TextView
                 android:id="@+id/status_label"
                 android:layout_width="wrap_content"
@@ -67,6 +83,21 @@
 
         </LinearLayout>
 
+        <!-- The bank picker, folded away until the toggle above is
+             pressed. Sits in the column rather than floating over the
+             strips: opening it pushes the faders down instead of
+             covering the ones behind it, so nothing is hidden while
+             choosing. -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/bank_recycler"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/colorSurface"
+            android:paddingHorizontal="9dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="10dp"
+            android:visibility="gone" />
+
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/channel_recycler"
             android:layout_width="match_parent"
@@ -76,24 +107,80 @@
             android:clipToPadding="false"
             android:padding="10dp" />
 
-        <!-- Which mix these faders are actually feeding. The top bar is
-             about the strips on screen (which bank, how the faders
-             behave); this answers the question that matters most when
-             someone else asks for "more me" - and at the bottom it sits
-             right by the thumbs, out of the way of the meters. -->
-        <TextView
-            android:id="@+id/current_aux_label"
+    </LinearLayout>
+
+    <!-- Aux picker. A persistent bottom sheet rather than a dialog: the
+         collapsed state IS the label naming the live mix, so the same
+         strip of screen both answers "which mix is this?" and opens the
+         list - by a tap or by dragging it up. It floats over the strips
+         instead of pushing them, so the faders keep their positions and
+         their height while choosing. -->
+    <LinearLayout
+        android:id="@+id/aux_sheet"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:orientation="vertical"
+        android:background="?attr/colorSurface"
+        android:elevation="12dp"
+        app:behavior_peekHeight="@dimen/aux_sheet_peek"
+        app:behavior_hideable="false"
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+
+        <!-- The handle: arrows either side of the live aux name. Both
+             point the way the sheet will travel, so they flip when it is
+             open. Grey rather than accent so the name stays the thing
+             the eye lands on. -->
+        <LinearLayout
+            android:id="@+id/aux_handle"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?attr/colorSurface"
-            android:gravity="center"
-            android:paddingVertical="10dp"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="@color/primary"
-            android:text="" />
+            android:layout_height="@dimen/aux_sheet_peek"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="?attr/selectableItemBackground"
+            android:paddingHorizontal="12dp">
+
+            <ImageView
+                android:id="@+id/aux_arrow_start"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_arrow_up"
+                app:tint="@color/on_surface_variant" />
+
+            <TextView
+                android:id="@+id/current_aux_label"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/primary"
+                android:text="" />
+
+            <ImageView
+                android:id="@+id/aux_arrow_end"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_arrow_up"
+                app:tint="@color/on_surface_variant" />
+
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/aux_sheet_recycler"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="10dp" />
 
     </LinearLayout>
+
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
     <LinearLayout
         android:layout_width="280dp"
@@ -103,29 +190,13 @@
         android:background="?attr/colorSurface"
         android:elevation="8dp">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Aux Buses"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:textColor="?attr/colorOnSurface"
-            android:paddingHorizontal="18dp"
-            android:paddingTop="20dp"
-            android:paddingBottom="8dp" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/drawer_aux_recycler"
+        <!-- The aux list used to live here; it is now the bottom sheet,
+             within thumb reach instead of behind a drawer. What is left
+             is the settings-ish actions that were always underneath it. -->
+        <Space
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipToPadding="false"
-            android:paddingBottom="8dp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="?attr/colorSurfaceVariant" />
+            android:layout_weight="1" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/presets_button"
