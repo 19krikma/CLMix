@@ -69,6 +69,22 @@ this account may mute. Plus a rework of how banks and auxes are chosen.
   flight. Hardware and Bluetooth keyboards work too, and are filtered to
   the key-down so a single press does not submit twice.
 
+### Connection lifetime
+
+- **The app lets go when the server does.** A socket that ends on its own
+  - the server stopped, or the phone walked out of range of it - now
+  tears the connection down properly, foreground service and notification
+  included. Previously only the UI was told, so leaving the building with
+  the app open left it sitting in the notification shade, apparently
+  connected, until something happened to touch it.
+- **A screen resuming onto a dead socket returns to login** rather than
+  showing a grid of faders attached to nothing. The connection usually
+  ends while the app is in the background, where there is no screen
+  listening to hear about it.
+- The foreground service now starts when the socket opens rather than
+  when a connection is attempted, so an unreachable server never raises
+  a notification it has to immediately withdraw.
+
 ### Fixed
 
 - **The keyboard no longer covers the password field.** The login screen

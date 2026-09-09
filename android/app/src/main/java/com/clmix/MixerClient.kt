@@ -131,8 +131,6 @@ object MixerClient {
     fun connect(host: String, port: Int) {
         disconnect()
 
-        appContext?.let(MixerConnectionService::start)
-
         val request = Request.Builder()
             .url("ws://$host:$port")
             .build()
@@ -140,6 +138,15 @@ object MixerClient {
         webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 isConnected = true
+
+                // Started here rather than in connect(): the service
+                // exists to keep a *live* socket alive, so starting it
+                // for an attempt that may never connect only creates a
+                // notification to immediately withdraw - and a start/stop
+                // race with it. An unreachable server now never starts
+                // one at all.
+                appContext?.let(MixerConnectionService::start)
+
                 onMain { listener?.onConnected() }
             }
 
@@ -148,12 +155,12 @@ object MixerClient {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                isConnected = false
+                if (!releaseIfCurrent(webSocket)) return
                 onMain { listener?.onConnectionFailed("Server unreachable") }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                isConnected = false
+                if (!releaseIfCurrent(webSocket)) return
                 onMain { listener?.onDisconnected() }
             }
         })
@@ -161,6 +168,38 @@ object MixerClient {
 
     fun disconnect() {
         webSocket?.close(1000, "bye")
+        releaseConnection()
+    }
+
+    /**
+     * Tears down after a socket ends on its own - a server that stopped,
+     * or a phone that walked out of range of it.
+     *
+     * Returns false, having done nothing, when the callback belongs to a
+     * socket that is no longer the current one: connect() closes the
+     * previous socket before opening a new one, and the old socket's
+     * callbacks can land afterwards. Without this check that late
+     * callback would tear down the connection that just replaced it.
+     */
+    @Synchronized
+    private fun releaseIfCurrent(socket: WebSocket): Boolean {
+        if (socket !== webSocket) return false
+
+        releaseConnection()
+        return true
+    }
+
+    /**
+     * Drops every trace of a live connection, foreground service included.
+     *
+     * Stopping the service is the point: it is what keeps the process
+     * alive and exempt from background throttling while a socket is up,
+     * so leaving it running after the socket is gone means the app sits
+     * in the notification shade burning battery for a server that is no
+     * longer there - which is exactly what happened when someone left
+     * the building with the app still open.
+     */
+    private fun releaseConnection() {
         webSocket = null
         isConnected = false
         presetsAllowed = false

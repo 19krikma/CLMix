@@ -65,6 +65,14 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
 
     override fun onResume() {
         super.onResume()
+
+        // See MixerActivity.onResume - the socket can die while this is
+        // backgrounded, leaving a list that cannot open anything.
+        if (!MixerClient.isConnected) {
+            returnToLogin()
+            return
+        }
+
         MixerClient.claimListener(this)
     }
 

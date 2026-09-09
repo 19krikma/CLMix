@@ -306,6 +306,17 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     override fun onResume() {
         super.onResume()
         enterFullScreen()
+
+        // The connection can end while this screen is in the background,
+        // where there is no listener to hear it - the phone leaving the
+        // building is the usual way. Coming back to a grid of faders that
+        // look live but are attached to nothing is worse than being asked
+        // to log in again, so check rather than assume.
+        if (!MixerClient.isConnected) {
+            returnToLogin()
+            return
+        }
+
         MixerClient.claimListener(this)
         MixerClient.selectAux(auxIndex)
         MixerClient.requestBanks()

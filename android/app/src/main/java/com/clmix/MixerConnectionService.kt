@@ -26,6 +26,16 @@ class MixerConnectionService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+
+        // In onCreate, not just onStartCommand: startForegroundService()
+        // is a promise that this service will call startForeground()
+        // promptly, and the system kills the whole app if it is destroyed
+        // before doing so. A connection that fails immediately stops the
+        // service almost as soon as it starts, and that race was crashing
+        // the app on launch whenever the server was unreachable. Calling
+        // it here means the promise is kept the moment the service
+        // exists, however soon afterwards it is torn down.
+        startForeground(NOTIFICATION_ID, buildNotification())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
