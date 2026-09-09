@@ -71,6 +71,13 @@ this account may mute. Plus a rework of how banks and auxes are chosen.
 
 ### Fixed
 
+- **The keyboard no longer covers the password field.** The login screen
+  scrolls the focused field clear when the keyboard opens. This screen
+  draws edge-to-edge, so the window never resizes for the keyboard and
+  the ScrollView considered a field sitting behind it perfectly visible -
+  the overlap is now worked out against the keyboard's own height
+  instead.
+
 - Channel strips measured against a stale height when the channel list
   resized, which pushed the Mute button off the bottom of the strip.
 

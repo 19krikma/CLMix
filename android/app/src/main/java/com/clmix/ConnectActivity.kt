@@ -33,6 +33,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnNextLayout
 import com.clmix.databinding.ActivityConnectBinding
 import com.google.android.material.button.MaterialButton
 import kotlin.math.max
@@ -138,19 +139,54 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // The top inset is folded into the banner offset below rather than
         // applied here, because the banner is what actually sits under the
         // status bar.
+        val scrollBasePaddingBottom = binding.root.paddingBottom
         val contentBasePadding = Rect(
             binding.content.paddingLeft, binding.content.paddingTop,
             binding.content.paddingRight, binding.content.paddingBottom
         )
         ViewCompat.setOnApplyWindowInsetsListener(binding.content) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             statusBarInset = bars.top
+
             view.setPadding(
                 contentBasePadding.left + bars.left,
                 contentBasePadding.top + bannerOffsetFor(view.width),
                 contentBasePadding.right + bars.right,
                 contentBasePadding.bottom + bars.bottom
             )
+
+            // The keyboard's height goes on the ScrollView, not on the
+            // content inside it. This screen draws edge-to-edge, so the
+            // window does not resize when the IME opens - the ScrollView
+            // still believes its viewport is the whole screen, decides
+            // the password field is already visible, and scrolls
+            // nowhere. Padding the scrolling container is what tells it
+            // that its bottom 850px are behind the keyboard, which is
+            // both what makes room and what makes requestRectangleOnScreen
+            // below actually move.
+            binding.root.setPadding(
+                binding.root.paddingLeft,
+                binding.root.paddingTop,
+                binding.root.paddingRight,
+                scrollBasePaddingBottom + ime.bottom
+            )
+
+            imeInsetBottom = ime.bottom
+            val keyboardOpen = ime.bottom > 0
+
+            if (keyboardOpen && !imeWasOpen) {
+                // Padding alone only makes room; the field still has to be
+                // brought into it - and only once the padding above has
+                // actually been laid out. post() is too early: it runs
+                // before the layout pass, so the ScrollView still measures
+                // its old, shorter content and concludes there is nowhere
+                // to scroll. doOnNextLayout runs after it, when the scroll
+                // range reflects the keyboard.
+                view.doOnNextLayout { scrollFocusedFieldIntoView() }
+            }
+
+            imeWasOpen = keyboardOpen
             insets
         }
         // Width isn't known when the insets first arrive, and it changes on
@@ -480,6 +516,46 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         resultHandler.removeCallbacksAndMessages(null)
     }
 
+    /**
+     * Scrolls whichever field has focus clear of the keyboard.
+     *
+     * requestRectangleOnScreen walks up to the ScrollView, so this works
+     * for any focused field rather than naming the password one - and it
+     * does nothing when the field is already visible.
+     */
+    // Whether the keyboard was up on the previous insets pass, so the
+    // scroll runs once when it opens rather than on every frame of the
+    // IME animation, which would fight a user scrolling by hand.
+    private var imeWasOpen = false
+
+    // Height of the keyboard as last reported, so the scroll below knows
+    // how much of the ScrollView is actually behind it.
+    private var imeInsetBottom = 0
+
+    private fun scrollFocusedFieldIntoView() {
+        val focused = currentFocus ?: return
+        val scroller = binding.root
+
+        // Worked out explicitly rather than left to
+        // requestRectangleOnScreen: this window does not resize for the
+        // keyboard, so the ScrollView's own idea of "on screen" includes
+        // the strip the keyboard is sitting on and it concludes there is
+        // nothing to do.
+        val fieldLocation = IntArray(2)
+        val scrollerLocation = IntArray(2)
+        focused.getLocationInWindow(fieldLocation)
+        scroller.getLocationInWindow(scrollerLocation)
+
+        val fieldBottomInScroller =
+            fieldLocation[1] - scrollerLocation[1] + focused.height
+        val visibleHeight = scroller.height - imeInsetBottom
+        val overlap = fieldBottomInScroller - visibleHeight + FIELD_SCROLL_MARGIN_PX
+
+        if (overlap > 0) {
+            scroller.smoothScrollBy(0, overlap)
+        }
+    }
+
     private fun attemptConnect() {
         val host = binding.hostInput.text.toString().trim()
         val portText = binding.portInput.text.toString().trim()
@@ -717,6 +793,10 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // into "Login".
         private const val RESULT_HOLD_MS = 5000L
         private const val COLOR_FADE_MS = 250L
-        private const val LABEL_LOGIN = "Login"
+        // A little breathing room above the keyboard rather than the field
+// sitting flush against it.
+private const val FIELD_SCROLL_MARGIN_PX = 48
+
+private const val LABEL_LOGIN = "Login"
     }
 }
