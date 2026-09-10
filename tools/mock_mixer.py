@@ -57,13 +57,24 @@ BANK_NAMES = ["Band", "Drums", "Vocals", "Horns", "Percussion"]
 MIN_CHANNELS_PER_BANK = 3
 MAX_CHANNELS_PER_BANK = 10
 
+# The first bank is always this wide, rather than randomized like the
+# rest. Random counts topped out at ten, so nothing ever exercised a bank
+# too wide to fit on screen at once - which is the case that decides
+# whether a client scrolls its strips sensibly, and the one worth having
+# on hand every run rather than on a lucky seed.
+FIRST_BANK_CHANNELS = 12
+
 # Cycled (and repeated, once exhausted) to name however many channels
 # each randomized bank ends up with.
+# A few of these are deliberately long. Every name here used to fit a
+# strip on one line, which meant nothing ever exercised what a client
+# does when a name does not - and real desks are full of "Lead Vocal L"
+# and "Talkback Mic".
 INSTRUMENT_POOL = [
     "Kick", "Snare", "Hi-Hat", "Toms", "Overheads", "Guitar 1", "Guitar 2",
-    "Bass", "Keys 1", "Keys 2", "Vocal 1", "Vocal 2", "Vocal 3", "BGV 1",
-    "BGV 2", "Sax", "Trumpet", "Trombone", "Perc", "Click", "DI 1", "DI 2",
-    "Synth", "Pad", "Strings", "Loop",
+    "Bass", "Keys 1", "Keys 2", "Lead Vocal Left", "Vocal 2", "Vocal 3", "BGV 1",
+    "BGV 2", "Sax", "Trumpet", "Trombone", "Talkback Mic", "Click", "DI 1",
+    "DI 2", "Synth", "Ambient Left", "Strings", "Loop",
 ]
 
 # The first few are fixed so the mono/stereo mix below is predictable;
@@ -232,8 +243,9 @@ def build_banks():
     channel_names = []
     next_channel = 1
 
-    for bank_name in BANK_NAMES:
-        count = random.randint(MIN_CHANNELS_PER_BANK, MAX_CHANNELS_PER_BANK)
+    for index, bank_name in enumerate(BANK_NAMES):
+        count = FIRST_BANK_CHANNELS if index == 0 else \
+            random.randint(MIN_CHANNELS_PER_BANK, MAX_CHANNELS_PER_BANK)
         banks[bank_name] = list(range(next_channel, next_channel + count))
         next_channel += count
 

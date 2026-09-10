@@ -11,4 +11,12 @@
         <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
         <item name="colorError">@color/mute_active</item>
     </style>
+
+    <!-- Material 3 draws its FABs as rounded squares. The landscape
+         controls toggle is meant to read as a floating dot over the
+         strips, so it takes a full-circle shape instead. -->
+    <style name="ShapeAppearance.CLMix.Circle" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
 </resources>

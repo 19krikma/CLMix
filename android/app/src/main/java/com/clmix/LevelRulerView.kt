@@ -26,7 +26,13 @@ class LevelRulerView @JvmOverloads constructor(
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, R.color.on_surface_variant)
         textSize = 9f * context.resources.displayMetrics.scaledDensity
-        textAlign = Paint.Align.LEFT
+        // Right-aligned so every label ends at the same place, just
+        // before its tick line: left-aligned, a single-character "0" or
+        // "5" trailed off toward the strip's edge and left a gap between
+        // the number and the fader it labels, while "60" nearly closed
+        // it. Hanging them all off the line keeps the numbers up against
+        // the fader whatever their width.
+        textAlign = Paint.Align.RIGHT
     }
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -46,7 +52,10 @@ class LevelRulerView @JvmOverloads constructor(
             val y = inset + (1 - fraction) * span
 
             canvas.drawLine(lineStart, y, width.toFloat(), y, linePaint)
-            canvas.drawText(label, 2 * density, y + textBaselineOffset, textPaint)
+            canvas.drawText(
+                label, lineStart - LABEL_GAP_DP * density,
+                y + textBaselineOffset, textPaint
+            )
         }
     }
 
@@ -55,6 +64,10 @@ class LevelRulerView @JvmOverloads constructor(
         // view's edge, since they'd otherwise be vertically centered on
         // the exact top/bottom endpoints.
         private const val INSET_DP = 4f
-        private const val LINE_START_DP = 16f
+        // Leaves room for a three-glyph label ("-60") to the left of it.
+        private const val LINE_START_DP = 18f
+
+        // Breathing room between a label and the tick line it hangs off.
+        private const val LABEL_GAP_DP = 2.5f
     }
 }

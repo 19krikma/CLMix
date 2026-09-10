@@ -7,4 +7,7 @@
          sheet never covers a Mute button. The strips' own 10dp padding
          is included in this rather than added to it. -->
     <dimen name="aux_sheet_clearance">62dp</dimen>
+
+    <!-- Inset of the landscape controls toggle from the screen corner. -->
+    <dimen name="chrome_toggle_margin">12dp</dimen>
 </resources>

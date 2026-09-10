@@ -4,6 +4,7 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
@@ -13,6 +14,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
+import androidx.core.view.updateLayoutParams
+import androidx.core.view.updatePadding
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -67,6 +70,11 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     // Guards the scroll-to-selection so it runs once per opening rather
     // than on every frame of the drag, which would fight the finger.
     private var auxListScrolled = false
+
+    // Landscape only. The bars fold away by default there, since that is
+    // the orientation where they cost the most - portrait always shows
+    // them and never shows the toggle.
+    private var chromeVisible = true
     private var panSheet: PanBottomSheet? = null
     private var presetSaveSheet: PresetSaveBottomSheet? = null
     private var presetLoadSheet: PresetLoadBottomSheet? = null
@@ -254,6 +262,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         adapter.muteSupported = MixerClient.muteAllowed
         applyAuxWidth()
         showCurrentAux()
+        applyOrientation()
         binding.presetsButton.setOnClickListener { togglePresetsExpanded() }
         binding.presetSaveButton.setOnClickListener { showPresetSaveSheet() }
         binding.presetLoadButton.setOnClickListener { showPresetLoadSheet() }
@@ -272,6 +281,11 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             ThemeStore.setDarkMode(this, isChecked)
         }
 
+        binding.chromeToggle.setOnClickListener {
+            chromeVisible = !chromeVisible
+            applyChrome()
+        }
+
         binding.logoutButton.setOnClickListener { logout() }
 
         binding.smoothButton.setOnClickListener {
@@ -280,6 +294,67 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             updateSmoothButtonAppearance()
         }
         updateSmoothButtonAppearance()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyOrientation()
+    }
+
+    /**
+     * Folds the bars away in landscape and offers the toggle that brings
+     * them back; portrait keeps them and hides the toggle.
+     */
+    private fun applyOrientation() {
+        val landscape =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+        binding.chromeToggle.visibility = if (landscape) View.VISIBLE else View.GONE
+
+        // Turning the phone starts from hidden - the point of landscape
+        // is the extra fader travel, so that is what it opens on.
+        chromeVisible = !landscape
+        applyChrome()
+    }
+
+    private fun applyChrome() {
+        binding.topBar.visibility = if (chromeVisible) View.VISIBLE else View.GONE
+        binding.auxSheet.visibility = if (chromeVisible) View.VISIBLE else View.GONE
+
+        // The column reserves a strip for the collapsed aux sheet; with
+        // the sheet gone that reservation is just wasted fader travel.
+        binding.mixerColumn.updatePadding(
+            bottom = if (chromeVisible) {
+                resources.getDimensionPixelSize(R.dimen.aux_sheet_peek)
+            } else {
+                0
+            }
+        )
+
+        if (!chromeVisible) {
+            // Neither panel should be left open behind a hidden bar,
+            // where nothing could close it.
+            setBanksExpanded(false)
+            auxSheet?.state = BottomSheetBehavior.STATE_COLLAPSED
+        }
+
+        // Lifted clear of the aux bar when that is showing, or it would
+        // sit half-buried behind the very bar it is there to dismiss.
+        val margin = resources.getDimensionPixelSize(R.dimen.chrome_toggle_margin)
+        binding.chromeToggle.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+            bottomMargin = if (chromeVisible) {
+                margin + resources.getDimensionPixelSize(R.dimen.aux_sheet_peek)
+            } else {
+                margin
+            }
+        }
+
+        // The icon says what pressing it will do, not what is showing.
+        binding.chromeToggle.setImageResource(
+            if (chromeVisible) R.drawable.ic_eye_off else R.drawable.ic_eye
+        )
+        binding.chromeToggle.contentDescription =
+            if (chromeVisible) "Hide controls" else "Show controls"
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

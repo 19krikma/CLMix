@@ -14,15 +14,18 @@ object AuxTaper {
     const val TOP_DB = 10.0
     const val BOTTOM_DB = -150.0
 
+    // Labels carry their sign. Without it the scale read 10, 5, 0, 5, 10
+    // going down - the same "5" appearing twice, five above unity and
+    // five below it, with nothing to say which was which.
     val LEVEL_TICKS: List<Pair<Double, String>> = listOf(
-        BOTTOM_DB to "∞",
-        -60.0 to "60",
-        -50.0 to "50",
-        -40.0 to "40",
-        -30.0 to "30",
-        -20.0 to "20",
-        -10.0 to "10",
-        -5.0 to "5",
+        BOTTOM_DB to "-∞",
+        -60.0 to "-60",
+        -50.0 to "-50",
+        -40.0 to "-40",
+        -30.0 to "-30",
+        -20.0 to "-20",
+        -10.0 to "-10",
+        -5.0 to "-5",
         0.0 to "0",
         5.0 to "5",
         TOP_DB to "10"

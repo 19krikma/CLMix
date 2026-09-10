@@ -16,6 +16,7 @@
          without this the strips would measure themselves all the way to
          the bottom edge and put their Mute buttons underneath it. -->
     <LinearLayout
+        android:id="@+id/mixer_column"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
@@ -23,6 +24,7 @@
         android:background="?android:attr/colorBackground">
 
         <LinearLayout
+            android:id="@+id/top_bar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -179,6 +181,25 @@
             android:paddingBottom="10dp" />
 
     </LinearLayout>
+
+    <!-- Landscape only. With the phone on its side the strips are short
+         and the bars either end cost most of the fader travel, so they
+         fold away and this brings them back on demand. It floats over
+         the strips rather than reserving a row of its own - reserving
+         one would give back the space hiding the bars just freed. -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/chrome_toggle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="12dp"
+        android:contentDescription="Show controls"
+        android:src="@drawable/ic_eye"
+        android:visibility="gone"
+        app:fabSize="mini"
+        app:shapeAppearanceOverlay="@style/ShapeAppearance.CLMix.Circle"
+        app:tint="@color/on_mute_inactive"
+        app:backgroundTint="@color/mute_inactive" />
 
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 

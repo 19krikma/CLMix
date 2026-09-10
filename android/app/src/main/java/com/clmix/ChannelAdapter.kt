@@ -357,7 +357,10 @@ class ChannelAdapter(
     private fun applyMuteAppearance(binding: ItemChannelBinding, muted: Boolean) {
         val context = binding.root.context
 
-        binding.muteButton.text = if (muted) "Muted" else "Mute"
+        // The label stays "MUTE" in both states - it names the button,
+        // it does not report the state. Colour carries that, which reads
+        // faster across a row of strips than reading four characters on
+        // each, and keeps the button from changing width as it toggles.
         binding.muteButton.backgroundTintList = ColorStateList.valueOf(
             ContextCompat.getColor(
                 context, if (muted) R.color.mute_active else R.color.mute_inactive

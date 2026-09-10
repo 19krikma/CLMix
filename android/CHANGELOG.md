@@ -69,6 +69,44 @@ this account may mute. Plus a rework of how banks and auxes are chosen.
   flight. Hardware and Bluetooth keyboards work too, and are filtered to
   the key-down so a single press does not submit twice.
 
+### Channel strips
+
+- **Narrower strips**, 118dp down to 76dp, so more of the console fits on
+  screen at once - five full strips on a phone where three and a half
+  fitted before. Most of that came from dead space rather than from the
+  controls: the fader's touch band is far wider than the track drawn down
+  the middle of it, and the strip was sized around the band.
+- **The Mute button reads MUTE in both states.** It names the button
+  rather than reporting the state - colour carries that, which reads
+  faster across a row of strips than four characters on each, and stops
+  the label changing width as it toggles.
+- **The dB scale reads as a scale.** Labels below unity carry their sign
+  (-5, -10 ... -60, -∞) - the ruler used to run 10, 5, 0, 5, 10 downward,
+  the same "5" appearing twice with nothing to say which was which. The
+  numbers are right-aligned so they all end against their tick line, and
+  the lines now run all the way to the fader they point at.
+- **The meter sits against its fader** instead of across a gap of dead
+  space - the fader's touch band is far wider than the track drawn down
+  the middle of it, and that width was holding the meter at arm's length.
+- **Long channel names stack onto a second line** instead of running out
+  of room. Both lines are reserved on every strip whether the name needs
+  them or not: the fader takes whatever height is left, so letting the
+  name grow only when it wraps would leave one strip's fader shorter than
+  its neighbours' along the row.
+
+### Landscape
+
+- **The bars fold away when the phone is on its side**, leaving the whole
+  screen to the strips - turned sideways the faders are short, and the
+  top and bottom bars were costing most of what travel there was.
+- **A floating eye button** in the bottom-right corner brings them back,
+  and hides them again. It floats over the strips rather than reserving a
+  row of its own, which would give back the space hiding the bars just
+  freed, and lifts clear of the aux bar whenever that is showing so it is
+  never half-buried behind the thing it dismisses. The icon shows what
+  pressing it will do rather than what is currently on screen.
+- Portrait is unchanged and never shows the button.
+
 ### Connection lifetime
 
 - **The app lets go when the server does.** A socket that ends on its own
