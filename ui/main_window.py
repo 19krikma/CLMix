@@ -1184,7 +1184,7 @@ class AuxLevelsPanel:
     # legs, mirroring what MixerWorker actually subscribed.
     METER_STEREO_GAP = 2
 
-    # Colour ramp sampled from the SD7's own meters: deep blue at the
+    # Colour ramp sampled from the Q225's own meters: deep blue at the
     # bottom, through cyan and green, yellow-green near -14, into red for
     # the last few dB. Stops are in dB (not fractions) so the colours stay
     # tied to real levels if METER_FLOOR_DB ever changes.

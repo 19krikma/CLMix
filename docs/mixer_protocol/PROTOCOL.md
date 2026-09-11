@@ -2,7 +2,7 @@
 
 Reverse-engineered by live-probing the actual console at `10.5.20.242` on 2026-08-09 (send port 1091, recv port 1090 at that time), and extended on 2026-09-03 from live probing plus two packet captures of the **official DiGiCo client** talking to the same console (`digico.pcapng`, `sound sample.pcapng`).
 
-> **The send/recv ports are console configuration, not protocol constants.** They have been observed as 1091/1090, then 800/900, then 10025/10026 on this same console. Never hardcode them; treat them as user settings (which is what CLMix already does). Console identifies itself as **SD7Q-Q2** - a DiGiCo SD7 Quantum (Quantum engine 2).
+> **The send/recv ports are console configuration, not protocol constants.** They have been observed as 1091/1090, then 800/900, then 10025/10026 on this same console. Never hardcode them; treat them as user settings (which is what CLMix already does). The console is a **DiGiCo Q225 Quantum**. Its `/Console/Name` reply is `SD7Q-Q2`, which is a name string rather than the model - don't read the "SD7" in it as the console type.
 
 This document was generated from **946 concrete addresses** the console actually replied with, collapsed into **358 generalized command patterns**. See `commands.csv` in this folder for the full flat list (every concrete address + the live value it held at probe time).
 

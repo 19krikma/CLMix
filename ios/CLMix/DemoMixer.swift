@@ -4,7 +4,7 @@ import Foundation
 /// socket, no desktop server, no console, no network of any kind.
 ///
 /// This exists because the app cannot otherwise be reviewed. App Review has
-/// no Windows machine running the CLMix desktop app and no DiGiCo Q225 to
+/// no Windows machine running the CLMix desktop app and no mixing console to
 /// point it at, so a reviewer reaching the login screen can get no further,
 /// and Apple does not accept a video in place of a working build
 /// (Guideline 2.1 - the first submission was rejected on exactly this).

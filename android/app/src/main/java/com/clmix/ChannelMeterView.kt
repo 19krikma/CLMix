@@ -227,7 +227,7 @@ class ChannelMeterView @JvmOverloads constructor(
         private const val PEAK_HOLD_MS = 900L
         private const val PEAK_FALL_DB_PER_SEC = 40.0
 
-        // Sampled from the SD7's own meters, same stops as the desktop.
+        // Sampled from the Q225's own meters, same stops as the desktop.
         private val GRADIENT = listOf(
             -60.0 to 0x0A30C8,
             -46.0 to 0x00A0E8,

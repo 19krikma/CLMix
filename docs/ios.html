@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<!--
+  Support page for the iOS app, served by GitHub Pages at
+  https://19krikma.github.io/CLMix/ios.html and used as the app's Support
+  URL and Marketing URL in App Store Connect (see ios/APP_STORE_LISTING.md).
+
+  Deliberately a separate page from index.html rather than a section of it:
+  Apple Guideline 5.2.1 rejected the app for naming the console's maker and
+  model, and index.html has to name them, since it is the desktop app's page
+  too. So this page never names the console's brand or model, and never
+  links to index.html - keep both true when editing it. "A supported digital
+  mixing console" is the wording to use.
+
+  Shares style.css with the rest of the site; same no-build, no-CDN rules as
+  index.html.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLMix for iOS — Support</title>
+<meta name="description" content="CLMix gives every performer their own monitor mix on their own iPhone, through the free CLMix desktop app on your own local network.">
+<link rel="icon" href="assets/clmix-logo.png">
+<link rel="apple-touch-icon" href="assets/clmix-logo.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="banner-wrap">
+  <picture>
+    <source srcset="assets/clmix-feature-graphic-light.png" media="(prefers-color-scheme: light)">
+    <img class="banner" src="assets/clmix-feature-graphic.png" alt="CLMix" width="1024" height="500">
+  </picture>
+</div>
+
+<main>
+
+  <header class="intro">
+    <h1>CLMix for iOS</h1>
+    <p class="tagline">Your own monitor mix, on your own phone.</p>
+    <p class="version">Free · works with the free CLMix desktop app · your network only</p>
+
+    <div class="actions">
+      <a class="button primary" href="https://github.com/19krikma/CLMix/releases/latest">Get the desktop app</a>
+      <a class="button" href="mailto:markkrikunov2000@gmail.com">Email support</a>
+    </div>
+  </header>
+
+  <h2>What it is</h2>
+
+  <p>
+    CLMix hands each performer their own monitor mix: level, pan and per-send
+    mute for every input channel on the aux bus they are assigned to, adjusted
+    from their iPhone or iPad wherever they are standing.
+  </p>
+
+  <p>
+    The app is a remote control, not a standalone mixer. It needs the free
+    CLMix desktop app running on a Windows computer on the same network,
+    connected to a supported digital mixing console. There is no CLMix account
+    and no cloud service — the app talks to that computer and nowhere else.
+  </p>
+
+  <h2>What you'll need</h2>
+
+  <dl class="facts">
+    <div>
+      <dt>Desktop app</dt>
+      <dd>
+        The free CLMix app for Windows, running and connected to a supported
+        digital mixing console —
+        <a href="https://github.com/19krikma/CLMix/releases/latest">download it here</a>.
+      </dd>
+    </div>
+    <div>
+      <dt>An account</dt>
+      <dd>
+        A username and password from whoever runs the desktop app. They create
+        one for each performer; accounts are free.
+      </dd>
+    </div>
+    <div>
+      <dt>Network</dt>
+      <dd>Your iPhone or iPad on the same Wi-Fi network as that computer.</dd>
+    </div>
+    <div>
+      <dt>iOS</dt>
+      <dd>iOS 17 or later.</dd>
+    </div>
+  </dl>
+
+  <h2>Getting connected</h2>
+
+  <ul class="chain">
+    <li>
+      <span class="step">Step 1</span>
+      <h3>Allow local network</h3>
+      <p>Open CLMix and tap Allow when iOS asks to find devices on your local
+         network. Without it the app cannot reach the desktop app.</p>
+    </li>
+    <li>
+      <span class="step">Step 2</span>
+      <h3>Pick your server</h3>
+      <p>Tap it under Discovered, or tap Manual and enter the computer's
+         address and port (8765 unless it has been changed).</p>
+    </li>
+    <li>
+      <span class="step">Step 3</span>
+      <h3>Log in and mix</h3>
+      <p>Enter the username and password you were given, then choose your
+         mix.</p>
+    </li>
+  </ul>
+
+  <h2>What it does</h2>
+
+  <ul class="cards">
+    <li>
+      <h3>Their mix, not the mix</h3>
+      <p>Mute is the console's per-send on/off, so muting a channel drops it
+         out of your mix only — never out of the room.</p>
+    </li>
+    <li>
+      <h3>Meters</h3>
+      <p>A post-fader meter beside every fader, with stereo channels drawn as
+         two bars.</p>
+    </li>
+    <li>
+      <h3>Fine mode</h3>
+      <p>A precision drag for small level changes, when a phone-sized fader is
+         not enough travel.</p>
+    </li>
+    <li>
+      <h3>Presets</h3>
+      <p>Save a mix under a name and pull it back later, if your account is
+         allowed to.</p>
+    </li>
+    <li>
+      <h3>Stays logged in</h3>
+      <p>A session survives the app being closed and relaunched, and ages out
+         on its own once it stops being used.</p>
+    </li>
+    <li>
+      <h3>Light and dark</h3>
+      <p>Follows your phone's setting, or pick one from the menu.</p>
+    </li>
+  </ul>
+
+  <h2>Troubleshooting</h2>
+
+  <dl class="facts">
+    <div>
+      <dt>Can't Reach Server</dt>
+      <dd>
+        Check that the desktop app is running, that you are on the same Wi-Fi
+        as that computer, and that CLMix is switched on under
+        Settings&nbsp;&rsaquo; Privacy &amp; Security&nbsp;&rsaquo; Local Network.
+      </dd>
+    </div>
+    <div>
+      <dt>Nothing under Discovered</dt>
+      <dd>
+        Some networks block the traffic discovery relies on. Tap Manual and
+        enter the computer's IP address and port instead.
+      </dd>
+    </div>
+    <div>
+      <dt>No Snapshot Access</dt>
+      <dd>
+        Your account is limited to a different snapshot than the one recalled
+        on the console right now. Ask whoever runs the desktop app.
+      </dd>
+    </div>
+    <div>
+      <dt>Access denied</dt>
+      <dd>
+        Your account is not allowed to change that mix, or to use presets. Ask
+        whoever runs the desktop app.
+      </dd>
+    </div>
+    <div>
+      <dt>Mixer not connected</dt>
+      <dd>
+        The desktop app is running but is not talking to the console at the
+        moment. Try again shortly.
+      </dd>
+    </div>
+    <div>
+      <dt>No Mute, Pan or Presets</dt>
+      <dd>
+        Mute and Presets are per-account permissions. Pan is hidden on a mono
+        mix, which has no left and right to pan between.
+      </dd>
+    </div>
+    <div>
+      <dt>Asked to log in again</dt>
+      <dd>
+        Sessions end after a while unused, when the desktop app restarts, or
+        when you log out.
+      </dd>
+    </div>
+  </dl>
+
+  <h2>Privacy</h2>
+
+  <p>
+    CLMix collects nothing. There is no analytics, no advertising and no crash
+    reporting, and no server the developer operates. The app connects only to
+    the CLMix desktop app on your own network.
+  </p>
+
+  <p><a href="privacy.html">Read the full privacy policy →</a></p>
+
+  <h2>Support</h2>
+
+  <p>
+    Something wrong, or missing? Email
+    <a href="mailto:markkrikunov2000@gmail.com">markkrikunov2000@gmail.com</a>
+    with your iOS version and what you were doing when it happened.
+  </p>
+
+  <footer>
+    <p>CLMix is built by Mark Krikunov · <a href="mailto:markkrikunov2000@gmail.com">markkrikunov2000@gmail.com</a></p>
+  </footer>
+
+</main>
+
+</body>
+</html>

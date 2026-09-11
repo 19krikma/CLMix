@@ -12,6 +12,17 @@ still named: it is a hard requirement for this app to do anything at all,
 so describing it is accuracy, not an irrelevant third-party reference, and
 review did not object to it.
 
+**Apple Guideline 5.2.1 forbids naming third-party hardware without its
+maker's authorization.** The September 2026 resubmission was rejected for
+naming the console's brand and model in the description and keywords. The
+console is now "a supported digital mixing console" below, and its brand
+and model should not come back into any of the fields listed above, the
+screenshots, or the App Review notes. The iOS app itself names no
+third-party brand either, in its UI or in its source comments - keep it
+that way. The desktop app, the site's front page and the desktop packaging
+still name the console; none of those are the iOS app's, which has its own
+support page (`docs/ios.html`, see Support and privacy URLs below).
+
 ---
 
 ## Subtitle (30 characters max)
@@ -29,7 +40,7 @@ Give every performer control of their own monitor mix from their phone - level, 
 ## Keywords (100 characters max, comma-separated, no spaces)
 
 ```
-monitor,mix,aux,wedge,iem,foh,soundcheck,console,mixer,stage,live,audio,osc,digico
+monitor,mix,aux,wedge,iem,foh,soundcheck,console,mixer,stage,live,audio,osc
 ```
 
 ## Description
@@ -42,7 +53,7 @@ Level, pan and per-send mute for every input channel on the aux bus that person 
 
 REQUIRES THE CLMIX DESKTOP APP
 
-CLMix is a remote control, not a standalone mixer. It needs the free CLMix desktop application running on a Windows computer on the same network, connected to a DiGiCo Q225 Quantum console. The desktop app mirrors the console's channel names, aux buses, banks and snapshots, and serves each phone only the parts that person is allowed to touch.
+CLMix is a remote control, not a standalone mixer. It needs the free CLMix desktop application running on a Windows computer on the same network, connected to a supported digital mixing console. The desktop app mirrors the console's channel names, aux buses, banks and snapshots, and serves each phone only the parts that person is allowed to touch.
 
 
 THEIR MIX, NOT THE MIX
@@ -94,11 +105,45 @@ There is no CLMix account and no cloud service. The app connects only to the ser
 
 | Field | Value |
 |---|---|
-| Support URL | https://19krikma.github.io/CLMix/ |
-| Marketing URL | https://19krikma.github.io/CLMix/ |
+| Support URL | https://19krikma.github.io/CLMix/ios.html |
+| Marketing URL | https://19krikma.github.io/CLMix/ios.html |
 | Privacy Policy URL | https://19krikma.github.io/CLMix/privacy.html |
 
 The privacy policy does name Android, because it is one document covering
 every CLMix client and has to describe all of them to be truthful. That is
 a linked legal document rather than App Store description copy, and is not
 what 2.3.10 is aimed at. Leave it as it is unless review says otherwise.
+
+It does not name the console's brand or model, though (5.2.1) - it has no
+need to.
+
+Support and Marketing URL both point at `docs/ios.html`, not the site's
+front page: `docs/index.html` is the desktop app's page too and names the
+console by brand and model, which 5.2.1 rules out for anything App Review
+reads about this app. `ios.html` never names the console and never links
+to the front page - keep both true.
+
+## Reply to App Review - 2.1(b) and 5.2.1 (September 2026)
+
+Sent from App Store Connect's App Review messages, after the metadata
+changes above are saved. It deliberately does not name the console either.
+
+```
+Thank you for the review. Answers to both points below.
+
+Guideline 2.1(b) - Information Needed
+
+6. How do users obtain an account? Do users have to pay a fee to create an account?
+
+No fee is charged, and nothing is sold anywhere in CLMix. The iOS app is free, with no in-app purchases, subscriptions, advertising, paid content or links to purchases outside the app. The CLMix desktop application it connects to is also free.
+
+CLMix has no account system of its own and no server operated by us. Accounts exist only inside the user's own copy of the free CLMix desktop application: the person running it (typically the sound engineer) creates an account for each performer under Setup > Accounts, choosing its username, password and which mixes it may adjust, and hands those details to the performer. The account is stored and checked only on that computer, over the local network.
+
+To review the app without an account or server, tap "Demo Mode" on the login screen.
+
+Guideline 5.2.1 - Legal - Intellectual Property
+
+We have removed the third-party brand and model name from the app's description and keywords, and the Support and Marketing URLs now point to a support page that does not mention it. The app itself contains no third-party names, logos, images or other content, and we have confirmed the screenshots contain none either.
+
+The iOS app does not communicate with any third-party hardware or service. Its only network connection is to our own free CLMix desktop application on the user's local network, using CLMix's own protocol.
+```

@@ -79,7 +79,7 @@ INSTRUMENT_POOL = [
 
 # The first few are fixed so the mono/stereo mix below is predictable;
 # past those, IEM sends are generated to whatever --auxes asks for. A
-# real SD7Q reports 30, so five is a small console, not a typical one.
+# real Q225 reports 30, so five is a small console, not a typical one.
 AUX_NAME_SEED = ["Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send"]
 AUX_NAMES = list(AUX_NAME_SEED)
 
@@ -582,7 +582,7 @@ def main():
     parser.add_argument("--auxes", type=int, default=len(AUX_NAME_SEED),
                          metavar="N",
                          help=f"How many aux buses to report "
-                              f"(default {len(AUX_NAME_SEED)}; a real SD7Q has 30)")
+                              f"(default {len(AUX_NAME_SEED)}; a real Q225 has 30)")
     parser.add_argument("--recall-every", type=float, default=None,
                          metavar="SECONDS",
                          help="Periodically recall a snapshot, rewriting all "

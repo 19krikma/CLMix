@@ -332,7 +332,7 @@ final class ChannelMeterUIView: UIView {
     private static let peakHoldSeconds: CFTimeInterval = 0.9
     private static let peakFallDbPerSec = 40.0
 
-    // Sampled from the SD7's own meters, same stops as the desktop and
+    // Sampled from the console's own meters, same stops as the desktop and
     // Android.
     private struct Stop {
         let db: Double

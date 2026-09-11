@@ -1,10 +1,10 @@
 # Privacy Policy
 
 **App:** CLMix
-**Effective date:** September 1, 2026
+**Effective date:** September 11, 2026
 
-CLMix ("the app", "we", "our") is a remote-control client for a DiGiCo SD7
-Quantum audio mixing console. This policy explains what information CLMix
+CLMix ("the app", "we", "our") is a remote-control client for a digital
+audio mixing console. This policy explains what information CLMix
 accesses, collects, uses, and shares, across its Android, iOS, and Windows
 desktop clients.
 
