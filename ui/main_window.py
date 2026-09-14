@@ -2495,6 +2495,7 @@ class MainWindow:
         self.preset_store = PresetStore()
         self.backup_store = BackupStore(backups_dir=self.settings.get("backup_dir"))
 
+        self._palette_recolor_hooked = False
         self.apply_theme(self.settings["theme"], persist=False)
         self.build_ui()
 
@@ -2791,7 +2792,45 @@ class MainWindow:
 
     def apply_theme(self, theme, persist=True):
         sv_ttk.set_theme(theme)
+        self._hook_palette_recolor()
+        self._recolor_widgets()
 
+        if persist:
+            self.settings["theme"] = theme
+            self.save_settings()
+
+    def _hook_palette_recolor(self):
+        """Re-apply our own colours *after* sv_ttk's palette pass.
+
+        sv_ttk answers <<ThemeChanged>> with tk_setPalette, and that event
+        is delivered later from the event loop - so the _recolor_widgets()
+        call in apply_theme() always runs *before* it. On Tk 8.6 that
+        ordering never mattered: its palette only repaints widgets still
+        on their default colours. Tk 9 (what python.org's Python 3.14
+        ships) repaints every plain tk widget unconditionally, so every
+        colour we had just set - the section-dark labels and canvas, the
+        channel strips - was overwritten with the theme's generic
+        background a moment later. Appending to the same binding sv_ttk
+        uses runs our pass straight after its own, on every theme change
+        from any source.
+
+        Bound once, and only after the first set_theme(): sv_ttk sources
+        the Tcl side that installs its binding on that call, and a "+"
+        binding registered before it would run ahead of it instead.
+        Bound on the root's window class because that is what sv_ttk
+        binds on - and this app renames the class (see WM_CLASS_NAME), so
+        the name has to be read back rather than assumed to be "Tk".
+        """
+        if self._palette_recolor_hooked:
+            return
+
+        self.root.bind_class(
+            self.root.winfo_class(), "<<ThemeChanged>>",
+            lambda event: self._recolor_widgets(), add="+"
+        )
+        self._palette_recolor_hooked = True
+
+    def _recolor_widgets(self):
         bg = panel_bg(self.root)
         self.root.configure(bg=bg)
 
@@ -2807,10 +2846,6 @@ class MainWindow:
         if getattr(self, "about_window", None) is not None and \
                 self.about_window.window.winfo_exists():
             self.about_window.apply_theme()
-
-        if persist:
-            self.settings["theme"] = theme
-            self.save_settings()
 
     def _session_active(self):
         """Whether a connection is up, being made, or queued to retry.
