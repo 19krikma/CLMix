@@ -189,14 +189,20 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
             imeWasOpen = keyboardOpen
             insets
         }
-        // Width isn't known when the insets first arrive, and it changes on
-        // rotation - so the offset is recomputed whenever the content is
-        // laid out at a new width, not only when insets land.
-        binding.content.addOnLayoutChangeListener { view, l, _, r, _, oldL, _, oldR, _ ->
-            if (r - l != oldR - oldL) {
+        // Width isn't known when the insets first arrive, and view.width is
+        // stale whenever insets land ahead of a layout at a new width. Locking
+        // and unlocking the phone can do this: the form came back pushed down
+        // by exactly the landscape/portrait ratio, i.e. the insets pass padded
+        // for a landscape-width banner and nothing ever put it back. So every layout checks the
+        // offset against the width it was actually laid out at, rather than
+        // only reacting when that width changes: setPadding is a no-op when
+        // nothing differs, so this settles after one extra pass at most.
+        binding.content.addOnLayoutChangeListener { view, l, _, r, _, _, _, _, _ ->
+            val expectedTop = contentBasePadding.top + bannerOffsetFor(r - l)
+            if (view.paddingTop != expectedTop) {
                 view.setPadding(
                     view.paddingLeft,
-                    contentBasePadding.top + bannerOffsetFor(r - l),
+                    expectedTop,
                     view.paddingRight,
                     view.paddingBottom
                 )
