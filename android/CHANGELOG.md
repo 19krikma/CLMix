@@ -5,14 +5,6 @@ moves independently of the desktop app's `version.py`.
 
 ## 2.5.1
 
-### Fixed
-
-- **Login form no longer drops to the bottom after locking the phone.**
-  Locking and unlocking on the login screen could leave the whole form
-  pushed down, with a large blank gap under the logo.
-
-## 2.5.0
-
 Everything the console already knew but the phone did not: how loud each
 channel is, whether it is stereo, whether this aux can pan, and whether
 this account may mute. Plus a rework of how banks and auxes are chosen.
@@ -142,6 +134,10 @@ this account may mute. Plus a rework of how banks and auxes are chosen.
 
 - Channel strips measured against a stale height when the channel list
   resized, which pushed the Mute button off the bottom of the strip.
+
+- **Login form no longer drops to the bottom after locking the phone.**
+  Locking and unlocking on the login screen could leave the whole form
+  pushed down, with a large blank gap under the logo.
 
 ### Compatibility
 
