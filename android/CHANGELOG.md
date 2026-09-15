@@ -3,6 +3,14 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.5.1
+
+### Fixed
+
+- **Login form no longer drops to the bottom after locking the phone.**
+  Locking and unlocking on the login screen could leave the whole form
+  pushed down, with a large blank gap under the logo.
+
 ## 2.5.0
 
 Everything the console already knew but the phone did not: how loud each
