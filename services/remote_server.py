@@ -78,13 +78,19 @@ class RemoteServer:
     """
 
     def __init__(self, get_worker, command_queue, port, user_store,
-                 preset_store, get_hidden_auxes=None):
+                 preset_store, get_hidden_auxes=None, bind_ip=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
         self.user_store = user_store
         self.preset_store = preset_store
         self.get_hidden_auxes = get_hidden_auxes or (lambda: set())
+
+        # Which local address to listen on, or None for every adapter.
+        # On a machine with two network cards this is what decides which
+        # network the phones can reach the server from - and, since the
+        # advertisement has to match, what mDNS tells them to connect to.
+        self.bind_ip = bind_ip or None
 
         self._thread = None
         self._loop = None
@@ -127,8 +133,10 @@ class RemoteServer:
             log("info", "Remote server stopped")
 
     async def _serve(self):
-        async with websockets.serve(self._handle_client, "0.0.0.0", self.port):
-            log("info", f"Remote server listening on port {self.port}")
+        host = self.bind_ip or "0.0.0.0"
+
+        async with websockets.serve(self._handle_client, host, self.port):
+            log("info", f"Remote server listening on {host}:{self.port}")
             await self._advertise_mdns()
             try:
                 await self._stop_event.wait()
@@ -137,7 +145,13 @@ class RemoteServer:
 
     async def _advertise_mdns(self):
         hostname = socket.gethostname()
-        addresses = self._local_ipv4_addresses()
+
+        # Only the address actually being served. Advertising the others
+        # would hand a phone an address nothing is listening on, and the
+        # phone clients resolve a service to a single host - so the one
+        # they picked could be the wrong one.
+        addresses = [self.bind_ip] if self.bind_ip \
+            else self._local_ipv4_addresses()
 
         if not addresses:
             log("warning", "No local IPv4 address found - skipping mDNS advertisement")

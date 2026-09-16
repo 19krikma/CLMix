@@ -3,6 +3,42 @@ import platform
 import socket
 import subprocess
 
+import ifaddr
+
+
+def list_ipv4_interfaces():
+    """Every adapter that currently has a usable IPv4 address.
+
+    Returns a list of (label, ip) - the label is what a person picks from
+    in Setup, the ip is what a socket binds to. Loopback and link-local
+    (169.254.x, what Windows hands an adapter with nothing at the other
+    end) are left out because nothing can be reached over them.
+
+    Deliberately not restricted to Ethernet: a machine with two wired
+    cards is the case this exists for, but picking the Wi-Fi adapter on
+    purpose is just as valid.
+    """
+    interfaces = []
+    seen = set()
+
+    for adapter in ifaddr.get_adapters():
+        for ip in adapter.ips:
+            if not ip.is_IPv4:
+                continue
+
+            address = ip.ip
+
+            if address == "127.0.0.1" or address.startswith("169.254."):
+                continue
+
+            if address in seen:
+                continue
+
+            seen.add(address)
+            interfaces.append((f"{adapter.nice_name} ({address})", address))
+
+    return interfaces
+
 
 def get_ethernet_ip():
     """Best-effort IPv4 address of a wired Ethernet adapter.

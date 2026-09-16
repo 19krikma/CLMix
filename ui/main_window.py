@@ -17,7 +17,7 @@ from pythonosc.osc_message_builder import OscMessageBuilder
 from services import updater
 from services.backup_store import BackupStore
 from services.log_store import log
-from services.network_info import get_ethernet_ip
+from services.network_info import get_ethernet_ip, list_ipv4_interfaces
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
 from services.update_checker import check_for_update
@@ -133,12 +133,18 @@ class MixerWorker(threading.Thread):
     METER_LEGS_STEREO = ("left", "right")
 
     def __init__(self, mixer_ip, send_port, recv_port,
-                 command_queue, message_queue):
+                 command_queue, message_queue, bind_ip=None):
         super().__init__(daemon=True)
 
         self.mixer_ip = mixer_ip
         self.send_port = send_port
         self.recv_port = recv_port
+
+        # Which local address to talk to the console from, or None to let
+        # the routing table choose. Only matters on a machine with more
+        # than one network card, where the console is reachable down one
+        # of them and the route is ambiguous or simply wrong.
+        self.bind_ip = bind_ip or None
 
         self.command_queue = command_queue
         self.message_queue = message_queue
@@ -211,12 +217,21 @@ class MixerWorker(threading.Thread):
             self.message_queue.put(("status", "Connecting"))
 
             self.send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            log("debug", "Send socket created")
+
+            if self.bind_ip:
+                # Port 0 - the source port does not matter, only which
+                # card the packets leave by. Without this the routing
+                # table picks, which on a two-card machine may not be the
+                # card the console is on.
+                self.send_sock.bind((self.bind_ip, 0))
+
+            log("debug", f"Send socket created (from {self.bind_ip or 'any'})")
 
             self.recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.recv_sock.bind(("", self.recv_port))
+            self.recv_sock.bind((self.bind_ip or "", self.recv_port))
             self.recv_sock.settimeout(0.1)
-            log("debug", f"Recv socket bound on port {self.recv_port}")
+            log("debug", f"Recv socket bound on "
+                f"{self.bind_ip or 'all adapters'}:{self.recv_port}")
 
             self.message_queue.put(("status", "Connected"))
             log("info", "Connected to mixer, loading parameters...")
@@ -2404,6 +2419,12 @@ class MainWindow:
     # than one the user explicitly disconnected.
     RECONNECT_DELAY_SECONDS = 5
 
+    # Shown in both adapter dropdowns for "don't pin this to a card".
+    # Stored as an empty string, which is what every binding site reads
+    # as "let the OS decide" - all adapters for listening, the routing
+    # table for sending.
+    NIC_AUTOMATIC = "Automatic (all adapters)"
+
     # Phases in which something is still in progress: the spinner turns,
     # the status line repaints every tick, and the connect button offers
     # "Disconnect". One definition so those three can never disagree.
@@ -2629,7 +2650,9 @@ class MainWindow:
         """
         self.setup_window = tk.Toplevel(self.root)
         self.setup_window.title("Setup")
-        self.setup_window.geometry("720x470")
+        # Wide enough for the Config tab's third column (the adapter
+        # dropdowns) without clipping them.
+        self.setup_window.geometry("860x470")
         self.setup_window.protocol("WM_DELETE_WINDOW", self.close_setup_window)
 
         self.setup_notebook = ttk.Notebook(self.setup_window)
@@ -2675,6 +2698,12 @@ class MainWindow:
         self.ip_entry.insert(0, self.settings["mixer_ip"])
         self.ip_entry.grid(row=0, column=1, padx=5, pady=5)
 
+        # Which network card to reach the console from. The entry beside
+        # it is the console's own address; this is our end of that
+        # conversation.
+        self.mixer_nic_combo = ttk.Combobox(frame, width=26, state="readonly")
+        self.mixer_nic_combo.grid(row=0, column=2, padx=5, pady=5, sticky="w")
+
         ttk.Label(frame, text="Send Port").grid(
             row=1, column=0, sticky="w"
         )
@@ -2713,6 +2742,78 @@ class MainWindow:
         )
         self.remote_port_entry.insert(0, self.settings["remote_port"])
         self.remote_port_entry.grid(row=3, column=1, padx=5, pady=5)
+
+        # Which network card the phones connect to. Pinning it also pins
+        # what the server advertises over mDNS, so a phone that discovers
+        # it is handed an address that is actually being listened on.
+        self.remote_nic_combo = ttk.Combobox(frame, width=26, state="readonly")
+        self.remote_nic_combo.grid(row=3, column=2, padx=5, pady=5, sticky="w")
+
+        ttk.Label(
+            frame,
+            text="Adapter chooses which network card a connection uses. "
+                 "Leave on Automatic unless this machine has more than one.",
+            wraplength=780,
+            justify="left"
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(12, 0))
+
+        self._refresh_nic_choices()
+
+    def _refresh_nic_choices(self):
+        """Fill both adapter dropdowns from the adapters present right now.
+
+        Keeps whatever is already selected if that adapter still exists,
+        so reopening Setup (or switching tabs, which refreshes) does not
+        throw away a choice that has not been connected with yet.
+        Otherwise it falls back to what was saved.
+
+        An adapter that was saved but is now gone - a cable pulled, or
+        settings carried to another machine - is kept in the list marked
+        unavailable rather than silently swapped for Automatic, which
+        would look like the setting had been forgotten.
+        """
+        interfaces = list_ipv4_interfaces()
+        self._nic_ip_by_label = {label: ip for label, ip in interfaces}
+
+        for combo, setting in (
+            (self.mixer_nic_combo, "mixer_bind_ip"),
+            (self.remote_nic_combo, "remote_bind_ip"),
+        ):
+            current = combo.get()
+            wanted = current if current in self._nic_ip_by_label else \
+                self._nic_label_for(self.settings.get(setting, ""), interfaces)
+
+            values = [self.NIC_AUTOMATIC] + [label for label, _ in interfaces]
+
+            if wanted not in values:
+                values.append(wanted)
+
+            combo.configure(values=values)
+            combo.set(wanted)
+
+    def _nic_label_for(self, ip, interfaces):
+        if not ip:
+            return self.NIC_AUTOMATIC
+
+        for label, address in interfaces:
+            if address == ip:
+                return label
+
+        return f"{ip} (unavailable)"
+
+    def _selected_nic_ip(self, combo):
+        """The address a dropdown is pointing at - "" for Automatic."""
+        label = combo.get()
+
+        if not label or label == self.NIC_AUTOMATIC:
+            return ""
+
+        if label in self._nic_ip_by_label:
+            return self._nic_ip_by_label[label]
+
+        # "<ip> (unavailable)" - hand back the address so connect() can
+        # say so plainly rather than binding to nothing.
+        return label.split(" ", 1)[0]
 
     def open_setup_window(self):
         self.refresh_setup_tabs()
@@ -2767,6 +2868,9 @@ class MainWindow:
             "send_port": "10023",
             "recv_port": "10024",
             "remote_port": "8765",
+            # Empty means "any adapter" - see MainWindow._refresh_nic_choices.
+            "mixer_bind_ip": "",
+            "remote_bind_ip": "",
             "theme": "dark",
             "hidden_auxes": [],
             "backup_dir": None,
@@ -2967,11 +3071,27 @@ class MainWindow:
         log("debug", f"mixer_ip={mixer_ip!r} send_port={send_port!r} "
             f"recv_port={recv_port!r} remote_port={remote_port!r}")
 
+        mixer_bind_ip = self._selected_nic_ip(self.mixer_nic_combo)
+        remote_bind_ip = self._selected_nic_ip(self.remote_nic_combo)
+
+        # Checked before anything is started: binding to an address the
+        # machine no longer has fails deep inside the worker thread as a
+        # bare OS error, which says nothing about which dropdown caused it.
+        available = {ip for _, ip in list_ipv4_interfaces()}
+
+        for address, name in ((mixer_bind_ip, "Mixer"), (remote_bind_ip, "Server")):
+            if address and address not in available:
+                log("error", f"{name} adapter {address} is not available")
+                self.status_label.config(text=f"{name} adapter unavailable")
+                return
+
         self.settings.update({
             "mixer_ip": mixer_ip,
             "send_port": send_port,
             "recv_port": recv_port,
             "remote_port": remote_port,
+            "mixer_bind_ip": mixer_bind_ip,
+            "remote_bind_ip": remote_bind_ip,
         })
         self.save_settings()
 
@@ -2993,7 +3113,8 @@ class MainWindow:
             int(send_port),
             int(recv_port),
             self.command_queue,
-            self.message_queue
+            self.message_queue,
+            bind_ip=mixer_bind_ip
         )
 
         self.worker.start()
@@ -3002,7 +3123,8 @@ class MainWindow:
         self.remote_server = RemoteServer(
             lambda: self.worker, self.command_queue, int(remote_port),
             self.user_store, self.preset_store,
-            get_hidden_auxes=self.get_hidden_auxes
+            get_hidden_auxes=self.get_hidden_auxes,
+            bind_ip=remote_bind_ip
         )
         self.remote_server.start()
 
@@ -3179,6 +3301,12 @@ class MainWindow:
 
         self.remote_port_entry.delete(0, tk.END)
         self.remote_port_entry.insert(0, self.settings["remote_port"])
+
+        # Cleared first so the restored settings win over whatever the
+        # dropdowns happen to be showing.
+        self.mixer_nic_combo.set("")
+        self.remote_nic_combo.set("")
+        self._refresh_nic_choices()
 
         self.theme_var.set(self.settings["theme"])
         self.apply_theme(self.settings["theme"], persist=False)
