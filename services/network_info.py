@@ -10,13 +10,21 @@ def list_ipv4_interfaces():
     """Every adapter that currently has a usable IPv4 address.
 
     Returns a list of (label, ip) - the label is what a person picks from
-    in Setup, the ip is what a socket binds to. Loopback and link-local
-    (169.254.x, what Windows hands an adapter with nothing at the other
-    end) are left out because nothing can be reached over them.
+    in Setup, the ip is what a socket binds to. Loopback is left out;
+    nothing else is, on purpose.
 
     Deliberately not restricted to Ethernet: a machine with two wired
     cards is the case this exists for, but picking the Wi-Fi adapter on
     purpose is just as valid.
+
+    Link-local (169.254.x) addresses are listed, flagged rather than
+    hidden. Windows hands one to any adapter that finds no DHCP server,
+    which is exactly what a second NIC patched into a console's isolated
+    network looks like - dropping those made a plugged-in, working
+    adapter vanish from the dropdown with nothing said about why. They
+    are bindable, and two link-local peers on one segment do reach each
+    other, so the old "nothing can be reached over them" reasoning did
+    not hold either.
     """
     interfaces = []
     seen = set()
@@ -28,14 +36,29 @@ def list_ipv4_interfaces():
 
             address = ip.ip
 
-            if address == "127.0.0.1" or address.startswith("169.254."):
+            if address.startswith("127."):
                 continue
 
             if address in seen:
                 continue
 
             seen.add(address)
-            interfaces.append((f"{adapter.nice_name} ({address})", address))
+
+            # ip.nice_name is the adapter's *FriendlyName* on Windows
+            # ("Ethernet", "Ethernet 2") - the name Network Connections
+            # shows. adapter.nice_name is its Description ("Realtek PCIe
+            # GbE Family Controller"), which two identical cards share,
+            # leaving their entries tellable apart only by the address.
+            # On POSIX the two are both the interface name, so this is
+            # the better choice on Windows and a no-op elsewhere.
+            name = ip.nice_name or adapter.nice_name
+
+            label = f"{name} ({address})"
+
+            if address.startswith("169.254."):
+                label += " - no DHCP"
+
+            interfaces.append((label, address))
 
     return interfaces
 
