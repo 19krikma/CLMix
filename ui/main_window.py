@@ -59,7 +59,6 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_level$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_pan$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_on$"),
-    re.compile(r"^/Input_Channels/\d+/mute$"),
 ]
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
@@ -1557,8 +1556,9 @@ class AuxLevelsPanel:
 
             button = self.mute_buttons.get(channel)
             if button is not None:
-                muted = button.cget("text") == "Muted"
-                bg, btn_fg = self._mute_button_colors(channel, muted)
+                bg, btn_fg = self._mute_button_colors(
+                    channel, self._is_muted(channel)
+                )
                 button.configure(bg=bg, fg=btn_fg, outer_bg=column_bg)
 
     def on_mixer_loaded(self, worker):
@@ -1590,7 +1590,6 @@ class AuxLevelsPanel:
 
         self.build_bank_buttons()
         self.build_channel_widgets()
-        self.request_mute_states()
         self.subscribe_meters()
 
         if self.aux_list:
@@ -1713,9 +1712,9 @@ class AuxLevelsPanel:
 
         log("info", "Snapshot changed - refreshing levels, pans and mutes")
 
-        # Queries send_level, plus send_pan when the aux is stereo.
+        # Queries send_level and send_on, plus send_pan when the aux
+        # is stereo.
         self.on_aux_selected()
-        self.request_mute_states()
 
     def _open_default_bank(self):
         """Open the console's first bank once its layout has arrived.
@@ -1784,7 +1783,6 @@ class AuxLevelsPanel:
 
         self.build_channel_widgets()
         self.on_aux_selected()
-        self.request_mute_states()
         self.subscribe_meters()
 
     def build_channel_widgets(self):
@@ -1920,10 +1918,12 @@ class AuxLevelsPanel:
 
             self.pan_sliders[i] = pan_slider
 
+            # The label is fixed: fill color alone says whether the
+            # channel is in the mix, matching the phone app's strip.
             mute_bg, mute_fg = self._mute_button_colors(i, muted=False)
             mute_btn = RoundButton(
                 column.inner,
-                text="Mute",
+                text="MUTE",
                 width=self.MUTE_WIDTH,
                 height=self.MUTE_HEIGHT,
                 bg=mute_bg,
@@ -2249,6 +2249,13 @@ class AuxLevelsPanel:
                 f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level/?"
             )
 
+            # Mute is per-aux as well, so it is read here rather than in
+            # a pass of its own - changing aux has to re-read it for the
+            # same reason level and pan do.
+            self.command_queue.put(
+                f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on/?"
+            )
+
             if stereo:
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan/?"
@@ -2326,22 +2333,47 @@ class AuxLevelsPanel:
         # which sends the corresponding OSC command - no need to send here too.
         pan_slider.set(0.0)
 
-    def request_mute_states(self):
-        if self.worker is None or not self.worker.is_alive():
-            return
+    def _is_muted(self, channel):
+        """Whether this channel is out of the selected aux's mix.
 
-        for channel in self.channels:
-            self.command_queue.put(f"/Input_Channels/{channel}/mute/?")
+        Read from the cache rather than from the Mute button, which used
+        to carry the state in its own label. Absent from the cache - the
+        console has not reported this send yet - reads as unmuted, the
+        same assumption the remote server makes.
+        """
+        aux = self.current_aux()
 
+        if aux is None or self.worker is None:
+            return False
+
+        key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on"
+
+        if key not in self.worker.cache:
+            return False
+
+        return not bool(self.worker.cache[key][0])
+
+    # send_on is the inverse of mute: 0.0 drops the channel out of the
+    # selected aux's mix, 1.0 puts it back. Deliberately not the
+    # console-wide /Input_Channels/{n}/mute this used to write, which cut
+    # the source at the head - out of the engineer's mix, out of every
+    # other operator's, and off the desk. The phone app has always muted
+    # per-aux (see RemoteServer._set_mute); this is the desktop matching
+    # it, so a Mute pressed here and one pressed on a phone watching the
+    # same aux now mean the same thing.
     def on_mute_toggle(self, channel):
         if self.worker is None or not self.worker.is_alive():
             return
 
-        key = f"/Input_Channels/{channel}/mute"
-        currently_muted = bool(self.worker.cache.get(key, [0.0])[0])
-        new_state = 0.0 if currently_muted else 1.0
+        aux = self.current_aux()
 
-        self.command_queue.put(f"{key} {new_state}")
+        if aux is None:
+            return
+
+        send_on = 1.0 if self._is_muted(channel) else 0.0
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on {send_on}"
+        )
 
     def refresh_levels(self):
         if self.worker is not None:
@@ -2394,16 +2426,12 @@ class AuxLevelsPanel:
                         self.suppress_send = False
 
             for channel, button in self.mute_buttons.items():
-                key = f"/Input_Channels/{channel}/mute"
-
-                if key not in self.worker.cache:
-                    continue
-
-                muted = bool(self.worker.cache[key][0])
-                bg, fg = self._mute_button_colors(channel, muted)
-                button.config(
-                    text="Muted" if muted else "Mute", bg=bg, fg=fg
+                bg, fg = self._mute_button_colors(
+                    channel, self._is_muted(channel)
                 )
+                # No text= : the label stays "MUTE" and the fill carries
+                # the whole of the state.
+                button.config(bg=bg, fg=fg)
 
             self.build_bank_buttons()
             self._open_default_bank()

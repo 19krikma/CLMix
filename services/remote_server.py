@@ -51,12 +51,14 @@ class RemoteServer:
     changes back - all translated to/from the same OSC commands the
     desktop UI uses via MixerWorker's cache and command_queue.
 
-    "Mute" here is deliberately the console's per-send on/off flag
-    (/Input_Channels/{n}/Aux_Send/{a}/send_on), not the channel mute the
-    desktop's own Mute buttons drive (/Input_Channels/{n}/mute). Accounts
-    are scoped to a single aux, so a phone muting a channel has to affect
-    only that operator's own mix - a channel mute would cut the source
-    everywhere at once, FOH and every other performer's wedge included.
+    "Mute" here is the console's per-send on/off flag
+    (/Input_Channels/{n}/Aux_Send/{a}/send_on), never the channel mute
+    (/Input_Channels/{n}/mute). Accounts are scoped to a single aux, so a
+    phone muting a channel has to affect only that operator's own mix - a
+    channel mute would cut the source everywhere at once, FOH and every
+    other performer's wedge included. The desktop's own Mute buttons
+    wrote the channel mute until 1.7.2 and now write this same flag for
+    the aux on screen, so the two agree.
 
     Writing that flag is itself gated by the account's "mute" permission.
     An account denied it still *receives* each channel's muted state in
