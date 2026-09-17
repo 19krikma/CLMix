@@ -19,11 +19,18 @@ class UserStore:
     these scopes against the mixer's current snapshot/aux before honoring
     a client's requests.
 
-    Alongside those scopes - which say *where* an account may act - two
+    Alongside those scopes - which say *where* an account may act - three
     flags say *what* it may do there: "presets" gates the preset actions,
     and "mute" gates the per-send on/off write. An account denied mute can
     still ride levels and pan on its permitted auxes, and still sees which
     channels are muted; it just can't drop one out of the mix.
+
+    The third, "mixer_control", is a different order of thing: it grants
+    the console's own channel faders, mutes and pans - the main mix, which
+    every listener hears - rather than one performer's send. Nothing else
+    here is console-wide, so unlike "mute" it defaults to *off*, for
+    existing accounts and new ones alike; it has to be granted
+    deliberately.
     """
 
     def __init__(self, path=USERS_PATH):
@@ -53,6 +60,11 @@ class UserStore:
             # performer mid-show - only an explicit False denies it.
             record.setdefault("mute", True)
 
+            # The opposite default to "mute" above, and deliberately so:
+            # this one reaches the main mix, so an account created before
+            # it existed must not silently acquire it on upgrade.
+            record.setdefault("mixer_control", False)
+
         return users
 
     def _save(self):
@@ -72,7 +84,7 @@ class UserStore:
         return self.users.get(username)
 
     def save_user(self, username, password, snapshot, aux, presets=False,
-                  mute=True):
+                  mute=True, mixer_control=False):
         record = dict(self.users.get(username, {}))
         salt = record.get("salt") or secrets.token_hex(16)
 
@@ -86,6 +98,7 @@ class UserStore:
         record["aux"] = aux
         record["presets"] = presets
         record["mute"] = mute
+        record["mixer_control"] = mixer_control
 
         self.users[username] = record
         self._save()
@@ -106,6 +119,7 @@ class UserStore:
             "aux": record["aux"],
             "presets": record.get("presets", False),
             "mute": record.get("mute", True),
+            "mixer_control": record.get("mixer_control", False),
         }
 
     @staticmethod

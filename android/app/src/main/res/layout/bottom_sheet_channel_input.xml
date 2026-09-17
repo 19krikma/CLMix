@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The channel's input stage, opened from the number or name at the top
+     of a Full Mixer Control strip. Gain and trim are turned with the
+     dials (see DialView) rather than dragged on a slider - a console sets
+     them in small deliberate steps, and a head amp is not something a
+     stray swipe should move. Each dial's label sits directly over its
+     readout, so the pair reads as one control. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="28dp">
+
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="18dp"
+        android:background="@color/track_background" />
+
+    <TextView
+        android:id="@+id/input_channel_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="?attr/colorOnSurface"
+        tools:text="DI 2" />
+
+    <TextView
+        android:id="@+id/input_channel_number"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="16dp"
+        android:gravity="center"
+        android:textSize="13sp"
+        android:textColor="@color/on_surface_variant"
+        tools:text="Channel 22" />
+
+    <!-- Input names where the channel listens; 48V feeds the mic sitting
+         there. They belong on one line because they are the same
+         decision made twice - what is plugged in, and whether it needs
+         powering. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="18dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/input_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:text="Input"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/phantom_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:text="48V"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="14dp">
+
+        <com.clmix.DialView
+            android:id="@+id/gain_dial"
+            android:layout_width="68dp"
+            android:layout_height="68dp"
+            android:contentDescription="Gain dial - hold and slide left or right" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="3dp"
+                android:gravity="center"
+                android:text="Gain"
+                android:textSize="12sp"
+                android:textColor="@color/on_surface_variant" />
+
+            <TextView
+                android:id="@+id/gain_value"
+                android:layout_width="86dp"
+                android:layout_height="wrap_content"
+                android:background="@drawable/value_box"
+                android:gravity="center"
+                android:paddingVertical="8dp"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#F2F4F8"
+                tools:text="+20.0" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <com.clmix.DialView
+            android:id="@+id/trim_dial"
+            android:layout_width="68dp"
+            android:layout_height="68dp"
+            android:contentDescription="Trim dial - hold and slide left or right" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="3dp"
+                android:gravity="center"
+                android:text="Trim"
+                android:textSize="12sp"
+                android:textColor="@color/on_surface_variant" />
+
+            <TextView
+                android:id="@+id/trim_value"
+                android:layout_width="86dp"
+                android:layout_height="wrap_content"
+                android:background="@drawable/value_box"
+                android:gravity="center"
+                android:paddingVertical="8dp"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#F2F4F8"
+                tools:text="-2.0" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>

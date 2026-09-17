@@ -59,6 +59,20 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_level$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_pan$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_on$"),
+
+    # The channel's own fader, mute and pan - the main mix rather than
+    # any one send. Nothing on the desktop reads these; they are here for
+    # the phone's Full Mixer Control mode, which rides them the way the
+    # aux screens ride the sends above.
+    re.compile(r"^/Input_Channels/\d+/fader$"),
+    re.compile(r"^/Input_Channels/\d+/mute$"),
+    re.compile(r"^/Input_Channels/\d+/Panner/pan$"),
+
+    # Head-amp gain, digital trim and 48V, for Full Mixer Control's
+    # channel input sheet.
+    re.compile(r"^/Input_Channels/\d+/Channel_Input/analog_gain$"),
+    re.compile(r"^/Input_Channels/\d+/Channel_Input/trim$"),
+    re.compile(r"^/Input_Channels/\d+/Channel_Input/phantom$"),
 ]
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")

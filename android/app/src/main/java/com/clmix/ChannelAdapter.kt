@@ -1,11 +1,14 @@
 package com.clmix
 
+import android.animation.ArgbEvaluator
+import android.animation.ValueAnimator
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.SeekBar
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -17,7 +20,11 @@ class ChannelAdapter(
     private val onDragStart: (Int) -> Unit,
     private val onDragEnd: (Int) -> Unit,
     private val onPanButtonClicked: (ChannelState) -> Unit,
-    private val onMuteToggled: (Int, Boolean) -> Unit
+    private val onMuteToggled: (Int, Boolean) -> Unit,
+    // Only Full Mixer Control passes this: the number above the name is
+    // its own control there, opening the channel's input stage. Null
+    // everywhere else, where the number is not even shown.
+    private val onChannelNumberClicked: ((ChannelState) -> Unit)? = null
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     // "Fine" mode (toggled from MixerActivity's top bar): while on, the
@@ -42,6 +49,31 @@ class ChannelAdapter(
         }
 
     var muteSupported: Boolean = true
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
+    // Whether each strip names the channel's number on the console above
+    // its name. Off for the aux screens, which have always shown the name
+    // alone; on for Full Mixer Control, where the whole console is in
+    // reach and the number is how the desk itself refers to a strip.
+    var showChannelNumber: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
+    // Hard mute (Full Mixer Control's drawer): a muted channel is not
+    // only down in the room but out of every monitor mix too. A far
+    // bigger thing to have done by accident than an ordinary mute, so a
+    // strip muted under it pulses rather than sitting still - the one
+    // state on this screen worth catching out of the corner of an eye.
+    var hardMute: Boolean = false
         set(value) {
             if (field != value) {
                 field = value
@@ -161,7 +193,23 @@ class ChannelAdapter(
         }
     }
 
-    inner class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root)
+    inner class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {
+        // Held per strip so it can be stopped when the strip stops being
+        // muted, is rebound to another channel, or scrolls off screen -
+        // an animator left running on a recycled view would pulse the
+        // wrong channel.
+        var mutePulse: ValueAnimator? = null
+
+        fun stopMutePulse() {
+            mutePulse?.cancel()
+            mutePulse = null
+        }
+    }
+
+    override fun onViewRecycled(holder: ViewHolder) {
+        super.onViewRecycled(holder)
+        holder.stopMutePulse()
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemChannelBinding.inflate(
@@ -276,7 +324,7 @@ class ChannelAdapter(
 
             pendingMutes[tapped.channel] = PendingMute(target, System.currentTimeMillis())
             displayedMuted[tapped.channel] = target
-            applyMuteAppearance(holder.binding, target)
+            applyMuteAppearance(holder, target)
 
             onMuteToggled(tapped.channel, target)
         }
@@ -322,6 +370,35 @@ class ChannelAdapter(
 
         holder.binding.channelMeter.setStereo(channel.stereo)
 
+        holder.binding.channelNumber.text = channel.channel.toString()
+        holder.binding.channelNumber.visibility =
+            if (showChannelNumber) View.VISIBLE else View.GONE
+
+        // The number and the name together open the channel's input
+        // sheet: one target of a comfortable size at the top of the
+        // strip, rather than two small digits on their own. Resolved
+        // through the holder rather than captured, so a recycled strip
+        // opens the channel it is currently showing.
+        val openInput = if (showChannelNumber && onChannelNumberClicked != null) {
+            View.OnClickListener {
+                val adapterPosition = holder.bindingAdapterPosition
+                if (adapterPosition != RecyclerView.NO_POSITION) {
+                    onChannelNumberClicked.invoke(channels[adapterPosition])
+                }
+            }
+        } else {
+            null
+        }
+
+        holder.binding.channelNumber.setOnClickListener(openInput)
+        holder.binding.channelName.setOnClickListener(openInput)
+
+        // setOnClickListener(null) leaves a view clickable, and a
+        // clickable name on the aux screens would swallow nothing but
+        // still ripple under a finger.
+        holder.binding.channelNumber.isClickable = openInput != null
+        holder.binding.channelName.isClickable = openInput != null
+
         holder.binding.panButton.visibility =
             if (panSupported) View.VISIBLE else View.GONE
         holder.binding.muteButton.visibility =
@@ -332,7 +409,7 @@ class ChannelAdapter(
 
         val muted = effectiveMuted(channel)
         displayedMuted[channel.channel] = muted
-        applyMuteAppearance(holder.binding, muted)
+        applyMuteAppearance(holder, muted)
     }
 
     // What this channel's Mute button should read right now: the pushed
@@ -354,8 +431,11 @@ class ChannelAdapter(
         return pending.expected
     }
 
-    private fun applyMuteAppearance(binding: ItemChannelBinding, muted: Boolean) {
+    private fun applyMuteAppearance(holder: ViewHolder, muted: Boolean) {
+        val binding = holder.binding
         val context = binding.root.context
+
+        holder.stopMutePulse()
 
         // The label stays "MUTE" in both states - it names the button,
         // it does not report the state. Colour carries that, which reads
@@ -371,6 +451,45 @@ class ChannelAdapter(
                 context, if (muted) R.color.on_primary else R.color.on_mute_inactive
             )
         )
+
+        if (muted && hardMute) {
+            startMutePulse(holder)
+        }
+    }
+
+    /**
+     * Breathes the Mute button between its red and a dimmed version of
+     * the same red while a hard mute is in force.
+     *
+     * Deliberately a fade rather than a blink: it has to register in
+     * peripheral vision across a row of strips without becoming the thing
+     * the eye keeps snapping back to during a show.
+     */
+    private fun startMutePulse(holder: ViewHolder) {
+        val context = holder.binding.root.context
+        val full = ContextCompat.getColor(context, R.color.mute_active)
+
+        // Same hue, dropped in brightness - fading towards the inactive
+        // grey instead would read as the mute releasing.
+        val dimmed = Color.rgb(
+            (Color.red(full) * PULSE_DIM_FACTOR).toInt(),
+            (Color.green(full) * PULSE_DIM_FACTOR).toInt(),
+            (Color.blue(full) * PULSE_DIM_FACTOR).toInt()
+        )
+
+        holder.mutePulse = ValueAnimator.ofObject(ArgbEvaluator(), full, dimmed).apply {
+            duration = PULSE_MS
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            interpolator = AccelerateDecelerateInterpolator()
+
+            addUpdateListener { animator ->
+                holder.binding.muteButton.backgroundTintList =
+                    ColorStateList.valueOf(animator.animatedValue as Int)
+            }
+
+            start()
+        }
     }
 
     // Called from MixerActivity whenever channel_recycler's own height
@@ -422,6 +541,11 @@ class ChannelAdapter(
     override fun getItemCount() = channels.size
 
     companion object {
+        // One breath in or out; a full cycle is twice this.
+        private const val PULSE_MS = 750L
+        private const val PULSE_DIM_FACTOR = 0.45f
+
+
         private const val SEEK_MAX = 1000
         private const val PAYLOAD_UPDATE = "update"
 

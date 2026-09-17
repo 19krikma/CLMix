@@ -1,12 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="76dp"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center_horizontal"
     android:paddingStart="4dp"
     android:paddingEnd="4dp">
+
+    <!-- The channel's number on the console, above its name. Hidden
+         unless the screen asks for it (ChannelAdapter.showChannelNumber)
+         - the aux screens have always shown the name alone, and the line
+         costs fader travel on every strip. One line, never wrapped: it
+         is a couple of digits. -->
+    <TextView
+        android:id="@+id/channel_number"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:maxLines="1"
+        android:background="?attr/selectableItemBackground"
+        android:paddingVertical="5dp"
+        android:textSize="11sp"
+        android:textColor="@color/on_surface_variant"
+        android:visibility="gone"
+        tools:text="12"
+        tools:visibility="visible" />
 
     <!-- Two lines always, not just when a name needs them: the fader
          below takes whatever height is left, so a strip whose name wraps
@@ -19,6 +39,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="4dp"
+        android:background="?attr/selectableItemBackground"
         android:gravity="center"
         android:minLines="2"
         android:maxLines="2"

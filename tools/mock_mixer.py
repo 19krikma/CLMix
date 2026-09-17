@@ -2,7 +2,8 @@
 
 Answers just enough of the OSC protocol MixerWorker (ui/main_window.py)
 speaks during its boot sequence and while connected - console/channel/aux
-discovery, snapshot info, and get/set of channel mute plus per-aux-send
+discovery, snapshot info, get/set of the channel's own fader/mute/pan and
+its input gain/trim/48V (what Full Mixer Control rides) plus per-aux-send
 level/pan/on -
 to let the desktop app (and, through it, phone clients via RemoteServer)
 be exercised end-to-end. Simulates:
@@ -289,6 +290,21 @@ class MockMixer:
         self.send_ons = {(channel, aux): 1.0 for channel in channels for aux in auxes}
         self.mutes = {channel: 0.0 for channel in channels}
 
+        # The channel's own fader and panner - the main mix, which the
+        # phone's Full Mixer Control mode rides instead of the sends
+        # above. Start at unity and centre, like a freshly built show.
+        self.faders = {channel: 0.0 for channel in channels}
+        self.panner = {channel: 0.5 for channel in channels}
+
+        # The channel's input stage: analogue head-amp gain and the
+        # digital trim behind it, both plain dB. Starting spread rather
+        # than uniform so a phone reading them can tell one channel's
+        # dial from another's at a glance.
+        self.gains = {channel: float(20 + (channel % 7) * 5) for channel in channels}
+        self.trims = {channel: float((channel % 5) - 2) for channel in channels}
+        # 48V, on for roughly every third channel so both states show up.
+        self.phantoms = {channel: float(channel % 3 == 0) for channel in channels}
+
         # Meter subscriptions, as /Meters/request builds them up: slot
         # number -> the meter address bound to it. Slots are the client's
         # to assign, so this is whatever it asked for, and a stereo
@@ -518,6 +534,25 @@ class MockMixer:
             channel = self._channel_from(address)
             self.send(address, [self.mutes[channel]])
 
+        # Guarded by prefix where the leaf name is not unique to input
+        # channels: /Aux_Outputs/{n}/fader exists too, and answering it
+        # out of the channel table would report a bus's level as a
+        # channel's.
+        elif address.startswith("/Input_Channels/") and address.endswith("/fader"):
+            self.send(address, [self.faders[self._channel_from(address)]])
+
+        elif address.endswith("/Panner/pan"):
+            self.send(address, [self.panner[self._channel_from(address)]])
+
+        elif address.endswith("/Channel_Input/analog_gain"):
+            self.send(address, [self.gains[self._channel_from(address)]])
+
+        elif address.endswith("/Channel_Input/trim"):
+            self.send(address, [self.trims[self._channel_from(address)]])
+
+        elif address.endswith("/Channel_Input/phantom"):
+            self.send(address, [self.phantoms[self._channel_from(address)]])
+
         elif address.endswith("/send_level"):
             self.send(address, [self.levels[self._channel_aux_from(address)]])
 
@@ -535,6 +570,16 @@ class MockMixer:
 
         if address.endswith("/mute"):
             self.mutes[self._channel_from(address)] = value
+        elif address.startswith("/Input_Channels/") and address.endswith("/fader"):
+            self.faders[self._channel_from(address)] = value
+        elif address.endswith("/Panner/pan"):
+            self.panner[self._channel_from(address)] = value
+        elif address.endswith("/Channel_Input/analog_gain"):
+            self.gains[self._channel_from(address)] = value
+        elif address.endswith("/Channel_Input/trim"):
+            self.trims[self._channel_from(address)] = value
+        elif address.endswith("/Channel_Input/phantom"):
+            self.phantoms[self._channel_from(address)] = value
         elif address.endswith("/send_level"):
             self.levels[self._channel_aux_from(address)] = value
         elif address.endswith("/send_pan"):

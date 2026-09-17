@@ -66,6 +66,14 @@ class RemoteServer:
     from its mix - and can still move level and pan; only set_mute is
     refused.
 
+    An account granted "mixer_control" can instead put its socket into
+    *mixer mode* (action "select_mixer"), where the same level/pan/mute
+    actions ride the console's own channel fader, panner and mute rather
+    than one aux's sends - the main mix everyone hears. A socket is in one
+    mode or the other, never both: select_aux returns it to aux mode.
+    Nothing but this permission gates that mode, so it defaults to off
+    (see UserStore).
+
     A successful username/password login also mints an opaque session
     token, so a phone app that was killed and relaunched can resend just
     that token instead of asking the user to retype their password. The
@@ -108,6 +116,13 @@ class RemoteServer:
         # thread, which is fine for something only used to say "3 phones
         # are connected" before an action that would cut them off.
         self._clients = set()
+
+        # Channels currently hard-muted from a phone, and what each aux
+        # send was carrying when that happened, so unmuting can put them
+        # back rather than simply switching everything on. Server-wide
+        # rather than per-client: two phones looking at the same channel
+        # have to agree about what a hard mute is hiding.
+        self._hard_muted = {}
 
     def client_count(self):
         """How many phones are connected to this server right now."""
@@ -226,6 +241,10 @@ class RemoteServer:
         log("info", f"Client connected: {websocket.remote_address}")
         self._clients.add(websocket)
         state = {
+            # "aux" (this client rides one bus's sends) or "mixer" (it
+            # rides the console's own channel faders). Never both - the
+            # selection actions swap between them.
+            "mode": "aux",
             "aux": None, "bank": None, "user": None, "permission": None,
             "token": None,
             # Last worker.snapshot_epoch this client has been re-primed
@@ -321,7 +340,27 @@ class RemoteServer:
                 )
                 return
 
+            state["mode"] = "aux"
             state["aux"] = aux
+            self._request_channel_states(worker, state)
+            self._claim_meters(worker, state)
+
+        elif action == "select_mixer":
+            if not entry.get("mixer_control", False):
+                log("info", f"Denied mixer control for user {state['user']!r} "
+                    "(account has no mixer_control permission)")
+                await self._send(
+                    websocket,
+                    {"type": "error", "message": "Not permitted for mixer control"}
+                )
+                return
+
+            # The aux is cleared rather than remembered: every write from
+            # here on goes to the channel itself, and a stale aux left in
+            # the state would be the one thing standing between a bug in
+            # that dispatch and someone's monitor mix.
+            state["mode"] = "mixer"
+            state["aux"] = None
             self._request_channel_states(worker, state)
             self._claim_meters(worker, state)
 
@@ -331,31 +370,50 @@ class RemoteServer:
             self._claim_meters(worker, state)
 
         elif action == "set_level":
-            if not self._aux_allowed(worker, entry, state.get("aux")):
-                await self._send(
-                    websocket, {"type": "error", "message": "Not permitted for this aux"}
-                )
+            if await self._reject_write(websocket, worker, state, entry):
                 return
 
             self._set_level(state, msg.get("channel"), msg.get("level"))
 
         elif action == "set_pan":
-            if not self._aux_allowed(worker, entry, state.get("aux")):
-                await self._send(
-                    websocket, {"type": "error", "message": "Not permitted for this aux"}
-                )
+            if await self._reject_write(websocket, worker, state, entry):
                 return
 
             self._set_pan(state, msg.get("channel"), msg.get("pan"))
 
-        elif action == "set_mute":
-            if not self._aux_allowed(worker, entry, state.get("aux")):
+        elif action in ("set_gain", "set_trim", "set_phantom"):
+            # The head amp and its trim belong to the channel, not to any
+            # one mix: turning a preamp down changes what FOH, every
+            # monitor and the recording hear at once. So unlike level/pan/
+            # mute there is no aux-mode equivalent - these are refused
+            # outright unless this socket is in mixer mode with the
+            # permission behind it.
+            if not self._in_mixer_mode(state):
                 await self._send(
-                    websocket, {"type": "error", "message": "Not permitted for this aux"}
+                    websocket,
+                    {"type": "error", "message": "Not permitted for mixer control"}
                 )
                 return
 
-            if not entry.get("mute", True):
+            if await self._reject_write(websocket, worker, state, entry):
+                return
+
+            if action == "set_gain":
+                self._set_gain(state, msg.get("channel"), msg.get("gain"))
+            elif action == "set_trim":
+                self._set_trim(state, msg.get("channel"), msg.get("trim"))
+            else:
+                self._set_phantom(state, msg.get("channel"), msg.get("phantom"))
+
+        elif action == "set_mute":
+            if await self._reject_write(websocket, worker, state, entry):
+                return
+
+            # The "mute" permission is about a performer dropping a
+            # channel out of their own wedge. Mixer mode's mute is the
+            # console's own, and is covered by mixer_control - already
+            # checked above - so this narrower flag does not apply there.
+            if state.get("mode") != "mixer" and not entry.get("mute", True):
                 log("info", f"Denied set_mute for user {state['user']!r} "
                     "(account has no mute permission)")
                 await self._send(
@@ -363,7 +421,10 @@ class RemoteServer:
                 )
                 return
 
-            self._set_mute(state, msg.get("channel"), msg.get("muted"))
+            self._set_mute(
+                state, msg.get("channel"), msg.get("muted"),
+                hard=bool(msg.get("hard", False)), worker=worker
+            )
 
         elif action == "list_presets":
             if not entry.get("presets", False):
@@ -445,7 +506,8 @@ class RemoteServer:
 
         log("info", f"User {username!r} logged in "
             f"(snapshot={entry['snapshot']!r}, aux={entry['aux']!r}, "
-            f"mute={entry.get('mute', True)})")
+            f"mute={entry.get('mute', True)}, "
+            f"mixer_control={entry.get('mixer_control', False)})")
 
         await self._send(websocket, {
             "type": "login_result",
@@ -454,6 +516,7 @@ class RemoteServer:
             "aux": entry["aux"],
             "presets": entry.get("presets", False),
             "mute": entry.get("mute", True),
+            "mixer_control": entry.get("mixer_control", False),
             "token": new_token,
         })
 
@@ -506,6 +569,7 @@ class RemoteServer:
             "aux": entry["aux"],
             "presets": entry.get("presets", False),
             "mute": entry.get("mute", True),
+            "mixer_control": entry.get("mixer_control", False),
             "token": token,
         })
 
@@ -584,6 +648,47 @@ class RemoteServer:
         return cls._aux_name(worker, aux_index) in entry["aux"]
 
     @staticmethod
+    def _in_mixer_mode(state):
+        return state.get("mode") == "mixer"
+
+    @classmethod
+    def _has_selection(cls, state):
+        """Whether this client has picked something to ride yet.
+
+        Mixer mode is a selection in itself - the channels are the
+        console's own - while aux mode has nothing to report until a bus
+        has been chosen.
+        """
+        return cls._in_mixer_mode(state) or state.get("aux") is not None
+
+    async def _reject_write(self, websocket, worker, state, entry):
+        """Refuses a level/pan/mute write the account may not make.
+
+        The two modes are gated by different things: an aux write has to
+        land on a bus this account is scoped to, while a mixer write is
+        console-wide and answers only to mixer_control. Checked on every
+        write rather than trusted from select_mixer, since the permission
+        is what stands between a phone and the main mix.
+        """
+        if self._in_mixer_mode(state):
+            if entry.get("mixer_control", False):
+                return False
+
+            await self._send(
+                websocket,
+                {"type": "error", "message": "Not permitted for mixer control"}
+            )
+            return True
+
+        if self._aux_allowed(worker, entry, state.get("aux")):
+            return False
+
+        await self._send(
+            websocket, {"type": "error", "message": "Not permitted for this aux"}
+        )
+        return True
+
+    @staticmethod
     def _aux_name(worker, aux_index):
         key = f"/Aux_Outputs/{aux_index}/Buss_Trim/name"
         return worker.cache[key][0] if key in worker.cache else f"Aux {aux_index}"
@@ -596,7 +701,10 @@ class RemoteServer:
             aux = state.get("aux")
             entry = state.get("permission")
 
-            if not worker or not worker.is_alive() or aux is None or entry is None:
+            if not worker or not worker.is_alive() or entry is None:
+                continue
+
+            if not self._has_selection(state):
                 continue
 
             if self._snapshot_denied(worker, entry):
@@ -631,11 +739,24 @@ class RemoteServer:
                 self._request_channel_states(worker, state)
 
             channels = self._channels_for(worker, state.get("bank"))
-            payload = {
-                "type": "levels",
-                "aux": aux,
-                "channels": self._channel_states(worker, channels, aux),
-            }
+
+            if self._in_mixer_mode(state):
+                payload = {
+                    "type": "levels",
+                    # No bus is being ridden here, but the field is part
+                    # of the shape every existing client parses, so it
+                    # carries a value that cannot be mistaken for one.
+                    "aux": -1,
+                    "mode": "mixer",
+                    "channels": self._mixer_channel_states(worker, channels),
+                }
+            else:
+                payload = {
+                    "type": "levels",
+                    "aux": aux,
+                    "mode": "aux",
+                    "channels": self._channel_states(worker, channels, aux),
+                }
 
             try:
                 await self._send(websocket, payload)
@@ -654,12 +775,11 @@ class RemoteServer:
             await asyncio.sleep(METER_PUSH_INTERVAL_SECONDS)
 
             worker = self.get_worker()
-            aux = state.get("aux")
 
-            if not worker or not worker.is_alive() or aux is None:
+            if not worker or not worker.is_alive():
                 continue
 
-            if state.get("permission") is None:
+            if not self._has_selection(state) or state.get("permission") is None:
                 continue
 
             channels = self._channels_for(worker, state.get("bank"))
@@ -711,7 +831,7 @@ class RemoteServer:
         identity so switching bank replaces that claim instead of adding
         to it.
         """
-        if state.get("aux") is None:
+        if not self._has_selection(state):
             return
 
         worker.subscribe_meters(
@@ -720,6 +840,25 @@ class RemoteServer:
         )
 
     def _request_channel_states(self, worker, state):
+        if self._in_mixer_mode(state):
+            # Same reason as the aux branch below: the console announces
+            # a parameter only when it changes, so a channel nobody has
+            # touched this session would arrive with no fader, no pan and
+            # no mute at all until someone moved it on the desk.
+            for channel in self._channels_for(worker, state.get("bank")):
+                self.command_queue.put(f"/Input_Channels/{channel}/fader/?")
+                self.command_queue.put(f"/Input_Channels/{channel}/mute/?")
+                self.command_queue.put(f"/Input_Channels/{channel}/Panner/pan/?")
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Channel_Input/analog_gain/?"
+                )
+                self.command_queue.put(f"/Input_Channels/{channel}/Channel_Input/trim/?")
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Channel_Input/phantom/?"
+                )
+
+            return
+
         aux = state.get("aux")
 
         if aux is None:
@@ -740,25 +879,76 @@ class RemoteServer:
                 self.command_queue.put(f"{prefix}/send_pan/?")
 
     def _set_level(self, state, channel, level):
-        aux = state.get("aux")
-
-        if aux is None or channel is None or level is None:
+        if channel is None or level is None:
             return
 
         db = round(float(level), 2)
+
+        # The channel's own fader carries the same dB scale as a send
+        # level, so the phone's taper needs no special case here.
+        if self._in_mixer_mode(state):
+            self.command_queue.put(f"/Input_Channels/{channel}/fader {db}")
+            return
+
+        aux = state.get("aux")
+
+        if aux is None:
+            return
+
         self.command_queue.put(
             f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level {db}"
         )
 
     def _set_pan(self, state, channel, pan):
-        aux = state.get("aux")
-
-        if aux is None or channel is None or pan is None:
+        if channel is None or pan is None:
             return
 
         wire_pan = self._ui_pan_to_wire(float(pan))
+
+        # The channel panner uses the same 0.0..1.0 wire range as a send
+        # pan, centre at 0.5 - so the conversion above is shared.
+        if self._in_mixer_mode(state):
+            self.command_queue.put(
+                f"/Input_Channels/{channel}/Panner/pan {wire_pan}"
+            )
+            return
+
+        aux = state.get("aux")
+
+        if aux is None:
+            return
+
         self.command_queue.put(
             f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan {wire_pan}"
+        )
+
+    # Both are plain dB floats on the channel's input stage, written the
+    # same way a fader move is - nothing is written to the cache here, the
+    # console's echo is what the push loop reports back.
+    def _set_gain(self, state, channel, gain):
+        if channel is None or gain is None:
+            return
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Input/analog_gain "
+            f"{round(float(gain), 2)}"
+        )
+
+    def _set_trim(self, state, channel, trim):
+        if channel is None or trim is None:
+            return
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Input/trim {round(float(trim), 2)}"
+        )
+
+    def _set_phantom(self, state, channel, phantom):
+        if channel is None or phantom is None:
+            return
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Input/phantom "
+            f"{1.0 if phantom else 0.0}"
         )
 
     # send_on is the inverse of mute: 0.0 drops the channel out of this
@@ -766,16 +956,91 @@ class RemoteServer:
     # the console echoes the change back like any other parameter move,
     # and the push loop reports it from there, so the phone only ever
     # shows state the console has actually confirmed.
-    def _set_mute(self, state, channel, muted):
+    def _set_mute(self, state, channel, muted, hard=False, worker=None):
+        if channel is None or muted is None:
+            return
+
+        # The console's own channel mute, which cuts the source for FOH
+        # and every monitor mix at once - not the per-send flag below.
+        # Reads the right way round, too: 1.0 *is* muted here, where
+        # send_on means the opposite.
+        if self._in_mixer_mode(state):
+            self.command_queue.put(
+                f"/Input_Channels/{channel}/mute {1.0 if muted else 0.0}"
+            )
+
+            # The console has no hard_mute on an input channel - it only
+            # carries one on aux/group/matrix *outputs* (see
+            # docs/mixer_protocol). So a hard mute here is assembled: the
+            # channel mute above, plus every aux send dropped, which is
+            # what takes the channel out of the monitors as well as the
+            # room.
+            if hard and worker is not None:
+                self._apply_hard_mute(worker, channel, muted)
+
+            return
+
         aux = state.get("aux")
 
-        if aux is None or channel is None or muted is None:
+        if aux is None:
             return
 
         send_on = 0.0 if muted else 1.0
         self.command_queue.put(
             f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on {send_on}"
         )
+
+    def _apply_hard_mute(self, worker, channel, muted):
+        """Drops (or restores) every aux send for a hard-muted channel.
+
+        What each send was carrying is remembered at mute time and put
+        back on unmute, so a channel deliberately left out of one
+        performer's wedge does not reappear there when the hard mute
+        lifts.
+
+        The values come from the desktop's cache, which holds a send only
+        once the console has reported it - and in mixer mode nothing
+        primes the sends, since the phone is riding channel faders. An
+        unreported send is taken as on, the same reading _channel_states
+        gives it, so the failure mode is a send coming back on rather than
+        one silently staying off. The queries fired below fix that for the
+        next time this channel is hard-muted.
+        """
+        aux_count = len(worker.cache.get("/Console/Aux_Outputs/modes", []))
+
+        if aux_count == 0:
+            return
+
+        if muted:
+            previous = {}
+
+            for aux in range(1, aux_count + 1):
+                key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on"
+                previous[aux] = (
+                    float(worker.cache[key][0]) if key in worker.cache else 1.0
+                )
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on 0.0"
+                )
+                self.command_queue.put(f"{key}/?")
+
+            self._hard_muted[channel] = previous
+            log("info", f"Hard mute on channel {channel}: "
+                f"{aux_count} aux sends dropped")
+            return
+
+        previous = self._hard_muted.pop(channel, None)
+
+        for aux in range(1, aux_count + 1):
+            # Nothing remembered (this server did not place the mute, or
+            # it restarted since) means every send goes back on, which is
+            # the console's own default for a send nobody has touched.
+            value = 1.0 if previous is None else previous.get(aux, 1.0)
+            self.command_queue.put(
+                f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on {value}"
+            )
+
+        log("info", f"Hard mute lifted on channel {channel}")
 
     async def _save_preset(self, websocket, worker, state, name):
         name = (name or "").strip()
@@ -922,6 +1187,69 @@ class RemoteServer:
                 # here rather than with the meter rows because it changes
                 # only with the console's configuration, while those go
                 # out 20 times a second.
+                "stereo": worker.channel_is_stereo(channel),
+            })
+
+        return states
+
+    @classmethod
+    def _mixer_channel_states(cls, worker, channels):
+        """The same row shape as _channel_states, read off the channel itself.
+
+        Level is the channel fader, pan the channel panner, and muted the
+        console's own channel mute - so a phone in mixer mode shows what
+        the desk shows, rather than one performer's send.
+        """
+        states = []
+
+        for channel in channels:
+            name_key = f"/Input_Channels/{channel}/Channel_Input/name"
+            name = worker.cache[name_key][0] \
+                if name_key in worker.cache else f"Ch {channel}"
+
+            level_key = f"/Input_Channels/{channel}/fader"
+            level = round(worker.cache[level_key][0], 2) \
+                if level_key in worker.cache else None
+
+            # A mono channel has no pan axis on the main mix, exactly as
+            # a mono aux has none for its sends - None here drops the
+            # control on the phone rather than offering a no-op.
+            pan_key = f"/Input_Channels/{channel}/Panner/pan"
+            pan = cls._wire_pan_to_ui(worker.cache[pan_key][0]) \
+                if pan_key in worker.cache else None
+
+            # 1.0 is muted, the opposite sense to send_on - see _set_mute.
+            mute_key = f"/Input_Channels/{channel}/mute"
+            muted = bool(worker.cache[mute_key][0]) \
+                if mute_key in worker.cache else False
+
+            # The head amp and the digital trim behind it. Both null until
+            # the console has answered for this channel, which is what the
+            # phone's dials read as "nothing to show yet" rather than 0 dB.
+            gain_key = f"/Input_Channels/{channel}/Channel_Input/analog_gain"
+            gain = round(worker.cache[gain_key][0], 2) \
+                if gain_key in worker.cache else None
+
+            trim_key = f"/Input_Channels/{channel}/Channel_Input/trim"
+            trim = round(worker.cache[trim_key][0], 2) \
+                if trim_key in worker.cache else None
+
+            # 48V on the channel's main input. The console keeps a second
+            # one for the alternate input (alt_phantom); this follows the
+            # main, which is what main/alt_in leaves live by default.
+            phantom_key = f"/Input_Channels/{channel}/Channel_Input/phantom"
+            phantom = bool(worker.cache[phantom_key][0]) \
+                if phantom_key in worker.cache else False
+
+            states.append({
+                "channel": channel,
+                "name": name,
+                "level": level,
+                "pan": pan,
+                "muted": muted,
+                "gain": gain,
+                "trim": trim,
+                "phantom": phantom,
                 "stereo": worker.channel_is_stereo(channel),
             })
 

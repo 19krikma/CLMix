@@ -45,7 +45,8 @@ interface MixerClientListener {
 /**
  * Talks to the CLMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
- * protocol: login/logout/list_auxes/list_banks/select_aux/select_bank/
+ * protocol: login/logout/list_auxes/list_banks/select_aux/select_mixer/
+ * select_bank/
  * set_level/set_pan/set_mute/list_presets/save_preset/load_preset out,
  * login_result/auxes/banks/levels/presets/preset_saved/preset_loaded/error
  * in.
@@ -106,6 +107,15 @@ object MixerClient {
     var muteAllowed: Boolean = true
         private set
 
+    // Set from login_result - whether this account may take the console's
+    // own channel faders, mutes and pans (the main mix) rather than one
+    // performer's sends. Gates the choice offered right after login; the
+    // server checks it again on every write regardless. Defaults false,
+    // which is also what an older server that never sends the field
+    // means.
+    var mixerControlAllowed: Boolean = false
+        private set
+
     // Advances once per received meter frame. The server only sends a
     // frame when something actually changed, so a bar that stops being
     // fed stops being pushed back up and releases away, exactly as on
@@ -120,6 +130,12 @@ object MixerClient {
     // the wording that friendlyServerMessage below produces.
     const val SNAPSHOT_DENIED =
         "Access denied: not permitted for the current snapshot"
+
+    // What the "aux" field of a levels frame carries in mixer mode: no
+    // bus is being ridden, and the server sends a value no real aux index
+    // could collide with rather than dropping the field the aux screens
+    // already parse.
+    const val MIXER_AUX = -1
 
     // Called once from CLMixApplication.onCreate() - gives this singleton
     // an application Context (never an Activity one, to avoid leaking it)
@@ -204,6 +220,7 @@ object MixerClient {
         isConnected = false
         presetsAllowed = false
         muteAllowed = true
+        mixerControlAllowed = false
         appContext?.let(MixerConnectionService::stop)
     }
 
@@ -239,6 +256,12 @@ object MixerClient {
     fun selectAux(aux: Int) =
         send(JSONObject().put("action", "select_aux").put("aux", aux))
 
+    // Switches this socket to full mixer control: from here on the
+    // level/pan/mute actions below ride the console's own channel fader,
+    // panner and mute instead of an aux's sends. selectAux() switches it
+    // back. Refused unless the account holds the permission.
+    fun selectMixerControl() = send(JSONObject().put("action", "select_mixer"))
+
     fun selectBank(bank: String?) {
         val msg = JSONObject().put("action", "select_bank")
         msg.put("bank", bank ?: JSONObject.NULL)
@@ -259,13 +282,42 @@ object MixerClient {
             .put("pan", pan)
     )
 
-    // Mutes the channel in the selected aux mix only (the server writes
-    // the console's per-send on/off flag) - not a console-wide mute.
-    fun setMute(channel: Int, muted: Boolean) = send(
+    // In aux mode this mutes the channel in the selected mix only (the
+    // server writes the console's per-send on/off flag). In mixer mode it
+    // writes the console's own channel mute - and with hard set, also
+    // drops every aux send, taking the channel out of the monitors as
+    // well as the room. The console has no single control for that on an
+    // input channel; the server assembles it.
+    fun setMute(channel: Int, muted: Boolean, hard: Boolean = false) = send(
         JSONObject()
             .put("action", "set_mute")
             .put("channel", channel)
             .put("muted", muted)
+            .put("hard", hard)
+    )
+
+    // The channel's own input stage. Mixer mode only: a head amp feeds
+    // every mix and the recording at once, so the server refuses these
+    // outright on an aux socket.
+    fun setGain(channel: Int, gain: Double) = send(
+        JSONObject()
+            .put("action", "set_gain")
+            .put("channel", channel)
+            .put("gain", gain)
+    )
+
+    fun setTrim(channel: Int, trim: Double) = send(
+        JSONObject()
+            .put("action", "set_trim")
+            .put("channel", channel)
+            .put("trim", trim)
+    )
+
+    fun setPhantom(channel: Int, phantom: Boolean) = send(
+        JSONObject()
+            .put("action", "set_phantom")
+            .put("channel", channel)
+            .put("phantom", phantom)
     )
 
     fun requestPresets() = send(JSONObject().put("action", "list_presets"))
@@ -296,6 +348,7 @@ object MixerClient {
                 val token = json.optString("token").takeIf { it.isNotEmpty() }
                 presetsAllowed = ok && json.optBoolean("presets", false)
                 muteAllowed = !ok || json.optBoolean("mute", true)
+                mixerControlAllowed = ok && json.optBoolean("mixer_control", false)
                 onMain { listener?.onLoginResult(ok, message, token) }
             }
 
@@ -319,7 +372,8 @@ object MixerClient {
             }
 
             "levels" -> {
-                val aux = json.getInt("aux")
+                // Mixer-mode frames carry no bus - see MIXER_AUX.
+                val aux = json.optInt("aux", MIXER_AUX)
                 val arr = json.getJSONArray("channels")
                 val list = (0 until arr.length()).map {
                     val o = arr.getJSONObject(it)
@@ -329,7 +383,10 @@ object MixerClient {
                         level = if (o.isNull("level")) null else o.getDouble("level"),
                         pan = if (o.isNull("pan")) null else o.getDouble("pan"),
                         muted = o.getBoolean("muted"),
-                        stereo = o.optBoolean("stereo", false)
+                        stereo = o.optBoolean("stereo", false),
+                        gain = if (o.isNull("gain")) null else o.optDouble("gain"),
+                        trim = if (o.isNull("trim")) null else o.optDouble("trim"),
+                        phantom = o.optBoolean("phantom", false)
                     )
                 }
                 onMain { listener?.onLevels(aux, list) }
@@ -394,6 +451,8 @@ private fun friendlyServerMessage(raw: String): String = when (raw) {
     "Not permitted for the current snapshot" -> MixerClient.SNAPSHOT_DENIED
     "Not permitted for this aux" -> "Access denied: not permitted for this aux"
     "Not permitted for presets" -> "Access denied: not permitted for presets"
+    "Not permitted for mixer control" ->
+        "Access denied: not permitted for full mixer control"
     "Mixer not connected" -> "Mixer not connected - try again shortly"
     "Not authenticated" -> "Not logged in"
     else -> raw

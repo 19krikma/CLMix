@@ -26,5 +26,17 @@ data class ChannelState(
     // draws one bar or two. From the console's own channel modes list -
     // the right-hand meter address answers on mono channels too, so it
     // cannot be inferred from the meter data itself.
-    val stereo: Boolean = false
+    val stereo: Boolean = false,
+
+    // The channel's input stage, in dB: the analogue head-amp gain and
+    // the digital trim behind it. Only ever sent in mixer mode - they
+    // belong to the channel rather than to any one mix - and null until
+    // the console has answered for this channel.
+    val gain: Double? = null,
+    val trim: Double? = null,
+
+    // 48V on the channel's main input. False rather than null when the
+    // console has not answered yet: phantom off is the safe reading, and
+    // the button is a toggle with no third state to show.
+    val phantom: Boolean = false
 )

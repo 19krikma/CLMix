@@ -620,7 +620,16 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
             if (token != null) {
                 SessionStore.saveToken(this, token)
             }
-            MixerClient.requestAuxes()
+
+            // An account holding Full Mixer Control is asked which of the
+            // two it wants before anything is selected; everyone else
+            // goes straight on to the aux list, which is the only flow
+            // that existed before that permission.
+            if (MixerClient.mixerControlAllowed) {
+                startActivity(Intent(this, ControlChoiceActivity::class.java))
+            } else {
+                MixerClient.requestAuxes()
+            }
         } else {
             val wasTokenAttempt = pendingToken != null
             pendingToken = null
