@@ -15,6 +15,12 @@ from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
 PUSH_INTERVAL_SECONDS = 0.15
 
+# Longest channel name a phone may write. The console's own name fields
+# are short - the desk shows a handful of characters per strip - and this
+# is a guard against a client sending something absurd rather than a
+# limit the console itself states.
+MAX_CHANNEL_NAME = 32
+
 # Meters get their own, faster loop. The console streams them at ~29Hz
 # and they are the one thing on the strip that has to look continuous -
 # at the 150ms of the levels push a meter reads as a row of steps rather
@@ -381,7 +387,8 @@ class RemoteServer:
 
             self._set_pan(state, msg.get("channel"), msg.get("pan"))
 
-        elif action in ("set_gain", "set_trim", "set_phantom"):
+        elif action in ("set_gain", "set_trim", "set_phantom", "set_phase",
+                        "set_name"):
             # The head amp and its trim belong to the channel, not to any
             # one mix: turning a preamp down changes what FOH, every
             # monitor and the recording hear at once. So unlike level/pan/
@@ -402,8 +409,12 @@ class RemoteServer:
                 self._set_gain(state, msg.get("channel"), msg.get("gain"))
             elif action == "set_trim":
                 self._set_trim(state, msg.get("channel"), msg.get("trim"))
-            else:
+            elif action == "set_phantom":
                 self._set_phantom(state, msg.get("channel"), msg.get("phantom"))
+            elif action == "set_phase":
+                self._set_phase(state, msg.get("channel"), msg.get("phase"))
+            else:
+                self._set_name(state, msg.get("channel"), msg.get("name"))
 
         elif action == "set_mute":
             if await self._reject_write(websocket, worker, state, entry):
@@ -856,6 +867,9 @@ class RemoteServer:
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/phantom/?"
                 )
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Channel_Input/phase/?"
+                )
 
             return
 
@@ -950,6 +964,32 @@ class RemoteServer:
             f"/Input_Channels/{channel}/Channel_Input/phantom "
             f"{1.0 if phantom else 0.0}"
         )
+
+    def _set_phase(self, state, channel, phase):
+        if channel is None or phase is None:
+            return
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Input/phase "
+            f"{1.0 if phase else 0.0}"
+        )
+
+    # The one write in the protocol carrying a string rather than a
+    # float, and the one that can contain a space - so it goes to the
+    # worker in the (address, args) form, which survives a name like
+    # "DI 2" that splitting on whitespace would turn into two arguments.
+    def _set_name(self, state, channel, name):
+        if channel is None or name is None:
+            return
+
+        name = str(name).strip()[:MAX_CHANNEL_NAME]
+
+        if not name:
+            return
+
+        self.command_queue.put((
+            f"/Input_Channels/{channel}/Channel_Input/name", [name]
+        ))
 
     # send_on is the inverse of mute: 0.0 drops the channel out of this
     # aux mix, 1.0 puts it back. Nothing is written to the cache here -
@@ -1241,6 +1281,10 @@ class RemoteServer:
             phantom = bool(worker.cache[phantom_key][0]) \
                 if phantom_key in worker.cache else False
 
+            phase_key = f"/Input_Channels/{channel}/Channel_Input/phase"
+            phase = bool(worker.cache[phase_key][0]) \
+                if phase_key in worker.cache else False
+
             states.append({
                 "channel": channel,
                 "name": name,
@@ -1250,6 +1294,7 @@ class RemoteServer:
                 "gain": gain,
                 "trim": trim,
                 "phantom": phantom,
+                "phase": phase,
                 "stereo": worker.channel_is_stereo(channel),
             })
 

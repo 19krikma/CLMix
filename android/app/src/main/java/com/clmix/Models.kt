@@ -38,5 +38,9 @@ data class ChannelState(
     // 48V on the channel's main input. False rather than null when the
     // console has not answered yet: phantom off is the safe reading, and
     // the button is a toggle with no third state to show.
-    val phantom: Boolean = false
+    val phantom: Boolean = false,
+
+    // Polarity invert on the channel input. False when the console has
+    // not reported it, the same reading as phantom above.
+    val phase: Boolean = false
 )

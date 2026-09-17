@@ -23,25 +23,61 @@
         android:background="@color/track_background" />
 
     <TextView
-        android:id="@+id/input_channel_name"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:textColor="?attr/colorOnSurface"
-        tools:text="DI 2" />
-
-    <TextView
         android:id="@+id/input_channel_number"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="6dp"
         android:gravity="center"
         android:textSize="13sp"
         android:textColor="@color/on_surface_variant"
         tools:text="Channel 22" />
+
+    <!-- The name reads as a value the console holds, like gain and trim
+         below, rather than as a heading - so it wears the same readout
+         box. Hold it to rewrite it; a plain tap does nothing, since the
+         name is what the whole desk calls this channel and a stray touch
+         should not open it for editing. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:id="@+id/input_channel_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/value_box"
+            android:gravity="center"
+            android:paddingVertical="12dp"
+            android:paddingHorizontal="10dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#F2F4F8"
+            tools:text="DI 2" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/phase_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="12dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="Polarity"
+            app:icon="@drawable/ic_phase"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="24dp"
+            app:iconTint="@color/on_mute_inactive"
+            app:backgroundTint="@color/mute_inactive"
+            app:shapeAppearanceOverlay="@style/ShapeAppearance.CLMix.Circle" />
+
+    </LinearLayout>
 
     <!-- Input names where the channel listens; 48V feeds the mic sitting
          there. They belong on one line because they are the same
@@ -83,7 +119,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center"
+        android:gravity="end|center_vertical"
         android:layout_marginBottom="14dp">
 
         <com.clmix.DialView
@@ -127,7 +163,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center">
+        android:gravity="end|center_vertical">
 
         <com.clmix.DialView
             android:id="@+id/trim_dial"

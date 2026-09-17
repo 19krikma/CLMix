@@ -73,6 +73,7 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/Channel_Input/analog_gain$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/trim$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/phantom$"),
+    re.compile(r"^/Input_Channels/\d+/Channel_Input/phase$"),
 ]
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
@@ -641,7 +642,7 @@ class MixerWorker(threading.Thread):
             except queue.Empty:
                 break
 
-            address = command.split(maxsplit=1)[0]
+            address = self.command_address(command)
             key = (address, address.endswith("/?"))
 
             if key not in pending:
@@ -652,15 +653,29 @@ class MixerWorker(threading.Thread):
         for key in order:
             self.send_command(pending[key])
 
+    @staticmethod
+    def command_address(command):
+        if isinstance(command, tuple):
+            return command[0]
+
+        return command.split(maxsplit=1)[0]
+
     def send_command(self, command):
-        parts = command.split()
-        address = parts[0]
-        args = [self.parse_arg(part) for part in parts[1:]]
+        # A queued command is either the plain "address arg arg" string
+        # that nearly all traffic uses, or an (address, [args]) tuple for
+        # anything splitting on whitespace would mangle - a channel name
+        # with a space in it being the case that forced the second form.
+        if isinstance(command, tuple):
+            address, args = command
+        else:
+            parts = command.split()
+            address = parts[0]
+            args = [self.parse_arg(part) for part in parts[1:]]
 
         self.send_osc(address, args)
 
         self.message_queue.put(
-            ("message", f"Sent: {command}")
+            ("message", f"Sent: {address} {args}")
         )
 
     @staticmethod

@@ -96,6 +96,11 @@ class ChannelAdapter(
     // what was causing every slider to rebind (and visibly pulse) on
     // every ~150ms server push regardless of whether anything moved.
     private val displayedProgress = mutableMapOf<Int, Int>()
+    // Tracked like the rest: the name became something a phone can
+    // change (Full Mixer Control's input sheet renames the channel on the
+    // console), so a strip has to notice one arriving in a push rather
+    // than only picking it up on a full rebind.
+    private val displayedName = mutableMapOf<Int, String>()
     private val displayedPan = mutableMapOf<Int, Double?>()
     private val displayedMuted = mutableMapOf<Int, Boolean>()
 
@@ -187,7 +192,9 @@ class ChannelAdapter(
 
             val muteChanged = displayedMuted[channel.channel] != effectiveMuted(channel)
 
-            if (progressChanged || panChanged || muteChanged) {
+            val nameChanged = displayedName[channel.channel] != channel.name
+
+            if (progressChanged || panChanged || muteChanged || nameChanged) {
                 notifyItemChanged(index, PAYLOAD_UPDATE)
             }
         }
@@ -367,6 +374,9 @@ class ChannelAdapter(
             holder.binding.levelSeekBar.progress = progress
             displayedProgress[channel.channel] = progress
         }
+
+        holder.binding.channelName.text = channel.name
+        displayedName[channel.channel] = channel.name
 
         holder.binding.channelMeter.setStereo(channel.stereo)
 

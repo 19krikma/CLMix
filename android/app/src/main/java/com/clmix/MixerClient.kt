@@ -320,6 +320,22 @@ object MixerClient {
             .put("phantom", phantom)
     )
 
+    fun setPhase(channel: Int, phase: Boolean) = send(
+        JSONObject()
+            .put("action", "set_phase")
+            .put("channel", channel)
+            .put("phase", phase)
+    )
+
+    // Renames the channel on the console itself - every surface and every
+    // other phone sees it. The server trims and caps the text.
+    fun setName(channel: Int, name: String) = send(
+        JSONObject()
+            .put("action", "set_name")
+            .put("channel", channel)
+            .put("name", name)
+    )
+
     fun requestPresets() = send(JSONObject().put("action", "list_presets"))
 
     fun savePreset(name: String) = send(
@@ -386,7 +402,8 @@ object MixerClient {
                         stereo = o.optBoolean("stereo", false),
                         gain = if (o.isNull("gain")) null else o.optDouble("gain"),
                         trim = if (o.isNull("trim")) null else o.optDouble("trim"),
-                        phantom = o.optBoolean("phantom", false)
+                        phantom = o.optBoolean("phantom", false),
+                        phase = o.optBoolean("phase", false)
                     )
                 }
                 onMain { listener?.onLevels(aux, list) }

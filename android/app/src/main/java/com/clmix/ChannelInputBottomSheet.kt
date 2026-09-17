@@ -3,7 +3,11 @@ package com.clmix
 import android.content.Context
 import android.content.res.ColorStateList
 import android.os.SystemClock
+import android.text.InputFilter
+import android.text.InputType
+import android.widget.EditText
 import android.widget.FrameLayout
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import com.clmix.databinding.BottomSheetChannelInputBinding
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -28,9 +32,12 @@ class ChannelInputBottomSheet(
     gain: Double?,
     trim: Double?,
     phantom: Boolean,
+    phase: Boolean,
     private val onGainChanged: (Int, Double) -> Unit,
     private val onTrimChanged: (Int, Double) -> Unit,
     private val onPhantomChanged: (Int, Boolean) -> Unit,
+    private val onPhaseChanged: (Int, Boolean) -> Unit,
+    private val onNameChanged: (Int, String) -> Unit,
     private val onInputClicked: (Int) -> Unit
 ) {
     private val dialog = BottomSheetDialog(context)
@@ -61,6 +68,16 @@ class ChannelInputBottomSheet(
     private var phantomExpected: Boolean? = null
     private var phantomSentAt = 0L
 
+    private var phaseShown = phase
+    private var phaseExpected: Boolean? = null
+    private var phaseSentAt = 0L
+
+    // A rename takes a moment to reach the console and come back. Until
+    // it does, pushes still carry the old name, and writing that into the
+    // box would undo what was just typed in front of the user.
+    private var nameExpected: String? = null
+    private var nameSentAt = 0L
+
     init {
         dialog.setContentView(binding.root)
 
@@ -78,9 +95,27 @@ class ChannelInputBottomSheet(
         binding.inputChannelName.text = channelName
         binding.inputChannelNumber.text = "Channel $channel"
 
+        // Hold, not tap: renaming changes what every surface in the
+        // building calls this channel.
+        binding.inputChannelName.setOnLongClickListener {
+            promptForName(binding.inputChannelName.text.toString())
+            true
+        }
+
         binding.inputButton.setOnClickListener { onInputClicked(channel) }
 
         applyPhantom(phantomShown)
+        applyPhase(phaseShown)
+
+        binding.phaseButton.setOnClickListener {
+            val target = !phaseShown
+
+            phaseExpected = target
+            phaseSentAt = SystemClock.uptimeMillis()
+            applyPhase(target)
+
+            onPhaseChanged(channel, target)
+        }
 
         binding.phantomButton.setOnClickListener {
             val target = !phantomShown
@@ -164,7 +199,18 @@ class ChannelInputBottomSheet(
     fun update(state: ChannelState) {
         if (state.channel != channel) return
 
-        binding.inputChannelName.text = state.name
+        val pendingName = nameExpected
+
+        if (pendingName != null &&
+            (state.name == pendingName ||
+                SystemClock.uptimeMillis() - nameSentAt > NAME_CONFIRM_MS)
+        ) {
+            nameExpected = null
+        }
+
+        if (nameExpected == null && binding.inputChannelName.text != state.name) {
+            binding.inputChannelName.text = state.name
+        }
 
         state.gain?.let { gain ->
             if (idle(gainTouchedAt) && differs(binding.gainDial.value, gain)) {
@@ -197,6 +243,20 @@ class ChannelInputBottomSheet(
         if (phantomExpected == null && state.phantom != phantomShown) {
             applyPhantom(state.phantom)
         }
+
+        val phaseWanted = phaseExpected
+
+        if (phaseWanted != null) {
+            if (state.phase == phaseWanted ||
+                SystemClock.uptimeMillis() - phaseSentAt > PHANTOM_CONFIRM_MS
+            ) {
+                phaseExpected = null
+            }
+        }
+
+        if (phaseExpected == null && state.phase != phaseShown) {
+            applyPhase(state.phase)
+        }
     }
 
     /**
@@ -217,6 +277,61 @@ class ChannelInputBottomSheet(
         binding.phantomButton.setTextColor(ContextCompat.getColor(context, text))
         binding.phantomButton.contentDescription =
             if (on) "48V on" else "48V off"
+    }
+
+    /**
+     * Polarity, which either is or is not inverted - so the button fills
+     * with the app's accent when on rather than the warning red 48V uses.
+     * Nothing here can damage a microphone; it just sounds wrong.
+     */
+    private fun applyPhase(on: Boolean) {
+        phaseShown = on
+
+        val context = binding.phaseButton.context
+        val background = if (on) R.color.primary else R.color.mute_inactive
+        val tint = if (on) R.color.on_primary else R.color.on_mute_inactive
+
+        binding.phaseButton.backgroundTintList =
+            ColorStateList.valueOf(ContextCompat.getColor(context, background))
+        binding.phaseButton.iconTint =
+            ColorStateList.valueOf(ContextCompat.getColor(context, tint))
+        binding.phaseButton.contentDescription =
+            if (on) "Polarity inverted" else "Polarity normal"
+    }
+
+    private fun promptForName(current: String) {
+        val context = binding.root.context
+
+        val field = EditText(context).apply {
+            setText(current)
+            setSelection(text.length)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            filters = arrayOf(InputFilter.LengthFilter(MAX_NAME_LENGTH))
+        }
+
+        // Padding so the field is not flush against the dialog's edges;
+        // AlertDialog gives a custom view none of its own.
+        val padding = (context.resources.displayMetrics.density * 20).toInt()
+        val frame = FrameLayout(context).apply {
+            setPadding(padding, padding / 2, padding, 0)
+            addView(field)
+        }
+
+        AlertDialog.Builder(context)
+            .setTitle("Rename channel $channel")
+            .setView(frame)
+            .setPositiveButton("Rename") { _, _ ->
+                val name = field.text.toString().trim()
+
+                if (name.isNotEmpty() && name != current) {
+                    nameExpected = name
+                    nameSentAt = SystemClock.uptimeMillis()
+                    binding.inputChannelName.text = name
+                    onNameChanged(channel, name)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun idle(touchedAt: Long): Boolean =
@@ -246,9 +361,16 @@ class ChannelInputBottomSheet(
         // How long after a turn to keep ignoring pushes for that dial.
         private const val SETTLE_MS = 700L
 
-        // How long a tapped 48V button holds its own state before
-        // deferring to the console again.
+        // How long a tapped 48V or polarity button holds its own state
+        // before deferring to the console again.
         private const val PHANTOM_CONFIRM_MS = 2000L
+
+        // A rename travels further than a flag - through the desktop's
+        // cache and back out on the next push - so it is given longer.
+        private const val NAME_CONFIRM_MS = 4000L
+
+        // Matches the server's own cap (MAX_CHANNEL_NAME).
+        private const val MAX_NAME_LENGTH = 32
 
         // Fast enough that the desk visibly tracks the dial, far below
         // the ~60 a second the turn itself generates.

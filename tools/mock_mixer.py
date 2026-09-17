@@ -3,7 +3,8 @@
 Answers just enough of the OSC protocol MixerWorker (ui/main_window.py)
 speaks during its boot sequence and while connected - console/channel/aux
 discovery, snapshot info, get/set of the channel's own fader/mute/pan and
-its input gain/trim/48V (what Full Mixer Control rides) plus per-aux-send
+its input gain/trim/48V/phase and channel naming (what Full Mixer Control
+rides) plus per-aux-send
 level/pan/on -
 to let the desktop app (and, through it, phone clients via RemoteServer)
 be exercised end-to-end. Simulates:
@@ -304,6 +305,10 @@ class MockMixer:
         self.trims = {channel: float((channel % 5) - 2) for channel in channels}
         # 48V, on for roughly every third channel so both states show up.
         self.phantoms = {channel: float(channel % 3 == 0) for channel in channels}
+        self.phases = {channel: 0.0 for channel in channels}
+        # Names start from the fixed list but can be rewritten from a
+        # phone, so they live here rather than being read from it.
+        self.names = {channel: CHANNEL_NAMES[channel - 1] for channel in channels}
 
         # Meter subscriptions, as /Meters/request builds them up: slot
         # number -> the meter address bound to it. Slots are the client's
@@ -511,7 +516,7 @@ class MockMixer:
 
         elif address.startswith("/Input_Channels/") and address.endswith("/Channel_Input/name"):
             channel = self._channel_from(address)
-            self.send(address, [CHANNEL_NAMES[channel - 1]])
+            self.send(address, [self.names[channel]])
 
         elif address == "/Snapshots/Current_Snapshot":
             self.send(address, [self.snapshot])
@@ -553,6 +558,9 @@ class MockMixer:
         elif address.endswith("/Channel_Input/phantom"):
             self.send(address, [self.phantoms[self._channel_from(address)]])
 
+        elif address.endswith("/Channel_Input/phase"):
+            self.send(address, [self.phases[self._channel_from(address)]])
+
         elif address.endswith("/send_level"):
             self.send(address, [self.levels[self._channel_aux_from(address)]])
 
@@ -564,6 +572,14 @@ class MockMixer:
 
     def handle_set(self, address, args):
         if not args:
+            return
+
+        # Names are the one string parameter a client writes; everything
+        # else is a float.
+        if address.endswith("/Channel_Input/name"):
+            name = str(args[0])
+            self.names[self._channel_from(address)] = name
+            self.send(address, [name])
             return
 
         value = float(args[0])
@@ -580,6 +596,8 @@ class MockMixer:
             self.trims[self._channel_from(address)] = value
         elif address.endswith("/Channel_Input/phantom"):
             self.phantoms[self._channel_from(address)] = value
+        elif address.endswith("/Channel_Input/phase"):
+            self.phases[self._channel_from(address)] = value
         elif address.endswith("/send_level"):
             self.levels[self._channel_aux_from(address)] = value
         elif address.endswith("/send_pan"):
