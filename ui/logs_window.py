@@ -4,7 +4,7 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk
 
-from services.log_store import log_store
+from services.log_store import capture, log, log_store
 
 
 def open_folder(path):
@@ -32,6 +32,7 @@ class LogsWindow:
         self.window.protocol("WM_DELETE_WINDOW", self.close)
 
         self.filter_var = tk.StringVar(value="Info")
+        self.meters_var = tk.BooleanVar(value=capture.meters)
         self.search_var = tk.StringVar(value="")
         self._last_seq_rendered = 0
         self.refresh_job = None
@@ -50,6 +51,14 @@ class LogsWindow:
                 bar, text=level, value=level, variable=self.filter_var,
                 command=self.render_full
             ).pack(side="left", padx=(0, 12))
+
+        # Not a filter: this decides whether the meter stream is captured
+        # at all, so unticking it stops ~30 lines a second reaching the
+        # log file as well as the view above.
+        ttk.Checkbutton(
+            bar, text="Meters", variable=self.meters_var,
+            command=self._toggle_meter_capture
+        ).pack(side="left", padx=(0, 12))
 
         ttk.Label(bar, text="Search:").pack(side="left", padx=(12, 4))
         search_entry = ttk.Entry(bar, textvariable=self.search_var, width=20)
@@ -96,6 +105,13 @@ class LogsWindow:
 
         self.text.tag_configure("error", foreground="#e5473f")
         self.text.tag_configure("warning", foreground="#d9a441")
+
+    def _toggle_meter_capture(self):
+        capture.meters = self.meters_var.get()
+
+        log("info", "Meter capture on - every /Meters/values packet is logged"
+            if capture.meters else
+            "Meter capture off - /Meters/values is counted and summarised")
 
     def _on_search_changed(self, *_args):
         if self._search_job is not None:

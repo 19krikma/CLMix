@@ -170,6 +170,26 @@ class LogStore:
             self._entries.clear()
 
 
+class CaptureSettings:
+    """How much of the inbound mixer traffic reaches the log.
+
+    Everything the console sends is logged, with metering the single
+    exception: at ~30Hz it is the only traffic voluminous enough to bury
+    every other line and roll the log file within the hour, so it starts
+    off and is reported as a periodic count instead. Ticking "Meters" in
+    the Logs window logs every meter packet as well.
+
+    Off is the only default that is ever assumed - session-scoped and
+    never persisted, so a capture left on in some earlier run cannot
+    quietly flood a later one.
+    """
+
+    def __init__(self):
+        self.meters = False
+
+
+capture = CaptureSettings()
+
 log_store = LogStore()
 
 

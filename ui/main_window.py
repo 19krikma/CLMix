@@ -11,12 +11,14 @@ import time
 from pathlib import Path
 
 import sv_ttk
+from pythonosc.osc_bundle import OscBundle
+from pythonosc.osc_bundle import ParseError as BundleParseError
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 
 from services import updater
 from services.backup_store import BackupStore
-from services.log_store import log
+from services.log_store import capture, log
 from services.network_info import get_ethernet_ip, list_ipv4_interfaces
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
@@ -146,6 +148,26 @@ class MixerWorker(threading.Thread):
     METER_LEGS_MONO = ("left",)
     METER_LEGS_STEREO = ("left", "right")
 
+    # How often the meter stream gets one summary line, for when the
+    # Logs window has turned meter capture off. Meters are the only
+    # traffic voluminous enough (~30Hz) to be worth turning down, and
+    # even then they are counted rather than ignored, so the log can
+    # still answer whether the console is metering at all and whether it
+    # is answering with slots nobody subscribed.
+    METER_LOG_INTERVAL_SECONDS = 5.0
+
+    # How far into nested bundles to keep unpacking. The console has
+    # never been seen to send a bundle at all, let alone a nested one,
+    # so this is only here to keep a malformed datagram from recursing
+    # without end - the log says when it stops rather than pretending
+    # the contents were read.
+    MAX_BUNDLE_DEPTH = 8
+
+    # How much of an undecodable datagram to put in the log: enough to
+    # recognise an OSC address or a "#bundle" header, short enough that
+    # a stray large packet cannot dump kilobytes of hex.
+    UNPARSED_PREVIEW_BYTES = 64
+
     def __init__(self, mixer_ip, send_port, recv_port,
                  command_queue, message_queue, bind_ip=None):
         super().__init__(daemon=True)
@@ -224,6 +246,14 @@ class MixerWorker(threading.Thread):
         # MainWindow.refresh_meters).
         self.meter_seq = {}
 
+        # Meter traffic counted while meter capture is off - see
+        # METER_LOG_INTERVAL_SECONDS and CaptureSettings. Untouched
+        # while capture is on, when every packet is logged instead.
+        self._meter_packets = 0
+        self._meter_pairs = 0
+        self._meter_unmapped = 0
+        self._meter_window_started_at = 0.0
+
     def run(self):
         try:
             log("info", f"Connecting to {self.mixer_ip}:{self.send_port} "
@@ -266,6 +296,7 @@ class MixerWorker(threading.Thread):
 
             while self.running:
                 self.receive_osc()
+                self._flush_meter_log()
                 self._check_heartbeat()
                 self._drain_commands()
 
@@ -293,32 +324,85 @@ class MixerWorker(threading.Thread):
 
     def receive_osc(self):
         try:
-            data, _ = self.recv_sock.recvfrom(65535)
+            data, sender = self.recv_sock.recvfrom(65535)
         except socket.timeout:
+            return
+
+        self._last_received_at = time.monotonic()
+        self._handle_datagram(data, sender)
+
+    def _handle_datagram(self, data, sender, depth=0):
+        """Log one inbound datagram, then act on whatever it carries.
+
+        Everything that lands on the receive socket comes through here
+        and reaches the debug log whether or not this app has any use
+        for it: every message, every message nested inside a bundle, and
+        the bytes of anything that decodes as neither. The only traffic
+        that can be turned down is metering, and only to a count (see
+        CaptureSettings) - nothing is ever dropped unrecorded.
+        """
+        if depth > self.MAX_BUNDLE_DEPTH:
+            self._log_received(
+                sender,
+                f"bundle nested past {self.MAX_BUNDLE_DEPTH} levels, "
+                f"{len(data)} bytes left unread",
+                depth
+            )
+            return
+
+        if OscBundle.dgram_is_bundle(data):
+            try:
+                bundle = OscBundle(data)
+            except (BundleParseError, ParseError):
+                self._log_unparsed(data, sender, depth)
+                return
+
+            self._log_received(
+                sender,
+                f"#bundle timestamp {bundle.timestamp} "
+                f"({bundle.num_contents} elements, {len(data)} bytes)",
+                depth
+            )
+
+            for index in range(bundle.num_contents):
+                self._handle_datagram(
+                    bundle.content(index).dgram, sender, depth + 1
+                )
+
             return
 
         try:
             message = OscMessage(data)
         except ParseError:
+            # A truncated datagram, or traffic from something else that
+            # found this port. Dropping these silently (which is what
+            # this used to do) made "the console is sending nothing" and
+            # "the console is sending something we cannot read" look
+            # identical in the log, so they get reported as bytes.
+            self._log_unparsed(data, sender, depth)
             return
 
-        self._last_received_at = time.monotonic()
-
-        address = message.address
-        args = list(message.params)
-
-        # Meters stream at ~30Hz. They're handled (and stored) here rather
-        # than pushed through message_queue, which is drained every 100ms
-        # and logs every entry - a meter subscription would swamp both.
-        if address == "/Meters/values":
-            self._handle_meter_values(args)
-            return
-
-        self.message_queue.put(
-            ("message", f"Received: {address} {args}")
+        self._dispatch_message(
+            message.address, list(message.params), sender, depth
         )
 
+    def _dispatch_message(self, address, args, sender, depth=0):
+        # Meters are stored here rather than pushed through
+        # message_queue as state, but they are logged like any other
+        # message unless the Logs window has turned that down - at which
+        # point they are counted instead, never simply discarded.
+        if address == "/Meters/values":
+            self._handle_meter_values(args)
+
+            if capture.meters:
+                self._log_received(sender, f"{address} {args}", depth)
+            else:
+                self._count_meter_packet(args)
+
+            return
+
         snapshot_changed = SNAPSHOT_CHANGED_PATTERN.match(address)
+        handled = True
 
         if address == "/Layout/Layout/Banks":
             self._store_bank(args)
@@ -332,9 +416,101 @@ class MixerWorker(threading.Thread):
             self._handle_snapshot_renamed(address, args)
         elif any(pattern.match(address) for pattern in CACHEABLE_ADDRESSES):
             self.cache[address] = args
+        else:
+            # Received and logged, but nothing here acts on it or keeps
+            # it. Marked so the log tells a reply that landed apart from
+            # one that landed and was understood - they used to read the
+            # same, which is the hard way to find an address missing
+            # from CACHEABLE_ADDRESSES.
+            handled = False
+
+        self._log_received(
+            sender,
+            f"{address} {args}{'' if handled else '  [unhandled]'}",
+            depth
+        )
 
         if not self.loaded:
             self.request_next_parameter()
+
+    def _log_received(self, sender, text, depth=0):
+        """One inbound line for the debug log, via the UI message pump.
+
+        depth indents a bundle's contents under the bundle header so a
+        grouped update reads as one thing rather than as a run of
+        unrelated messages that happen to share a timestamp.
+        """
+        self.message_queue.put((
+            "message",
+            f"Received from {sender[0]}:{sender[1]}: {'  ' * depth}{text}"
+        ))
+
+    def _log_unparsed(self, data, sender, depth=0):
+        """Report a datagram no decoder accepted, rather than dropping it."""
+        preview = data[:self.UNPARSED_PREVIEW_BYTES]
+        printable = "".join(
+            chr(byte) if 32 <= byte < 127 else "." for byte in preview
+        )
+        truncated = "..." if len(data) > self.UNPARSED_PREVIEW_BYTES else ""
+
+        self._log_received(
+            sender,
+            f"undecodable datagram, {len(data)} bytes | "
+            f"{printable}{truncated} | {preview.hex(' ')}{truncated}",
+            depth
+        )
+
+    def _count_meter_packet(self, args):
+        """Tally one /Meters/values packet for the periodic summary line."""
+        if not self._meter_packets:
+            # Start of a fresh reporting window. Timed from the first
+            # packet in it rather than from the last summary, so a
+            # summary that follows a quiet spell reports the length of
+            # the burst and not the length of the silence.
+            self._meter_window_started_at = time.monotonic()
+
+        self._meter_packets += 1
+
+        for i in range(0, len(args) - 1, 2):
+            self._meter_pairs += 1
+
+            if int(args[i]) not in self.meter_slots:
+                self._meter_unmapped += 1
+
+    def _flush_meter_log(self):
+        """Report meters counted while meter capture was off.
+
+        A no-op with capture on, where the counters stay empty because
+        every packet is logged as it lands. Driven from the run loop
+        rather than from the packets themselves so the last burst before
+        metering stops is still reported instead of sitting in the
+        counters until the next packet arrives.
+        """
+        if not self._meter_packets:
+            return
+
+        elapsed = time.monotonic() - self._meter_window_started_at
+
+        # Capture coming back on closes the window early, so packets
+        # counted while it was off are reported then rather than waiting
+        # out an interval that no longer applies.
+        if not capture.meters and elapsed < self.METER_LOG_INTERVAL_SECONDS:
+            return
+
+        unmapped = (
+            f", {self._meter_unmapped} for unsubscribed slots"
+            if self._meter_unmapped else ""
+        )
+        self.message_queue.put((
+            "message",
+            f"Received: /Meters/values x{self._meter_packets} "
+            f"({self._meter_pairs} slot values{unmapped}) in {elapsed:.1f}s "
+            f"across {len(self.meter_slots)} subscribed slots"
+        ))
+
+        self._meter_packets = 0
+        self._meter_pairs = 0
+        self._meter_unmapped = 0
 
     def _check_heartbeat(self):
         now = time.monotonic()
