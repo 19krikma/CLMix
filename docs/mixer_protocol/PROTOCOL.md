@@ -267,6 +267,12 @@ Custom surface bank layouts (which strips are assigned to which physical layer).
 
 Input channel strips (mic/line inputs). 72 on this console.
 
+`Channel_Input/input_type` says whether the strip has an input connected
+to it at all: `2.0` means an input is assigned, `0.0` means the strip is
+empty. It is part of the stored channel state, so a snapshot recall
+broadcasts it for every channel it changes, alongside that channel's
+`analog_gain`, `phantom` and EQ.
+
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
 | `/Input_Channels/{n}/Aux_Send/{n}/send_level` | 30 | float | `[-5.670000076293945]` | `/Input_Channels/1/Aux_Send/1/send_level` |
@@ -282,7 +288,7 @@ Input channel strips (mic/line inputs). 72 on this console.
 | `/Input_Channels/{n}/Channel_Input/alt_phantom` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/alt_phantom` |
 | `/Input_Channels/{n}/Channel_Input/analog_gain` | 1 | float | `[20.0]` | `/Input_Channels/1/Channel_Input/analog_gain` |
 | `/Input_Channels/{n}/Channel_Input/input_pad` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/input_pad` |
-| `/Input_Channels/{n}/Channel_Input/input_type` | 1 | float | `[2.0]` | `/Input_Channels/1/Channel_Input/input_type` |
+| `/Input_Channels/{n}/Channel_Input/input_type` | 1 | float (enum, see below) | `[2.0]` | `/Input_Channels/1/Channel_Input/input_type` |
 | `/Input_Channels/{n}/Channel_Input/main/alt_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/main/alt_in` |
 | `/Input_Channels/{n}/Channel_Input/name` | 1 | string | `["KICK"]` | `/Input_Channels/1/Channel_Input/name` |
 | `/Input_Channels/{n}/Channel_Input/phantom` | 1 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/Channel_Input/phantom` |

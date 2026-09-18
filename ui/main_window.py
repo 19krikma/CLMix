@@ -15,6 +15,7 @@ from pythonosc.osc_bundle import OscBundle
 from pythonosc.osc_bundle import ParseError as BundleParseError
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
+from pythonosc.parsing import osc_types
 
 from services import updater
 from services.backup_store import BackupStore
@@ -163,10 +164,11 @@ class MixerWorker(threading.Thread):
     # the contents were read.
     MAX_BUNDLE_DEPTH = 8
 
-    # How much of an undecodable datagram to put in the log: enough to
-    # recognise an OSC address or a "#bundle" header, short enough that
-    # a stray large packet cannot dump kilobytes of hex.
-    UNPARSED_PREVIEW_BYTES = 64
+    # How many of a datagram's own bytes to put in the log beside the
+    # decoded form. Enough to read an address, its type tags and the
+    # first arguments off the wire, short enough that one long name list
+    # cannot dump kilobytes of hex into the file.
+    RAW_PREVIEW_BYTES = 96
 
     def __init__(self, mixer_ip, send_port, recv_port,
                  command_queue, message_queue, bind_ip=None):
@@ -383,10 +385,10 @@ class MixerWorker(threading.Thread):
             return
 
         self._dispatch_message(
-            message.address, list(message.params), sender, depth
+            message.address, list(message.params), data, sender, depth
         )
 
-    def _dispatch_message(self, address, args, sender, depth=0):
+    def _dispatch_message(self, address, args, data, sender, depth=0):
         # Meters are stored here rather than pushed through
         # message_queue as state, but they are logged like any other
         # message unless the Logs window has turned that down - at which
@@ -395,14 +397,15 @@ class MixerWorker(threading.Thread):
             self._handle_meter_values(args)
 
             if capture.meters:
-                self._log_received(sender, f"{address} {args}", depth)
+                self._log_received(
+                    sender, self._describe(address, args, data), depth
+                )
             else:
                 self._count_meter_packet(args)
 
             return
 
         snapshot_changed = SNAPSHOT_CHANGED_PATTERN.match(address)
-        handled = True
 
         if address == "/Layout/Layout/Banks":
             self._store_bank(args)
@@ -416,22 +419,53 @@ class MixerWorker(threading.Thread):
             self._handle_snapshot_renamed(address, args)
         elif any(pattern.match(address) for pattern in CACHEABLE_ADDRESSES):
             self.cache[address] = args
-        else:
-            # Received and logged, but nothing here acts on it or keeps
-            # it. Marked so the log tells a reply that landed apart from
-            # one that landed and was understood - they used to read the
-            # same, which is the hard way to find an address missing
-            # from CACHEABLE_ADDRESSES.
-            handled = False
 
-        self._log_received(
-            sender,
-            f"{address} {args}{'' if handled else '  [unhandled]'}",
-            depth
-        )
+        self._log_received(sender, self._describe(address, args, data), depth)
 
         if not self.loaded:
             self.request_next_parameter()
+
+    def _describe(self, address, args, data):
+        """One message written out in full: what it says it is, what it
+        decoded to, and the bytes it arrived as.
+
+        The type tags and the raw bytes are there because the decoded
+        form alone hides the things worth knowing about an undocumented
+        parameter - an int that arrives as a float, a flag that is
+        really an enum, a trailing argument pythonosc drops - and this
+        log is what the protocol notes get written from.
+        """
+        return (
+            f"{address} {self._type_tags(data)} {args} | "
+            f"{len(data)} bytes | {self._hex_preview(data)}"
+        )
+
+    @staticmethod
+    def _type_tags(data):
+        """The console's own type tag string for a message, e.g. ",iiis".
+
+        Read back off the wire rather than inferred from the decoded
+        arguments, so it says what the console claimed to send even when
+        that is not what came out the other side. "," is a message with
+        no arguments at all; "?" is one whose tags could not be read.
+        """
+        try:
+            _address, index = osc_types.get_string(data, 0)
+
+            if not data[index:]:
+                return ","
+
+            tags, _index = osc_types.get_string(data, index)
+        except osc_types.ParseError:
+            return "?"
+
+        return tags
+
+    def _hex_preview(self, data):
+        preview = data[:self.RAW_PREVIEW_BYTES]
+        truncated = "..." if len(data) > self.RAW_PREVIEW_BYTES else ""
+
+        return f"{preview.hex(' ')}{truncated}"
 
     def _log_received(self, sender, text, depth=0):
         """One inbound line for the debug log, via the UI message pump.
@@ -447,16 +481,16 @@ class MixerWorker(threading.Thread):
 
     def _log_unparsed(self, data, sender, depth=0):
         """Report a datagram no decoder accepted, rather than dropping it."""
-        preview = data[:self.UNPARSED_PREVIEW_BYTES]
+        preview = data[:self.RAW_PREVIEW_BYTES]
         printable = "".join(
             chr(byte) if 32 <= byte < 127 else "." for byte in preview
         )
-        truncated = "..." if len(data) > self.UNPARSED_PREVIEW_BYTES else ""
+        truncated = "..." if len(data) > self.RAW_PREVIEW_BYTES else ""
 
         self._log_received(
             sender,
             f"undecodable datagram, {len(data)} bytes | "
-            f"{printable}{truncated} | {preview.hex(' ')}{truncated}",
+            f"{printable}{truncated} | {self._hex_preview(data)}",
             depth
         )
 
