@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import platform
 import socket
@@ -61,6 +62,24 @@ def list_ipv4_interfaces():
             interfaces.append((label, address))
 
     return interfaces
+
+
+def ipv4_network_of(address):
+    """The subnet an adapter holding address sits on, or None.
+
+    For the DiGiCo App Capture beacon, which is aimed at a subnet's own
+    broadcast address rather than 255.255.255.255: that one leaves by
+    whichever card the routing table prefers, which on a two-card
+    machine can be the console's network instead of the iPad's.
+    """
+    for adapter in ifaddr.get_adapters():
+        for ip in adapter.ips:
+            if ip.is_IPv4 and ip.ip == address:
+                return ipaddress.IPv4Network(
+                    f"{address}/{ip.network_prefix}", strict=False
+                )
+
+    return None
 
 
 def get_ethernet_ip():

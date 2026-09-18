@@ -264,7 +264,7 @@ def build_banks():
 
 class MockMixer:
     def __init__(self, listen_port, client_host, client_port, mic=None,
-                 recall_every=None):
+                 recall_every=None, listen_host="0.0.0.0"):
         self.client_host = client_host
         self.client_port = client_port
         self.mic = mic
@@ -279,7 +279,7 @@ class MockMixer:
         self.last_recall_at = time.monotonic()
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("0.0.0.0", listen_port))
+        self.sock.bind((listen_host, listen_port))
 
         channels = range(1, len(CHANNEL_NAMES) + 1)
         auxes = range(1, len(AUX_NAMES) + 1)
@@ -638,6 +638,10 @@ class MockMixer:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--listen-port", type=int, default=10023)
+    # Loopback only, say, to leave the same port free on this machine's
+    # real adapters - which is what testing DiGiCo App Capture against
+    # this mock needs, since that binds the console's port itself.
+    parser.add_argument("--listen-host", default="0.0.0.0")
     parser.add_argument("--client-host", default="127.0.0.1")
     parser.add_argument("--client-port", type=int, default=10024)
     parser.add_argument("--seed", type=int, default=None,
@@ -695,7 +699,8 @@ def main():
         print(f"  snapshots: recalling one every {args.recall_every}s")
 
     MockMixer(args.listen_port, args.client_host, args.client_port, mic=mic,
-              recall_every=args.recall_every).run()
+              recall_every=args.recall_every,
+              listen_host=args.listen_host).run()
 
 
 if __name__ == "__main__":

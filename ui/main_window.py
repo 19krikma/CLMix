@@ -19,6 +19,7 @@ from pythonosc.parsing import osc_types
 
 from services import updater
 from services.backup_store import BackupStore
+from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log
 from services.network_info import get_ethernet_ip, list_ipv4_interfaces
 from services.preset_store import PresetStore
@@ -30,7 +31,7 @@ from ui.about_window import AboutWindow
 from ui.access_window import AccessPanel
 from ui.aux_window import AuxPanel
 from ui.backup_window import BackupWindow
-from ui.logs_window import LogsWindow
+from ui.logs_window import LogsWindow, open_folder
 from ui.presets_window import PresetsWindow
 from version import VERSION
 
@@ -233,6 +234,20 @@ class MixerWorker(threading.Thread):
         # different bank than the desktop would meter nothing at all.
         self._meter_sources = {}
 
+        # True while DiGiCo App Capture is on. The console's slot table is
+        # global and /Meters/values names slots, not channels, so CLMix
+        # and the official app cannot both meter at once - while this is
+        # set the app has the table to itself, and anything arriving on
+        # /Meters/values is the app's and means nothing here. Surfaces
+        # still register what they want, so resuming picks up exactly
+        # where the screen is.
+        self.meters_suspended = False
+
+        # The DigicoAppBridge relaying this connection, when capture is
+        # on; handed every datagram sent and received. See
+        # services/digico_bridge.py.
+        self.bridge = None
+
         # slot number -> (channel index, leg), mirroring whatever the UI
         # last subscribed via subscribe_meters(). /Meters/values reports
         # slots, not addresses, so this is the only way back to a channel.
@@ -331,6 +346,13 @@ class MixerWorker(threading.Thread):
             return
 
         self._last_received_at = time.monotonic()
+
+        # Relayed before CLMix reads it, so the app is never kept
+        # waiting on this side's own handling.
+        bridge = self.bridge
+        if bridge is not None:
+            bridge.from_console(data, sender)
+
         self._handle_datagram(data, sender)
 
     def _handle_datagram(self, data, sender, depth=0):
@@ -718,6 +740,9 @@ class MixerWorker(threading.Thread):
         )
 
     def _handle_meter_values(self, args):
+        if self.meters_suspended:
+            return
+
         # Flat [slot, value, slot, value, ...] pairs, carrying only the
         # slots that actually changed - so the length varies per packet
         # and slot n is NOT at index 2n. Always walk it as pairs.
@@ -804,6 +829,9 @@ class MixerWorker(threading.Thread):
         self.meter_levels = {}
         self.meter_seq = {}
 
+        if self.meters_suspended:
+            return
+
         for channel in wanted:
             for leg in self.channel_legs(channel):
                 if len(self.meter_slots) >= self.MAX_METER_SLOTS:
@@ -818,6 +846,31 @@ class MixerWorker(threading.Thread):
                 f"/Input_Channels/{channel}/Channel_Input/post_meter/{leg}"
             )
 
+    def suspend_meters(self):
+        """Give the console's meter table up to the DiGiCo app.
+
+        Safe from any thread. Clears the table once, so the app starts on
+        an empty one rather than inheriting CLMix's slots, and blanks
+        every meter here - desktop and phones - rather than leaving them
+        frozen on the last reading.
+        """
+        if self.meters_suspended:
+            return
+
+        self.meters_suspended = True
+        self.meter_slots = {}
+        self.meter_levels = {}
+        self.meter_seq = {}
+        self.command_queue.put("/Meters/clear")
+
+    def resume_meters(self):
+        """Take the meter table back, for whatever is on screen now."""
+        if not self.meters_suspended:
+            return
+
+        self.meters_suspended = False
+        self._rebuild_meter_subscription()
+
     def send_osc(self, address, args):
         log("debug", f"send_osc: {address} {args}")
 
@@ -826,10 +879,12 @@ class MixerWorker(threading.Thread):
         for arg in args:
             builder.add_arg(arg)
 
-        self.send_sock.sendto(
-            builder.build().dgram,
-            (self.mixer_ip, self.send_port)
-        )
+        dgram = builder.build().dgram
+        self.send_sock.sendto(dgram, (self.mixer_ip, self.send_port))
+
+        bridge = self.bridge
+        if bridge is not None:
+            bridge.from_clmix(dgram)
 
     def _drain_commands(self):
         # Pulling only one queued command per loop iteration (the old
@@ -2749,6 +2804,13 @@ class MainWindow:
         self.presets_window = None
         self.remote_server = None
 
+        # DiGiCo App Capture - see services/digico_bridge.py. Runs only
+        # while connected with the setting on; _capture_error keeps the
+        # reason the last start failed on screen until the next attempt.
+        self.capture_bridge = None
+        self._capture_error = None
+        self._capture_status_shown = None
+
         self._user_disconnected = True
         self._reconnect_job = None
 
@@ -2919,7 +2981,7 @@ class MainWindow:
         self.setup_window.title("Setup")
         # Wide enough for the Config tab's third column (the adapter
         # dropdowns) without clipping them.
-        self.setup_window.geometry("860x470")
+        self.setup_window.geometry("860x520")
         self.setup_window.protocol("WM_DELETE_WINDOW", self.close_setup_window)
 
         self.setup_notebook = ttk.Notebook(self.setup_window)
@@ -2953,7 +3015,7 @@ class MainWindow:
 
     def build_config_tab(self, parent):
         frame = ttk.Frame(parent, padding=15)
-        frame.pack(fill="both", expand=True)
+        frame.pack(fill="x")
 
         port_vcmd = (self.setup_window.register(self._validate_port_input), "%P")
 
@@ -3025,6 +3087,57 @@ class MainWindow:
         ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
         self._refresh_nic_choices()
+
+        self.build_capture_section(parent)
+
+    def build_capture_section(self, parent):
+        """DiGiCo App Capture, in its own section under the connection
+        settings - it changes what this machine pretends to be, which is
+        a different kind of setting from where the console is."""
+        ttk.Separator(parent).pack(fill="x", padx=15, pady=(0, 4))
+
+        frame = ttk.Frame(parent, padding=(15, 8, 15, 15))
+        frame.pack(fill="both", expand=True)
+
+        heading = ttk.Frame(frame)
+        heading.pack(fill="x")
+
+        ttk.Label(
+            heading, text="DiGiCo App Capture", font=("TkDefaultFont", 10, "bold")
+        ).pack(side="left")
+
+        self.capture_var = tk.BooleanVar(
+            value=bool(self.settings.get("digico_capture"))
+        )
+        ttk.Checkbutton(
+            heading,
+            style="Switch.TCheckbutton",
+            variable=self.capture_var,
+            command=self._on_capture_toggled
+        ).pack(side="left", padx=(12, 0))
+
+        ttk.Button(
+            heading, text="Open Capture Folder",
+            command=self._open_capture_folder
+        ).pack(side="right")
+
+        ttk.Label(
+            frame,
+            text="Stands in for the console so the official DiGiCo app can "
+                 "connect to this computer instead. Everything is passed "
+                 "through unchanged in both directions and recorded to a "
+                 "capture file. Set the app to the same ports as above; it "
+                 "finds this computer on the Server adapter's network. "
+                 "CLMix's own meters are off while this is on.",
+            wraplength=780,
+            justify="left"
+        ).pack(fill="x", pady=(8, 0))
+
+        self.capture_status_label = ttk.Label(
+            frame, text="", wraplength=780, justify="left"
+        )
+        self.capture_status_label.pack(fill="x", pady=(8, 0))
+        self._refresh_capture_status()
 
     def _refresh_nic_choices(self):
         """Fill both adapter dropdowns from the adapters present right now.
@@ -3141,6 +3254,7 @@ class MainWindow:
             "theme": "dark",
             "hidden_auxes": [],
             "backup_dir": None,
+            "digico_capture": False,
         }
 
         try:
@@ -3384,6 +3498,11 @@ class MainWindow:
             bind_ip=mixer_bind_ip
         )
 
+        if self.settings.get("digico_capture"):
+            # Before the worker starts, so the panel's first subscription
+            # on load never reaches the console at all.
+            self.worker.suspend_meters()
+
         self.worker.start()
         log("debug", "Worker thread started")
 
@@ -3412,6 +3531,8 @@ class MainWindow:
             self._failure_reason = None
 
         self._set_status_phase("idle")
+
+        self._stop_capture()
 
         if self.worker:
             # Stopping the running flag is enough - the worker's own loop
@@ -3582,6 +3703,105 @@ class MainWindow:
         # apply_theme() above already performs.
         self.aux_panel.refresh_aux_list()
 
+    def _on_capture_toggled(self):
+        """Applied immediately, mid-session included - unlike the
+        connection settings above, nothing about the console connection
+        itself has to change for it."""
+        enabled = self.capture_var.get()
+        self.settings["digico_capture"] = enabled
+        self.save_settings()
+        self._capture_error = None
+
+        log("info", f"DiGiCo App Capture turned {'on' if enabled else 'off'}")
+
+        worker = self.worker
+        if worker is None or not worker.is_alive():
+            return
+
+        if enabled:
+            worker.suspend_meters()
+
+            if worker.loaded:
+                self._start_capture()
+        else:
+            self._stop_capture()
+            worker.resume_meters()
+
+    def _start_capture(self):
+        worker = self.worker
+
+        if self.capture_bridge is not None or worker is None:
+            return
+
+        bridge = DigicoAppBridge(
+            worker.mixer_ip, worker.send_port, worker.recv_port,
+            mixer_bind_ip=worker.bind_ip,
+            listen_ip=self.settings.get("remote_bind_ip") or None
+        )
+
+        try:
+            bridge.start()
+        except OSError as ex:
+            log("error", f"DiGiCo App Capture could not start: {ex}")
+            self._capture_error = str(ex)
+            return
+
+        self._capture_error = None
+        self.capture_bridge = bridge
+        worker.bridge = bridge
+
+    def _stop_capture(self):
+        # Detached from the worker first, so it stops handing datagrams
+        # to a bridge that is in the middle of closing its sockets.
+        if self.worker is not None:
+            self.worker.bridge = None
+
+        if self.capture_bridge is not None:
+            self.capture_bridge.stop()
+            self.capture_bridge = None
+
+    def _open_capture_folder(self):
+        try:
+            CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError as ex:
+            log("error", f"Could not create {CAPTURE_DIR}: {ex}")
+            return
+
+        open_folder(CAPTURE_DIR)
+
+    def _capture_status_text(self):
+        if not self.settings.get("digico_capture"):
+            return "Off."
+
+        if self._capture_error:
+            return f"Could not start: {self._capture_error}"
+
+        bridge = self.capture_bridge
+
+        if bridge is None:
+            return "On - starts once CLMix is connected to the console."
+
+        apps = bridge.connected_apps()
+        where = f"{bridge.listen_ip or 'all adapters'}:{bridge.send_port}"
+        file_name = bridge.capture_path.name
+
+        if not apps:
+            announced = ", ".join(ip for ip, _ in bridge.beacon_targets) \
+                or "no adapter"
+            return (f"Waiting for the DiGiCo app on {where}, announced on "
+                    f"{announced}. Recording to {file_name}.")
+
+        return (f"Relaying for {', '.join(apps)} - "
+                f"{bridge.packets_from_app} datagrams from the app, "
+                f"{bridge.packets_to_app} to it. Recording to {file_name}.")
+
+    def _refresh_capture_status(self):
+        text = self._capture_status_text()
+
+        if text != self._capture_status_shown:
+            self._capture_status_shown = text
+            self.capture_status_label.config(text=text)
+
     def process_messages(self):
 
         while not self.message_queue.empty():
@@ -3600,6 +3820,8 @@ class MainWindow:
 
             elif msg_type == "update_check":
                 self._apply_update_result(value)
+
+        self._refresh_capture_status()
 
         self.root.after(100, self.process_messages)
 
@@ -3639,6 +3861,7 @@ class MainWindow:
                 self._failure_reason = self._failure_notice(value)
             self.snapshot_label.config(text="Snapshot: --")
             self.aux_panel.on_mixer_disconnected()
+            self._stop_capture()
 
             if self.worker is not None:
                 # The worker thread exited on its own (heartbeat timeout
@@ -3661,6 +3884,9 @@ class MainWindow:
 
         if value == "Loaded":
             self.aux_panel.on_mixer_loaded(self.worker)
+
+            if self.settings.get("digico_capture"):
+                self._start_capture()
 
     def run(self):
         self.root.mainloop()
