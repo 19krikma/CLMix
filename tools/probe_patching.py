@@ -55,6 +55,26 @@ CHANNEL_LEAF_CANDIDATES = [
 ]
 
 
+# Sub-block dumps, which the candidate leaves above do not cover. Per
+# PROTOCOL.md, appending "/?" to a bare path with no leaf makes the
+# console dump every parameter underneath it - that is how the whole
+# command map was built, one query per category instead of hundreds of
+# guesses.
+#
+# "Channel_Input/main" is worth asking about specifically because it is
+# a confirmed namespace, not a guess: the 2026-09-17 patching capture
+# caught /Input_Channels/18/Channel_Input/main/alt_in arriving unbidden.
+# Something lives under "main"; the strip dump that found no socket was
+# taken one level above it.
+DUMP_CANDIDATES = [
+    "",
+    "Channel_Input",
+    "Channel_Input/main",
+    "Channel_Input/alt",
+    "Channel_Input/input",
+]
+
+
 def build(address):
     return OscMessageBuilder(address=address).build().dgram
 
@@ -107,6 +127,10 @@ def main():
 
     for leaf in CHANNEL_LEAF_CANDIDATES:
         queries.append(f"/Input_Channels/{args.channel}/{leaf}/?")
+
+    for block in DUMP_CANDIDATES:
+        path = f"/Input_Channels/{args.channel}"
+        queries.append(f"{path}/{block}/?" if block else f"{path}/?")
 
     # Re-enumerates the categories the console admits to, in case this
     # desk lists something the reference sweep did not.
