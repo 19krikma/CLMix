@@ -267,10 +267,48 @@ Custom surface bank layouts (which strips are assigned to which physical layer).
 
 Input channel strips (mic/line inputs). 72 on this console.
 
-`Channel_Input/input_type` says whether the strip has an input connected
-to it at all: `2.0` means an input is assigned, `0.0` means the strip is
-empty. It is part of the stored channel state, so a snapshot recall
-broadcasts it for every channel it changes, alongside that channel's
+#### Input patching (`Channel_Input/input_type`)
+
+`input_type` says whether the strip has a route patched to its **main**
+input: `2.0` patched, `0.0` empty. Captured live 2026-09-17 by patching
+and unpatching channels 17, 18, 40 and 51 from the console surface while
+logging every inbound datagram.
+
+Patching a route emits a **three-message burst in a fixed order**, all
+within the same second:
+
+```
+/Input_Channels/40/Channel_Input/analog_gain ,f [45.0]
+/Input_Channels/40/Channel_Input/phantom     ,f [1.0]
+/Input_Channels/40/Channel_Input/input_type  ,f [2.0]
+```
+
+`input_type` comes **last** - it confirms the patch rather than
+announcing it. The `analog_gain` and `phantom` values are the head-amp
+state *stored against the socket being patched in*, not a reset: the
+same channel 40 patched to two different sockets reported `45.0`/on and
+then `37.0`/on, while channels 18 and 51 reported `0.0`/off. Those two
+values are consequently the only clue on the wire as to *which* socket
+was patched - no address carries the socket identity itself.
+
+Unpatching emits **`input_type 0.0` alone**, with no `analog_gain` or
+`phantom`, there being no head-amp left to report. Repatching a channel
+to a different socket is simply the two events back to back: `0.0`, then
+the full burst a second later.
+
+The **alt input** slot has its own parameters and the burst carries them
+instead of, or alongside, the main pair - `alt_analog_gain`,
+`alt_phantom`. `input_type` tracks the main slot only: patching alt
+while main was empty still reported `input_type 0.0`. Which of the two
+slots is actually feeding the channel is a separate parameter,
+`Channel_Input/main/alt_in`.
+
+Only `0.0` and `2.0` have ever been observed, and `2.0` implies a `1.0`
+that nothing has yet produced - plausibly another source class. Test it
+as **non-zero means patched** rather than `== 2.0`.
+
+It is stored channel state, so a snapshot recall also broadcasts it for
+every channel whose value changes, alongside that channel's
 `analog_gain`, `phantom` and EQ.
 
 | Pattern | Count | Type | Sample value | Sample address |
