@@ -130,6 +130,14 @@ class RemoteServer:
         # have to agree about what a hard mute is hiding.
         self._hard_muted = {}
 
+        # Set while CLMix is in DiGiCo App mode, to the reason every phone
+        # is given: connected ones are sent it and dropped by their push
+        # loop, and logins - including a token resume - are refused with
+        # it until this is cleared. Written from the Tkinter thread, read
+        # on the event loop's; a plain attribute is enough for a value
+        # that is only ever swapped whole.
+        self.locked_reason = None
+
     def client_count(self):
         """How many phones are connected to this server right now."""
         return len(self._clients)
@@ -310,6 +318,12 @@ class RemoteServer:
             )
             return
 
+        if self.locked_reason is not None:
+            await self._send(
+                websocket, {"type": "error", "message": self.locked_reason}
+            )
+            return
+
         worker = self.get_worker()
 
         if not worker or not worker.is_alive() or not worker.loaded:
@@ -480,6 +494,16 @@ class RemoteServer:
 
     async def _handle_login(self, websocket, state, msg):
         token = msg.get("token")
+
+        if self.locked_reason is not None:
+            # Refused before the token path too, or a phone that was
+            # dropped would resume its session straight away. The token
+            # itself is left alone, so it works again once unlocked.
+            await self._send(websocket, {
+                "type": "login_result", "ok": False,
+                "message": self.locked_reason,
+            })
+            return
 
         if token is not None:
             await self._handle_token_login(websocket, state, token)
@@ -707,6 +731,21 @@ class RemoteServer:
     async def _push_loop(self, websocket, state):
         while True:
             await asyncio.sleep(PUSH_INTERVAL_SECONDS)
+
+            if self.locked_reason is not None and state.get("user") is not None:
+                # Same way out as a snapshot the account may not touch:
+                # say why, then drop the connection. Logging back in is
+                # refused with the same reason until the lock lifts.
+                log("info", f"User {state.get('user')!r} disconnected: "
+                    f"{self.locked_reason}")
+                try:
+                    await self._send(
+                        websocket, {"type": "error", "message": self.locked_reason}
+                    )
+                    await websocket.close()
+                except websockets.ConnectionClosed:
+                    pass
+                return
 
             worker = self.get_worker()
             aux = state.get("aux")

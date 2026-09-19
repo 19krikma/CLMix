@@ -7,7 +7,10 @@ its input gain/trim/48V/phase and channel naming (what Full Mixer Control
 rides) plus per-aux-send
 level/pan/on -
 to let the desktop app (and, through it, phone clients via RemoteServer)
-be exercised end-to-end. Simulates:
+be exercised end-to-end. Every strip carries the real console's full
+parameter set (built from docs/mixer_protocol/commands.csv), so a
+whole-strip dump ("/Input_Channels/3/?") answers the way the desk does,
+and each snapshot stores its own copy of the lot. Simulates:
 
     - 5 aux buses  ("Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send")
     - 5 banks      (see BANK_NAMES), each with a random channel count
@@ -15,6 +18,10 @@ be exercised end-to-end. Simulates:
                     the random banks add up to), a random share of them
                     stereo (see STEREO_CHANCE) so mono and stereo
                     metering can both be exercised
+    - snapshots    see SNAPSHOT_NAMES; recallable by clients via
+                   /Snapshots/Recall_Snapshot/{n} (unless
+                   --no-remote-recall), with test-only surface actions
+                   under /Mock/ - see MockMixer.handle_mock_control
     - meters       a ~29Hz /Meters/values stream for whatever slots the
                    client subscribed, in the console's packed peak/RMS
                    wire format
@@ -37,13 +44,18 @@ Then in CLMix's Setup window:
 """
 import argparse
 import array
+import copy
+import csv
+import json
 import math
 import random
+import re
 import shutil
 import socket
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
@@ -108,6 +120,50 @@ def build_auxes(count):
     return names[:count], modes[:count]
 
 SNAPSHOT_NAMES = ["Show 1", "Show 2", "Soundcheck", "Support Band"]
+
+# What the console reports about itself and the loaded show.
+CONSOLE_NAME = "MOCK-Q225"
+SESSION_FILENAME = "Mock Show.ses"
+
+# Bus counts for everything except inputs (built from the banks) and
+# auxes (--auxes). Smaller than a real Q225 so a full scan stays quick.
+# Talkback_Outputs is reported, but - exactly as on the real desk -
+# nothing under it answers.
+MOCK_BUS_COUNTS = {
+    "Group_Outputs": 3,
+    "Talkback_Outputs": 2,
+    "Control_Groups": 4,
+    "Matrix_Inputs": 4,
+    "Matrix_Outputs": 4,
+    "Graphic_EQ": 4,
+    "Multis": 1,
+}
+
+# /Console/Channels/? answers one count per category, in this order.
+CATEGORY_ORDER = [
+    "Input_Channels", "Aux_Outputs", "Group_Outputs", "Talkback_Outputs",
+    "Control_Groups", "Matrix_Inputs", "Matrix_Outputs", "Graphic_EQ",
+    "Multis",
+]
+SILENT_CATEGORIES = {"Talkback_Outputs"}
+
+# Every parameter of one strip per category, as the real console dumped
+# it - addresses, types and sample values. Each simulated strip is built
+# from this, so a scan of the mock returns the real console's parameter
+# set rather than an invented one.
+COMMANDS_CSV = Path(__file__).resolve().parent.parent / "docs" / \
+    "mixer_protocol" / "commands.csv"
+
+# Buses nested inside a strip (a channel's sends), and the category whose
+# count bounds them - the template carries all 30 of a Q225's aux sends,
+# which a console with five auxes must not report.
+NESTED_BUS_CATEGORY = {
+    "Aux_Send": "Aux_Outputs",
+    "Group_Send": "Group_Outputs",
+    "Matrix_Send": "Matrix_Outputs",
+}
+NESTED_BUS_RE = re.compile(r"(Aux_Send|Group_Send|Matrix_Send)/(\d+)/")
+STRIP_RE = re.compile(r"^/([A-Za-z_]+)/(\d+)$")
 
 STEREO_CHANCE = 0.25
 
@@ -262,9 +318,81 @@ def build_banks():
     return banks, channel_names, modes
 
 
+def load_strip_templates(path=COMMANDS_CSV):
+    """{category: [(leaf, sample_args)]} from strip 1 of each category."""
+    templates = {}
+
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            match = re.match(r"^/([^/]+)/1/(.+)$", row["address"])
+            if not match:
+                continue
+
+            category, leaf = match.groups()
+            templates.setdefault(category, []).append(
+                (leaf, json.loads(row["sample_value"]))
+            )
+
+    return templates
+
+
+def build_console_params(counts, templates):
+    """Every parameter of every strip -> its value, plus each strip's
+    addresses in dump order."""
+    params = {}
+    strips = {}
+
+    for category, count in counts.items():
+        if category in SILENT_CATEGORIES:
+            continue
+
+        for n in range(1, count + 1):
+            prefix = f"/{category}/{n}"
+            order = strips.setdefault(prefix, [])
+
+            for leaf, sample in templates.get(category, []):
+                nested = NESTED_BUS_RE.search(leaf)
+                if nested and int(nested.group(2)) > \
+                        counts.get(NESTED_BUS_CATEGORY[nested.group(1)], 0):
+                    continue
+
+                address = f"{prefix}/{leaf}"
+                params[address] = list(sample)
+                order.append(address)
+
+    return params, strips
+
+
+def perturb(params, rng, flip_chance=0.15, spread=6.0, rename=False):
+    """Change values the way a different snapshot (or a wrecked session)
+    would: flags flip, levels move, 0..1 controls stay in range."""
+    for address, value in params.items():
+        if not value:
+            continue
+
+        current = value[0]
+
+        if isinstance(current, str):
+            if rename:
+                params[address] = [f"Name {rng.randint(100, 999)}"]
+            continue
+
+        if isinstance(current, int) and not isinstance(current, bool):
+            continue
+
+        if current in (0.0, 1.0):
+            if rng.random() < flip_chance:
+                params[address] = [1.0 - current]
+        elif 0.0 < current < 1.0:
+            params[address] = [round(min(1.0, max(0.0, current + rng.uniform(-0.3, 0.3))), 3)]
+        else:
+            params[address] = [round(current + rng.uniform(-spread, spread), 2)]
+
+
 class MockMixer:
     def __init__(self, listen_port, client_host, client_port, mic=None,
-                 recall_every=None, listen_host="0.0.0.0"):
+                 recall_every=None, listen_host="0.0.0.0",
+                 remote_recall=True, drop_rate=0.0):
         self.client_host = client_host
         self.client_port = client_port
         self.mic = mic
@@ -275,40 +403,41 @@ class MockMixer:
         # behaviour a client has to cope with, so it is the behaviour
         # worth being able to reproduce here.
         self.recall_every = recall_every
+        self.remote_recall = remote_recall
+        self.drop_rate = drop_rate
         self.snapshot = 1
         self.last_recall_at = time.monotonic()
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((listen_host, listen_port))
 
-        channels = range(1, len(CHANNEL_NAMES) + 1)
-        auxes = range(1, len(AUX_NAMES) + 1)
-        self.levels = {(channel, aux): -10.0 for channel in channels for aux in auxes}
-        self.pans = {(channel, aux): 0.5 for channel in channels for aux in auxes}
-        # Per-aux-send on/off (what the phone apps' Mute button drives),
-        # distinct from self.mutes below - the console-wide channel mute
-        # the desktop's own Mute buttons drive.
-        self.send_ons = {(channel, aux): 1.0 for channel in channels for aux in auxes}
-        self.mutes = {channel: 0.0 for channel in channels}
+        self.counts = {"Input_Channels": len(CHANNEL_NAMES),
+                       "Aux_Outputs": len(AUX_NAMES), **MOCK_BUS_COUNTS}
 
-        # The channel's own fader and panner - the main mix, which the
-        # phone's Full Mixer Control mode rides instead of the sends
-        # above. Start at unity and centre, like a freshly built show.
-        self.faders = {channel: 0.0 for channel in channels}
-        self.panner = {channel: 0.5 for channel in channels}
+        # The whole console as one address -> [value] table: every strip
+        # parameter the real desk reports (see COMMANDS_CSV), so a query,
+        # a set and a whole-strip dump all read and write the same place.
+        # self.strips keeps each strip's addresses in dump order.
+        base, self.strips = build_console_params(
+            self.counts, load_strip_templates()
+        )
+        self._set_starting_values(base)
 
-        # The channel's input stage: analogue head-amp gain and the
-        # digital trim behind it, both plain dB. Starting spread rather
-        # than uniform so a phone reading them can tell one channel's
-        # dial from another's at a glance.
-        self.gains = {channel: float(20 + (channel % 7) * 5) for channel in channels}
-        self.trims = {channel: float((channel % 5) - 2) for channel in channels}
-        # 48V, on for roughly every third channel so both states show up.
-        self.phantoms = {channel: float(channel % 3 == 0) for channel in channels}
-        self.phases = {channel: 0.0 for channel in channels}
-        # Names start from the fixed list but can be rewritten from a
-        # phone, so they live here rather than being read from it.
-        self.names = {channel: CHANNEL_NAMES[channel - 1] for channel in channels}
+        # The desk's stored snapshots, each a full copy of the table. A
+        # recall loads one into the live table (bar names, which this
+        # console keeps across recalls); pressing Update on the surface
+        # - /Mock/Store_Snapshot here - saves the live table back into
+        # the current one. Snapshot 1 is the starting values themselves,
+        # the others vary from it, so every snapshot holds different data.
+        seed_rng = random.Random(random.random())
+        self.snapshot_state = {}
+        for index in range(1, len(SNAPSHOT_NAMES) + 1):
+            state = copy.deepcopy(base)
+            if index > 1:
+                perturb(state, random.Random(seed_rng.random()))
+            self.snapshot_state[index] = state
+
+        self.params = copy.deepcopy(self.snapshot_state[self.snapshot])
 
         # Meter subscriptions, as /Meters/request builds them up: slot
         # number -> the meter address bound to it. Slots are the client's
@@ -324,6 +453,87 @@ class MockMixer:
         # changed go into a packet, exactly as the console does it.
         self.meter_sent = {}
         self.meter_tick_at = 0.0
+
+    def _set_starting_values(self, params):
+        """The values this mock has always started with, over the
+        template's samples - so every existing flow sees the same desk."""
+        def put(address, value):
+            if address not in params:
+                prefix = address.rsplit("/", 1)[0]
+                while prefix not in self.strips:
+                    prefix = prefix.rsplit("/", 1)[0]
+                self.strips[prefix].append(address)
+            params[address] = [value]
+
+        for channel in range(1, self.counts["Input_Channels"] + 1):
+            prefix = f"/Input_Channels/{channel}"
+            put(f"{prefix}/Channel_Input/name", CHANNEL_NAMES[channel - 1])
+            # The channel's own fader and panner - the main mix Full
+            # Mixer Control rides. Unity and centre, like a fresh show.
+            put(f"{prefix}/fader", 0.0)
+            put(f"{prefix}/mute", 0.0)
+            put(f"{prefix}/Panner/pan", 0.5)
+            # Input stage, spread so one channel's dial reads differently
+            # from the next; 48V on roughly every third channel.
+            put(f"{prefix}/Channel_Input/analog_gain", float(20 + (channel % 7) * 5))
+            put(f"{prefix}/Channel_Input/trim", float((channel % 5) - 2))
+            put(f"{prefix}/Channel_Input/phantom", float(channel % 3 == 0))
+            put(f"{prefix}/Channel_Input/phase", 0.0)
+
+            for aux in range(1, self.counts["Aux_Outputs"] + 1):
+                put(f"{prefix}/Aux_Send/{aux}/send_level", -10.0)
+                put(f"{prefix}/Aux_Send/{aux}/send_pan", 0.5)
+                put(f"{prefix}/Aux_Send/{aux}/send_on", 1.0)
+
+        for aux, name in enumerate(AUX_NAMES, start=1):
+            put(f"/Aux_Outputs/{aux}/Buss_Trim/name", name)
+
+    def recall(self, index):
+        """Load stored snapshot `index` into the live desk and announce it.
+
+        Levels, pans, mutes and everything else change; the ONLY thing
+        sent is the recall broadcast, exactly as a console does it. Names
+        survive the recall, as the desk keeps them per session.
+        """
+        if index not in self.snapshot_state:
+            return
+
+        names = {address: value for address, value in self.params.items()
+                 if address.endswith("/name")}
+        self.params = copy.deepcopy(self.snapshot_state[index])
+        self.params.update(names)
+        self.snapshot = index
+
+        print(f"* snapshot recall -> {index} ({SNAPSHOT_NAMES[index - 1]})")
+        self.send(f"/Snapshots/Recall_Snapshot/{index}", [])
+
+    def handle_mock_control(self, address, args):
+        """Test-only stand-ins for someone at the surface, under /Mock/.
+
+        Nothing CLMix sends lives here; a test drives these to do what an
+        operator would do on the desk itself.
+        """
+        if address.startswith("/Mock/Surface_Recall/"):
+            self.recall(int(address.rsplit("/", 1)[1]))
+
+        elif address == "/Mock/Store_Snapshot":
+            # The operator pressing Update on the current snapshot.
+            self.snapshot_state[self.snapshot] = copy.deepcopy(self.params)
+            print(f"* snapshot {self.snapshot} updated from the live desk")
+
+        elif address == "/Mock/Scramble":
+            # A session rebuilt from nothing: every value and name, live
+            # and in every stored snapshot, no longer what it was.
+            rng = random.Random()
+            for state in [self.params, *self.snapshot_state.values()]:
+                perturb(state, rng, flip_chance=0.5, spread=10.0, rename=True)
+            print("* every snapshot and the live desk scrambled")
+
+        elif address == "/Mock/Dump_State" and args:
+            with open(str(args[0]), "w") as f:
+                json.dump({"current": self.snapshot, "live": self.params,
+                           "snapshots": self.snapshot_state}, f)
+            print(f"* state written to {args[0]}")
 
     def run(self):
         print(f"Mock mixer listening on :{self.sock.getsockname()[1]}, "
@@ -354,7 +564,14 @@ class MockMixer:
     def handle(self, address, args):
         print(f"< {address} {args}")
 
-        if address.endswith("/?"):
+        if address.startswith("/Mock/"):
+            self.handle_mock_control(address, args)
+        elif address.startswith("/Snapshots/Recall_Snapshot/"):
+            if self.remote_recall:
+                self.recall(int(address.rsplit("/", 1)[1]))
+            else:
+                print("  (ignored: --no-remote-recall)")
+        elif address.endswith("/?"):
             self.handle_query(address[:-2])
         elif address == "/Meters/clear" or address.startswith("/Meters/request/"):
             # Split out before handle_set, whose float() coercion would
@@ -414,11 +631,9 @@ class MockMixer:
         return (level, level)
 
     def maybe_recall_snapshot(self):
-        """Every recall_every seconds, act as if the surface recalled one.
-
-        Levels, pans and mutes all change; the ONLY thing sent is the
-        recall broadcast itself, exactly as a console does it. A client
-        that does not re-read after seeing this will sit on stale values.
+        """Every recall_every seconds, act as if the surface recalled the
+        next snapshot - see recall(). A client that does not re-read
+        after seeing the broadcast will sit on stale values.
         """
         if self.recall_every is None:
             return
@@ -429,19 +644,7 @@ class MockMixer:
             return
 
         self.last_recall_at = now
-        self.snapshot = self.snapshot % len(SNAPSHOT_NAMES) + 1
-
-        for key in self.levels:
-            self.levels[key] = round(random.uniform(-40.0, 0.0), 2)
-        for key in self.pans:
-            self.pans[key] = round(random.random(), 2)
-        for channel in self.mutes:
-            self.mutes[channel] = float(random.random() < 0.3)
-
-        print(f"* snapshot recall -> {self.snapshot} "
-              f"({SNAPSHOT_NAMES[self.snapshot - 1]}); "
-              f"levels/pans/mutes rewritten, nothing else announced")
-        self.send(f"/Snapshots/Recall_Snapshot/{self.snapshot}", [])
+        self.recall(self.snapshot % len(SNAPSHOT_NAMES) + 1)
 
     def tick_meters(self):
         """Push one /Meters/values packet if a tick's worth of time passed."""
@@ -502,7 +705,8 @@ class MockMixer:
 
     def handle_query(self, address):
         if address == "/Console/Channels":
-            self.send("/Console/Input_Channels", [len(CHANNEL_NAMES)])
+            for category in CATEGORY_ORDER:
+                self.send(f"/Console/{category}", [self.counts[category]])
 
         elif address == "/Console/Aux_Outputs/modes":
             self.send("/Console/Aux_Outputs/modes", list(AUX_MODES))
@@ -510,20 +714,25 @@ class MockMixer:
         elif address == "/Console/Input_Channels/modes":
             self.send("/Console/Input_Channels/modes", list(CHANNEL_MODES))
 
-        elif address.startswith("/Aux_Outputs/") and address.endswith("/Buss_Trim/name"):
-            aux = int(address.split("/")[2])
-            self.send(address, [AUX_NAMES[aux - 1]])
+        elif address == "/Console/Group_Outputs/modes":
+            self.send(address, [MODE_MONO] * self.counts["Group_Outputs"])
 
-        elif address.startswith("/Input_Channels/") and address.endswith("/Channel_Input/name"):
-            channel = self._channel_from(address)
-            self.send(address, [self.names[channel]])
+        elif address == "/Console/Name":
+            self.send(address, [CONSOLE_NAME])
+
+        elif address == "/Console/Session/Filename":
+            self.send(address, [SESSION_FILENAME])
 
         elif address == "/Snapshots/Current_Snapshot":
             self.send(address, [self.snapshot])
 
+        elif address == "/Snapshots/count":
+            self.send(address, [len(SNAPSHOT_NAMES)])
+
         elif address == "/Snapshots/names":
+            # [index, cue number, 0, name] - the real console's shape.
             for index, name in enumerate(SNAPSHOT_NAMES, start=1):
-                self.send("/Snapshots/name", [index, name])
+                self.send("/Snapshots/name", [index, index * 10, 0, name])
 
         elif address == "/Layout/Layout/Banks":
             # One message per bank, mirroring how a real console answers
@@ -535,93 +744,43 @@ class MockMixer:
                     bank_args += ["Input_Channels", channel]
                 self.send("/Layout/Layout/Banks", bank_args)
 
-        elif address.endswith("/mute"):
-            channel = self._channel_from(address)
-            self.send(address, [self.mutes[channel]])
+        elif STRIP_RE.match(address):
+            # A bare strip ("/Input_Channels/3/?") dumps every parameter
+            # under it as a burst of individual replies - meters included,
+            # with no arguments, exactly as the real console does.
+            for parameter in self.strips.get(address, []):
+                self.send(parameter, self.params[parameter])
 
-        # Guarded by prefix where the leaf name is not unique to input
-        # channels: /Aux_Outputs/{n}/fader exists too, and answering it
-        # out of the channel table would report a bus's level as a
-        # channel's.
-        elif address.startswith("/Input_Channels/") and address.endswith("/fader"):
-            self.send(address, [self.faders[self._channel_from(address)]])
-
-        elif address.endswith("/Panner/pan"):
-            self.send(address, [self.panner[self._channel_from(address)]])
-
-        elif address.endswith("/Channel_Input/analog_gain"):
-            self.send(address, [self.gains[self._channel_from(address)]])
-
-        elif address.endswith("/Channel_Input/trim"):
-            self.send(address, [self.trims[self._channel_from(address)]])
-
-        elif address.endswith("/Channel_Input/phantom"):
-            self.send(address, [self.phantoms[self._channel_from(address)]])
-
-        elif address.endswith("/Channel_Input/phase"):
-            self.send(address, [self.phases[self._channel_from(address)]])
-
-        elif address.endswith("/send_level"):
-            self.send(address, [self.levels[self._channel_aux_from(address)]])
-
-        elif address.endswith("/send_pan"):
-            self.send(address, [self.pans[self._channel_aux_from(address)]])
-
-        elif address.endswith("/send_on"):
-            self.send(address, [self.send_ons[self._channel_aux_from(address)]])
+        elif address in self.params:
+            self.send(address, self.params[address])
 
     def handle_set(self, address, args):
-        if not args:
+        if not args or address not in self.params:
             return
 
-        # Names are the one string parameter a client writes; everything
-        # else is a float.
-        if address.endswith("/Channel_Input/name"):
-            name = str(args[0])
-            self.names[self._channel_from(address)] = name
-            self.send(address, [name])
+        current = self.params[address]
+
+        if not current:
+            # A meter: nothing to set.
             return
 
-        value = float(args[0])
-
-        if address.endswith("/mute"):
-            self.mutes[self._channel_from(address)] = value
-        elif address.startswith("/Input_Channels/") and address.endswith("/fader"):
-            self.faders[self._channel_from(address)] = value
-        elif address.endswith("/Panner/pan"):
-            self.panner[self._channel_from(address)] = value
-        elif address.endswith("/Channel_Input/analog_gain"):
-            self.gains[self._channel_from(address)] = value
-        elif address.endswith("/Channel_Input/trim"):
-            self.trims[self._channel_from(address)] = value
-        elif address.endswith("/Channel_Input/phantom"):
-            self.phantoms[self._channel_from(address)] = value
-        elif address.endswith("/Channel_Input/phase"):
-            self.phases[self._channel_from(address)] = value
-        elif address.endswith("/send_level"):
-            self.levels[self._channel_aux_from(address)] = value
-        elif address.endswith("/send_pan"):
-            self.pans[self._channel_aux_from(address)] = value
-        elif address.endswith("/send_on"):
-            self.send_ons[self._channel_aux_from(address)] = value
-        else:
-            return
+        # Keep the parameter's own type - a name stays a string, a count
+        # an int - whatever a client sends.
+        kind = type(current[0])
+        value = str(args[0]) if kind is str else kind(args[0])
+        self.params[address] = [value]
 
         # Real consoles echo every parameter change back to remote
         # listeners - CLMix relies on that echo to update its cache
         # rather than assuming its own command succeeded.
         self.send(address, [value])
 
-    @staticmethod
-    def _channel_from(address):
-        return int(address.split("/")[2])
-
-    @staticmethod
-    def _channel_aux_from(address):
-        parts = address.split("/")
-        return int(parts[2]), int(parts[4])
-
     def send(self, address, args):
+        if self.drop_rate and random.random() < self.drop_rate:
+            # --drop-rate: lose this one on the way, as UDP may.
+            print(f"x {address} (dropped)")
+            return
+
         print(f"> {address} {args}")
         self.send_quiet(address, args)
 
@@ -654,6 +813,14 @@ def main():
                          metavar="SECONDS",
                          help="Periodically recall a snapshot, rewriting all "
                               "levels/pans/mutes and announcing only the recall")
+    parser.add_argument("--no-remote-recall", action="store_true",
+                         help="Ignore /Snapshots/Recall_Snapshot/{n} from "
+                              "clients, as a console that only recalls from "
+                              "its own surface would")
+    parser.add_argument("--drop-rate", type=float, default=0.0,
+                         metavar="FRACTION",
+                         help="Lose this fraction of replies (not meters), "
+                              "to test a client against UDP loss")
     parser.add_argument("--no-mic", action="store_true",
                          help="Drive the meters with a synthetic random walk "
                               "instead of the default recording device")
@@ -700,7 +867,9 @@ def main():
 
     MockMixer(args.listen_port, args.client_host, args.client_port, mic=mic,
               recall_every=args.recall_every,
-              listen_host=args.listen_host).run()
+              listen_host=args.listen_host,
+              remote_recall=not args.no_remote_recall,
+              drop_rate=args.drop_rate).run()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 import ipaddress
 import threading
@@ -33,6 +34,7 @@ from ui.aux_window import AuxPanel
 from ui.backup_window import BackupWindow
 from ui.logs_window import LogsWindow, open_folder
 from ui.presets_window import PresetsWindow
+from ui.show_backup_window import ShowBackupWindow
 from version import VERSION
 
 SETTINGS_PATH = Path.home() / ".clmix.json"
@@ -171,6 +173,15 @@ class MixerWorker(threading.Thread):
     # cannot dump kilobytes of hex into the file.
     RAW_PREVIEW_BYTES = 96
 
+    # Receive buffer for the console's replies. The OS default (~208 KB on
+    # Linux, less on Windows) holds only a couple of hundred small
+    # datagrams, and the console answers a whole-strip query with a burst
+    # of about that many - so a Show Backup reading several strips at
+    # once lost the tail of each burst before this loop could drain it.
+    # The OS may cap what it grants (Linux: net.core.rmem_max); less is
+    # still better than the default, and failing to set it is harmless.
+    RECV_BUFFER_BYTES = 4 * 1024 * 1024
+
     def __init__(self, mixer_ip, send_port, recv_port,
                  command_queue, message_queue, bind_ip=None):
         super().__init__(daemon=True)
@@ -234,19 +245,36 @@ class MixerWorker(threading.Thread):
         # different bank than the desktop would meter nothing at all.
         self._meter_sources = {}
 
-        # True while DiGiCo App Capture is on. The console's slot table is
-        # global and /Meters/values names slots, not channels, so CLMix
-        # and the official app cannot both meter at once - while this is
-        # set the app has the table to itself, and anything arriving on
-        # /Meters/values is the app's and means nothing here. Surfaces
-        # still register what they want, so resuming picks up exactly
-        # where the screen is.
-        self.meters_suspended = False
+        # DiGiCo App mode: CLMix is only a bridge for the official app
+        # (see services/digico_bridge.py) and sends the console nothing
+        # of its own beyond the heartbeat that keeps this connection
+        # honest. Everything else CLMix queues is dropped in
+        # _drain_commands, which is what makes the desktop and phones
+        # unable to move anything whatever state their screens are in.
+        #
+        # Meters especially: the console's slot table is global and
+        # /Meters/values names slots, not channels, so CLMix and the app
+        # cannot both meter at once. While this is set the app has the
+        # table to itself and anything on /Meters/values is its, meaning
+        # nothing here. Surfaces still register what they want, so
+        # leaving the mode picks up exactly where the screen is.
+        self.bridge_only = False
 
         # The DigicoAppBridge relaying this connection, when capture is
         # on; handed every datagram sent and received. See
         # services/digico_bridge.py.
         self.bridge = None
+
+        # Called with (address, args, type_tags) for every message the
+        # console sends bar /Meters/values, whether CLMix keeps it or not
+        # - how a Show Backup reads whole strips, which arrive as bursts
+        # of hundreds of addresses nothing else here caches. Runs on this
+        # thread, so it must only collect. Returning True means the sink
+        # has recorded the message itself and it is left out of the debug
+        # log: a full backup is hundreds of thousands of strip replies,
+        # every one of which lands in the backup's own files anyway. See
+        # services/show_backup.py.
+        self.message_sink = None
 
         # slot number -> (channel index, leg), mirroring whatever the UI
         # last subscribed via subscribe_meters(). /Meters/values reports
@@ -289,6 +317,12 @@ class MixerWorker(threading.Thread):
             log("debug", f"Send socket created (from {self.bind_ip or 'any'})")
 
             self.recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                self.recv_sock.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_RCVBUF, self.RECV_BUFFER_BYTES
+                )
+            except OSError as ex:
+                log("warning", f"Could not enlarge the receive buffer: {ex}")
             self.recv_sock.bind((self.bind_ip or "", self.recv_port))
             self.recv_sock.settimeout(0.1)
             log("debug", f"Recv socket bound on "
@@ -427,6 +461,9 @@ class MixerWorker(threading.Thread):
 
             return
 
+        sink = self.message_sink
+        recorded = sink is not None and sink(address, args, self._type_tags(data))
+
         snapshot_changed = SNAPSHOT_CHANGED_PATTERN.match(address)
 
         if address == "/Layout/Layout/Banks":
@@ -442,7 +479,8 @@ class MixerWorker(threading.Thread):
         elif any(pattern.match(address) for pattern in CACHEABLE_ADDRESSES):
             self.cache[address] = args
 
-        self._log_received(sender, self._describe(address, args, data), depth)
+        if not recorded:
+            self._log_received(sender, self._describe(address, args, data), depth)
 
         if not self.loaded:
             self.request_next_parameter()
@@ -625,6 +663,21 @@ class MixerWorker(threading.Thread):
         self.message_queue.put(("snapshot", (current[0], self.snapshot_name)))
 
     def _request_snapshot_name(self):
+        if self.bridge_only and self.loaded:
+            # Not asked for in DiGiCo App mode - the catalog loading built
+            # usually already knows it. If not, leave_bridge_only asks.
+            # Only once loaded: loading itself waits on this name, and it
+            # all happens before the bridge opens, so none of it can land
+            # in the middle of the app's session.
+            current = self.cache.get("/Snapshots/Current_Snapshot")
+            name = self.snapshot_names.get(int(current[0])) if current else None
+
+            if name is not None:
+                self.snapshot_name = name
+                self.message_queue.put(("snapshot", (current[0], name)))
+
+            return
+
         if not self._snapshot_name_requested:
             self.send_osc("/Snapshots/names/?", [])
             self._snapshot_name_requested = True
@@ -740,7 +793,7 @@ class MixerWorker(threading.Thread):
         )
 
     def _handle_meter_values(self, args):
-        if self.meters_suspended:
+        if self.bridge_only:
             return
 
         # Flat [slot, value, slot, value, ...] pairs, carrying only the
@@ -829,7 +882,7 @@ class MixerWorker(threading.Thread):
         self.meter_levels = {}
         self.meter_seq = {}
 
-        if self.meters_suspended:
+        if self.bridge_only:
             return
 
         for channel in wanted:
@@ -846,38 +899,61 @@ class MixerWorker(threading.Thread):
                 f"/Input_Channels/{channel}/Channel_Input/post_meter/{leg}"
             )
 
-    def suspend_meters(self):
-        """Give the console's meter table up to the DiGiCo app.
+    # What CLMix may still send in DiGiCo App mode, besides the heartbeat
+    # (which _check_heartbeat sends directly, not through the queue).
+    # Only the one clear that hands the meter table over on the way in.
+    BRIDGE_ONLY_ALLOWED = frozenset({"/Meters/clear"})
 
-        Safe from any thread. Clears the table once, so the app starts on
-        an empty one rather than inheriting CLMix's slots, and blanks
-        every meter here - desktop and phones - rather than leaving them
-        frozen on the last reading.
+    def enter_bridge_only(self):
+        """Switch to DiGiCo App mode. Safe from any thread.
+
+        Clears the meter table once, so the app starts on an empty one
+        rather than inheriting CLMix's slots, and blanks every meter here
+        - desktop and phones - rather than leaving them frozen on the
+        last reading.
         """
-        if self.meters_suspended:
+        if self.bridge_only:
             return
 
-        self.meters_suspended = True
+        self.bridge_only = True
         self.meter_slots = {}
         self.meter_levels = {}
         self.meter_seq = {}
         self.command_queue.put("/Meters/clear")
 
-    def resume_meters(self):
-        """Take the meter table back, for whatever is on screen now."""
-        if not self.meters_suspended:
+    def leave_bridge_only(self):
+        """Back to normal: take the meter table back for whatever is on
+        screen now, and fetch anything the mode kept CLMix from asking.
+
+        Levels, pans and mutes are the panel's to re-read (it knows what
+        is on screen); the worker's own cache stayed current throughout,
+        since it went on reading every reply the console sent - the
+        app's included.
+        """
+        if not self.bridge_only:
             return
 
-        self.meters_suspended = False
+        self.bridge_only = False
         self._rebuild_meter_subscription()
 
-    def send_osc(self, address, args):
+        if self.snapshot_name is None:
+            self._snapshot_name_requested = False
+            self.command_queue.put("/Snapshots/names/?")
+
+    def send_osc(self, address, args, types=None):
+        """Send one message. types, when given, is its OSC type tag
+        string ("f", "s", "ff"...) - for a restore, which must write a
+        value back exactly as the console reported it rather than as
+        whatever python-osc would infer from the Python value."""
         log("debug", f"send_osc: {address} {args}")
 
         builder = OscMessageBuilder(address=address)
 
-        for arg in args:
-            builder.add_arg(arg)
+        for index, arg in enumerate(args):
+            if types and index < len(types):
+                builder.add_arg(arg, types[index])
+            else:
+                builder.add_arg(arg)
 
         dgram = builder.build().dgram
         self.send_sock.sendto(dgram, (self.mixer_ip, self.send_port))
@@ -916,6 +992,9 @@ class MixerWorker(threading.Thread):
             pending[key] = command
 
         for key in order:
+            if self.bridge_only and key[0] not in self.BRIDGE_ONLY_ALLOWED:
+                continue
+
             self.send_command(pending[key])
 
     @staticmethod
@@ -930,14 +1009,19 @@ class MixerWorker(threading.Thread):
         # that nearly all traffic uses, or an (address, [args]) tuple for
         # anything splitting on whitespace would mangle - a channel name
         # with a space in it being the case that forced the second form.
+        # A third element, the type tags, pins the OSC types exactly.
+        types = None
+
         if isinstance(command, tuple):
-            address, args = command
+            address, args = command[0], command[1]
+            if len(command) > 2:
+                types = command[2]
         else:
             parts = command.split()
             address = parts[0]
             args = [self.parse_arg(part) for part in parts[1:]]
 
-        self.send_osc(address, args)
+        self.send_osc(address, args, types)
 
         self.message_queue.put(
             ("message", f"Sent: {address} {args}")
@@ -2190,7 +2274,14 @@ class AuxLevelsPanel:
                 command=lambda value, channel=i:
                     self.on_pan_change(channel, value)
             )
+            # Centred for display only, until the console's own value
+            # arrives on the next refresh. Without suppress_send, set()
+            # fires on_pan_change and writes centre to this send on the
+            # desk - which on every bank opened overwrote the real pans of
+            # the selected stereo aux.
+            self.suppress_send = True
             pan_slider.set(0.0)
+            self.suppress_send = False
             pan_slider.bind(
                 "<ButtonPress-1>",
                 lambda event, channel=i, widget=pan_slider:
@@ -2747,6 +2838,10 @@ class MainWindow:
     # table for sending.
     NIC_AUTOMATIC = "Automatic (all adapters)"
 
+    # What phones are told while CLMix is in DiGiCo App mode - on the
+    # way out if connected, and on every login attempt until it ends.
+    DIGICO_MODE_MESSAGE = "CLMix is in DiGiCo App mode"
+
     # Phases in which something is still in progress: the spinner turns,
     # the status line repaints every tick, and the connect button offers
     # "Disconnect". One definition so those three can never disagree.
@@ -2800,6 +2895,7 @@ class MainWindow:
         self.access_panel = None
         self.aux_visibility_panel = None
         self.backup_window = None
+        self.show_backup_window = None
         self.logs_window = None
         self.presets_window = None
         self.remote_server = None
@@ -2884,6 +2980,9 @@ class MainWindow:
         self.help_menu = tk.Menu(menu_bar, tearoff=False)
         self.help_menu.add_command(label="Logs", command=self.open_logs_window)
         self.help_menu.add_command(label="Backup", command=self.open_backup_window)
+        self.help_menu.add_command(
+            label="Show Backup", command=self.open_show_backup_window
+        )
         self.help_menu.add_command(label="About", command=self.open_about_window)
         # Kept so the startup check can relabel this one entry - looking it
         # up by its current label would stop working the moment it changes.
@@ -2966,7 +3065,11 @@ class MainWindow:
             frame, self.command_queue, get_hidden_auxes=self.get_hidden_auxes
         )
 
+        # After the panel, so it stacks above everything the panel built.
+        self._build_digico_overlay(frame)
+
         self.build_setup_window()
+        self._show_digico_overlay(bool(self.settings.get("digico_capture")))
 
     def build_setup_window(self):
         """The single Setup window: Config, Accounts and Aux as notebook tabs.
@@ -2981,7 +3084,7 @@ class MainWindow:
         self.setup_window.title("Setup")
         # Wide enough for the Config tab's third column (the adapter
         # dropdowns) without clipping them.
-        self.setup_window.geometry("860x520")
+        self.setup_window.geometry("860x740")
         self.setup_window.protocol("WM_DELETE_WINDOW", self.close_setup_window)
 
         self.setup_notebook = ttk.Notebook(self.setup_window)
@@ -3128,7 +3231,8 @@ class MainWindow:
                  "through unchanged in both directions and recorded to a "
                  "capture file. Set the app to the same ports as above; it "
                  "finds this computer on the Server adapter's network. "
-                 "CLMix's own meters are off while this is on.",
+                 "While on, CLMix works only as this bridge: its own "
+                 "controls, meters and phone connections are locked.",
             wraplength=780,
             justify="left"
         ).pack(fill="x", pady=(8, 0))
@@ -3138,6 +3242,139 @@ class MainWindow:
         )
         self.capture_status_label.pack(fill="x", pady=(8, 0))
         self._refresh_capture_status()
+
+        self._build_capture_view(frame)
+
+    # Direction colors in the live view. Mid-tone on purpose, so the same
+    # value reads on both the light and the dark theme's background.
+    CAPTURE_VIEW_COLORS = {
+        "APP->MIXER": "#4a9eda",
+        "MIXER->APP": "#5bb85b",
+        "CLMIX->MIXER": "#8a8a8a",
+        "MIXER->CLMIX": "#8a8a8a",
+        "hex": "#8a8a8a",
+        "note": "#d9a441",
+    }
+
+    # Lines the live view keeps before trimming its oldest. Plenty to
+    # scroll back through a connect sequence; the file keeps the rest.
+    CAPTURE_VIEW_MAX_LINES = 2000
+
+    def _build_capture_view(self, parent):
+        """Live view of the capture, as it is being written.
+
+        A reading aid, not the record: the same fields as the file, but
+        with the time cut to the second's fraction and the hex dimmed, so
+        the addresses stand out. The file is what to study afterwards.
+        """
+        view = ttk.Frame(parent)
+        view.pack(fill="both", expand=True, pady=(10, 0))
+        view.rowconfigure(0, weight=1)
+        view.columnconfigure(0, weight=1)
+
+        # The fixed font's real family, not ("TkFixedFont", 9): in a tuple
+        # Tk reads that name as a family, finds none called it, and falls
+        # back to the proportional UI font - which undoes the column
+        # layout in _capture_view_chunks.
+        mono = tkfont.nametofont("TkFixedFont").actual("family")
+
+        self.capture_view = tk.Text(
+            view, wrap="none", state="disabled", height=10, font=(mono, 9)
+        )
+        y_scroll = ttk.Scrollbar(view, orient="vertical",
+                                 command=self.capture_view.yview)
+        x_scroll = ttk.Scrollbar(view, orient="horizontal",
+                                 command=self.capture_view.xview)
+        self.capture_view.configure(
+            yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set
+        )
+
+        self.capture_view.grid(row=0, column=0, sticky="nsew")
+        y_scroll.grid(row=0, column=1, sticky="ns")
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
+        for tag, color in self.CAPTURE_VIEW_COLORS.items():
+            self.capture_view.tag_configure(tag, foreground=color)
+
+        # The bridge whose records are on screen, and the last one shown.
+        # Kept after that bridge stops, so its final lines stay readable
+        # until the next capture starts.
+        self._capture_view_bridge = None
+        self._capture_view_seq = 0
+
+        self._reset_capture_view(
+            "Traffic appears here live while DiGiCo App mode is running."
+        )
+
+    def _reset_capture_view(self, placeholder=None):
+        self.capture_view.configure(state="normal")
+        self.capture_view.delete("1.0", "end")
+
+        if placeholder:
+            self.capture_view.insert("end", placeholder + "\n", "hex")
+
+        self.capture_view.configure(state="disabled")
+
+    @staticmethod
+    def _capture_view_chunks(record):
+        """(text, tag) pieces for one record, laid out in fixed columns."""
+        if record[0] == "note":
+            _kind, stamp, text = record
+            return [(f"{stamp[11:23]}  # {text}\n", "note")]
+
+        _kind, stamp, direction, peer, length, decoded, raw = record
+        return [
+            (f"{stamp[11:23]}  ", ""),
+            (f"{direction:<13}", direction),
+            (f"{peer:<22}{length:>5}  {decoded}  ", ""),
+            (f"{raw}\n", "hex"),
+        ]
+
+    def _refresh_capture_view(self):
+        bridge = self.capture_bridge
+
+        if bridge is not None and bridge is not self._capture_view_bridge:
+            # A new capture: start the view over, the way the file does.
+            self._capture_view_bridge = bridge
+            self._capture_view_seq = 0
+            self._reset_capture_view()
+
+        bridge = self._capture_view_bridge
+
+        if bridge is None:
+            return
+
+        records = bridge.recent_records(self._capture_view_seq)
+
+        if not records:
+            return
+
+        self._capture_view_seq = records[-1][0]
+
+        args = []
+        for _seq, record in records:
+            for text, tag in self._capture_view_chunks(record):
+                args.extend((text, tag))
+
+        view = self.capture_view
+        # Only follow new lines if already at the bottom - scrolling up to
+        # read something must not be yanked away by the next packet.
+        at_bottom = view.yview()[1] >= 0.999
+
+        view.configure(state="normal")
+        # One insert for the whole batch rather than one per line; a
+        # connect sequence lands as a hundred-odd records at once.
+        view.insert("end", *args)
+
+        excess = int(view.index("end-1c").split(".")[0]) - \
+            self.CAPTURE_VIEW_MAX_LINES
+        if excess > 0:
+            view.delete("1.0", f"{excess + 1}.0")
+
+        view.configure(state="disabled")
+
+        if at_bottom:
+            view.see("end")
 
     def _refresh_nic_choices(self):
         """Fill both adapter dropdowns from the adapters present right now.
@@ -3255,6 +3492,8 @@ class MainWindow:
             "hidden_auxes": [],
             "backup_dir": None,
             "digico_capture": False,
+            # None means services.show_backup.DEFAULT_ROOT.
+            "show_backup_dir": None,
         }
 
         try:
@@ -3324,6 +3563,9 @@ class MainWindow:
 
         if getattr(self, "aux_panel", None) is not None:
             self.aux_panel.apply_theme()
+
+        if getattr(self, "digico_overlay_labels", None) is not None:
+            self._recolor_digico_overlay()
 
         if getattr(self, "aux_visibility_panel", None) is not None:
             self.aux_visibility_panel.rebuild()
@@ -3499,9 +3741,10 @@ class MainWindow:
         )
 
         if self.settings.get("digico_capture"):
-            # Before the worker starts, so the panel's first subscription
-            # on load never reaches the console at all.
-            self.worker.suspend_meters()
+            # Before the worker starts, so nothing the panel queues on
+            # load - its first meter subscription included - ever reaches
+            # the console.
+            self.worker.enter_bridge_only()
 
         self.worker.start()
         log("debug", "Worker thread started")
@@ -3512,6 +3755,10 @@ class MainWindow:
             get_hidden_auxes=self.get_hidden_auxes,
             bind_ip=remote_bind_ip
         )
+
+        if self.settings.get("digico_capture"):
+            self.remote_server.locked_reason = self.DIGICO_MODE_MESSAGE
+
         self.remote_server.start()
 
     def disconnect(self, user_initiated=True):
@@ -3658,6 +3905,17 @@ class MainWindow:
             self.settings, self.save_settings, on_restored=self.on_backup_restored
         )
 
+    def open_show_backup_window(self):
+        if self.show_backup_window and \
+                self.show_backup_window.window.winfo_exists():
+            self.show_backup_window.window.lift()
+            return
+
+        self.show_backup_window = ShowBackupWindow(
+            self.root, self.settings, self.save_settings,
+            lambda: self.worker, self.command_queue
+        )
+
     def on_backup_restored(self, keys):
         if "settings" in keys:
             self.reload_settings()
@@ -3704,28 +3962,101 @@ class MainWindow:
         self.aux_panel.refresh_aux_list()
 
     def _on_capture_toggled(self):
-        """Applied immediately, mid-session included - unlike the
-        connection settings above, nothing about the console connection
-        itself has to change for it."""
-        enabled = self.capture_var.get()
+        self._set_digico_mode(self.capture_var.get())
+
+    def _set_digico_mode(self, enabled):
+        """Enter or leave DiGiCo App mode, mid-session included.
+
+        In the mode CLMix is nothing but the bridge: the mixer view is
+        covered and inert, every phone is sent away with the reason and
+        refused until it ends, and the worker drops anything CLMix
+        itself tries to send (see MixerWorker.bridge_only) - so nobody
+        can move the desk underneath a capture, from here or a phone.
+        Leaving it puts all of that back and re-reads what is on screen,
+        since the app will have been changing things the whole time.
+        """
+        self.capture_var.set(enabled)
         self.settings["digico_capture"] = enabled
         self.save_settings()
         self._capture_error = None
 
-        log("info", f"DiGiCo App Capture turned {'on' if enabled else 'off'}")
+        log("info", f"DiGiCo App mode {'on' if enabled else 'off'}")
+
+        self._show_digico_overlay(enabled)
+
+        if self.remote_server is not None:
+            self.remote_server.locked_reason = \
+                self.DIGICO_MODE_MESSAGE if enabled else None
 
         worker = self.worker
         if worker is None or not worker.is_alive():
             return
 
         if enabled:
-            worker.suspend_meters()
+            worker.enter_bridge_only()
 
             if worker.loaded:
                 self._start_capture()
         else:
             self._stop_capture()
-            worker.resume_meters()
+            worker.leave_bridge_only()
+
+            if worker.loaded:
+                # Queries level, send_on and (stereo) pan for the strips
+                # on screen - the app may have moved any of them.
+                self.aux_panel.on_aux_selected()
+
+    def _build_digico_overlay(self, section):
+        """The cover over the mixer view in DiGiCo App mode.
+
+        Placed over the section rather than disabling each control: the
+        strips are canvas-drawn and have no disabled state, and a cover
+        cannot miss one that gets added later. Built once, shown and
+        hidden with place()/place_forget().
+        """
+        self.digico_overlay = ttk.Frame(section, style="Section.TFrame")
+
+        box = ttk.Frame(self.digico_overlay, style="Section.TFrame")
+        box.place(relx=0.5, rely=0.45, anchor="center")
+
+        # Plain tk.Labels, colored by hand - see configure_section_styles
+        # for why a ttk.Label cannot sit on the section background.
+        self.digico_overlay_labels = [
+            tk.Label(box, text="DiGiCo App Mode",
+                     font=("TkDefaultFont", 16, "bold")),
+            tk.Label(
+                box,
+                text="CLMix is acting only as a bridge for the official "
+                     "DiGiCo app and recording its traffic. The mixer "
+                     "controls here and on phones are locked until this "
+                     "mode is turned off.",
+                wraplength=460, justify="center"
+            ),
+            tk.Label(box, text="", wraplength=460, justify="center"),
+        ]
+        self.digico_overlay_status = self.digico_overlay_labels[-1]
+
+        for label, pady in zip(self.digico_overlay_labels, (0, 10, 12)):
+            label.pack(pady=(pady, 0))
+
+        self._recolor_digico_overlay()
+
+        ttk.Button(
+            box, text="Turn Off DiGiCo App Mode",
+            command=lambda: self._set_digico_mode(False)
+        ).pack(pady=(18, 0))
+
+    def _recolor_digico_overlay(self):
+        for label in self.digico_overlay_labels:
+            label.configure(bg=section_bg(self.root), fg=panel_fg(self.root))
+
+    def _show_digico_overlay(self, shown):
+        if shown:
+            self.digico_overlay.place(x=0, y=0, relwidth=1, relheight=1)
+            # Above the strips, which the panel may have rebuilt since.
+            self.digico_overlay.lift()
+        else:
+            self.digico_overlay.place_forget()
 
     def _start_capture(self):
         worker = self.worker
@@ -3801,6 +4132,7 @@ class MainWindow:
         if text != self._capture_status_shown:
             self._capture_status_shown = text
             self.capture_status_label.config(text=text)
+            self.digico_overlay_status.config(text=text)
 
     def process_messages(self):
 
@@ -3822,6 +4154,7 @@ class MainWindow:
                 self._apply_update_result(value)
 
         self._refresh_capture_status()
+        self._refresh_capture_view()
 
         self.root.after(100, self.process_messages)
 

@@ -24,8 +24,14 @@ Metering is the one thing that cannot be shared. The console keeps a
 single global meter slot table and reports slot numbers only, so two
 clients subscribing at once would each decode the other's meters as
 garbage. While capture is on CLMix stays off the table entirely (see
-MixerWorker.suspend_meters) and the app owns it, exactly as it would on
+MixerWorker.bridge_only) and the app owns it, exactly as it would on
 a desk with nothing else connected.
+
+In fact the bridge is all CLMix does while it runs - DiGiCo App mode.
+The mixer view and every phone are locked, and apart from its heartbeat
+CLMix sends the console nothing of its own, so no one can move the desk
+underneath a capture and the capture holds the app's traffic, not a mix
+of the app's and CLMix's.
 
 See docs/mixer_protocol/PROTOCOL.md for the beacon layout and for what
 the official client was already seen to do on connect.
@@ -35,6 +41,7 @@ import ipaddress
 import socket
 import threading
 import time
+from collections import deque
 from datetime import datetime
 
 from pythonosc.osc_bundle import OscBundle
@@ -76,6 +83,12 @@ APP_TIMEOUT_SECONDS = 10.0
 METER_VALUES_PREFIX = b"/Meters/values\x00"
 
 RECV_TIMEOUT_SECONDS = 0.2
+
+# How many of the latest records the live view in Setup can catch up
+# from. Only a buffer between this thread and the UI's 100ms poll - the
+# file is the record, and a view that falls further behind than this
+# simply skips ahead.
+LIVE_VIEW_RECORDS = 500
 
 
 def type_tags(data):
@@ -168,6 +181,11 @@ class DigicoAppBridge:
 
         self.packets_from_app = 0
         self.packets_to_app = 0
+
+        # (seq, record) for the live view - see recent_records(). Guarded
+        # by _file_lock, since every record is appended while writing it.
+        self._recent = deque(maxlen=LIVE_VIEW_RECORDS)
+        self._recent_seq = 0
 
     # ----------------------------------------------------------- lifecycle
 
@@ -438,14 +456,27 @@ class DigicoAppBridge:
             "#\n"
         )
 
+    def recent_records(self, after_seq=0):
+        """Records written since after_seq, oldest first, for the live view.
+
+        Each is (seq, record): record is ("packet", time, direction, peer,
+        length, decoded, hex) or ("note", time, text) - the same fields
+        the file line holds, unjoined, so the view can lay them out and
+        color them without parsing its own text back. Still readable
+        after stop(), so the view can show how a capture ended.
+        """
+        with self._file_lock:
+            return [item for item in self._recent if item[0] > after_seq]
+
     def _record(self, direction, peer, data):
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-        line = (f"{stamp}\t{direction}\t{peer[0]}:{peer[1]}\t{len(data)}\t"
-                f"{describe(data)}\t{data.hex()}\n")
+        fields = (stamp, direction, f"{peer[0]}:{peer[1]}", str(len(data)),
+                  describe(data), data.hex())
 
         with self._file_lock:
             if self._file is not None:
-                self._file.write(line)
+                self._file.write("\t".join(fields) + "\n")
+                self._remember(("packet",) + fields)
 
     def _note(self, text):
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -453,16 +484,23 @@ class DigicoAppBridge:
         with self._file_lock:
             if self._file is not None:
                 self._file.write(f"# {stamp} {text}\n")
+                self._remember(("note", stamp, text))
+
+    def _remember(self, record):
+        # Caller holds _file_lock.
+        self._recent_seq += 1
+        self._recent.append((self._recent_seq, record))
 
     def _close_capture(self, reason):
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        text = (f"{reason} - {self.packets_from_app} datagrams from the app, "
+                f"{self.packets_to_app} relayed to it")
+
         with self._file_lock:
             if self._file is None:
                 return
 
-            self._file.write(
-                f"# {reason} {datetime.now().isoformat(sep=' ')} - "
-                f"{self.packets_from_app} datagrams from the app, "
-                f"{self.packets_to_app} relayed to it\n"
-            )
+            self._file.write(f"# {stamp} {text}\n")
+            self._remember(("note", stamp, text))
             self._file.close()
             self._file = None

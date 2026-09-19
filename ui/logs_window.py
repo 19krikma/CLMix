@@ -25,10 +25,14 @@ class LogsWindow:
     REFRESH_MS = 500
     SEARCH_DEBOUNCE_MS = 200
 
+    # Opening size; widened in _fit_to_toolbar if the top bar needs more.
+    DEFAULT_WIDTH = 720
+    DEFAULT_HEIGHT = 460
+
     def __init__(self, master):
         self.window = tk.Toplevel(master)
         self.window.title("Logs")
-        self.window.geometry("720x460")
+        self.window.geometry(f"{self.DEFAULT_WIDTH}x{self.DEFAULT_HEIGHT}")
         self.window.protocol("WM_DELETE_WINDOW", self.close)
 
         self.filter_var = tk.StringVar(value="Info")
@@ -39,12 +43,32 @@ class LogsWindow:
         self._search_job = None
 
         self.build_ui()
+        self._fit_to_toolbar()
         self.render_full()
         self.refresh()
+
+    def _fit_to_toolbar(self):
+        """Open wide enough for every control in the top bar, and never
+        let the window be dragged narrower than that.
+
+        Measured rather than hardcoded: the bar's width depends on the
+        platform's UI font, so a fixed size that fits here can still
+        push "Clear" off the edge on Windows. Height stays as set above.
+        """
+        # Requested sizes, not winfo_width(): the window is not on screen
+        # yet, and an unmapped window reports its size as 1x1.
+        self.window.update_idletasks()
+        needed = self.toolbar.winfo_reqwidth()
+
+        self.window.minsize(needed, 300)
+        self.window.geometry(
+            f"{max(self.DEFAULT_WIDTH, needed)}x{self.DEFAULT_HEIGHT}"
+        )
 
     def build_ui(self):
         bar = ttk.Frame(self.window, padding=10)
         bar.pack(fill="x")
+        self.toolbar = bar
 
         for level in ("Info", "Warning", "Error", "Debug"):
             ttk.Radiobutton(
@@ -69,7 +93,7 @@ class LogsWindow:
         ttk.Button(
             bar, text="Open Logs Folder",
             command=lambda: open_folder(log_store.logs_dir)
-        ).pack(side="right", padx=(0, 8))
+        ).pack(side="right", padx=(12, 8))
 
         file_bar = ttk.Frame(self.window, padding=(10, 0))
         file_bar.pack(fill="x")
