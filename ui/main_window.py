@@ -2979,9 +2979,9 @@ class MainWindow:
 
         self.help_menu = tk.Menu(menu_bar, tearoff=False)
         self.help_menu.add_command(label="Logs", command=self.open_logs_window)
-        self.help_menu.add_command(label="Backup", command=self.open_backup_window)
+        self.help_menu.add_command(label="CLMix Backup", command=self.open_backup_window)
         self.help_menu.add_command(
-            label="Show Backup", command=self.open_show_backup_window
+            label="Mixer Backup", command=self.open_show_backup_window
         )
         self.help_menu.add_command(label="About", command=self.open_about_window)
         # Kept so the startup check can relabel this one entry - looking it

@@ -31,7 +31,7 @@ class ShowBackupWindow:
         self._poll_job = None
 
         self.window = tk.Toplevel(master)
-        self.window.title("Show Backup")
+        self.window.title("Mixer Backup")
         self.window.geometry("900x640")
         self.window.minsize(760, 520)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
@@ -221,7 +221,7 @@ class ShowBackupWindow:
         try:
             self.store.root.mkdir(parents=True, exist_ok=True)
         except OSError as ex:
-            messagebox.showerror("Show Backup", str(ex), parent=self.window)
+            messagebox.showerror("Mixer Backup", str(ex), parent=self.window)
             return
         open_folder(self.store.root)
 
@@ -232,14 +232,14 @@ class ShowBackupWindow:
 
         if worker is None or not worker.is_alive() or not worker.loaded:
             messagebox.showinfo(
-                "Show Backup", "Connect to the console first.",
+                "Mixer Backup", "Connect to the console first.",
                 parent=self.window
             )
             return False
 
         if worker.bridge_only:
             messagebox.showinfo(
-                "Show Backup",
+                "Mixer Backup",
                 "CLMix is in DiGiCo App mode. Turn it off in Setup first.",
                 parent=self.window
             )
@@ -399,7 +399,7 @@ class ShowBackupWindow:
     def close(self):
         if self.job is not None and not self.job.finished:
             if not messagebox.askyesno(
-                "Show Backup",
+                "Mixer Backup",
                 "A backup or restore is still running. Stop it and close?",
                 icon="warning", parent=self.window
             ):

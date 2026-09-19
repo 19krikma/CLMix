@@ -37,7 +37,7 @@ class BackupWindow:
         self.on_restored = on_restored
 
         self.window = tk.Toplevel(master)
-        self.window.title("Backup")
+        self.window.title("CLMix Backup")
 
         min_width = (
             PATH_COLUMN_MIN_WIDTH + DATETIME_COLUMN_WIDTH +
