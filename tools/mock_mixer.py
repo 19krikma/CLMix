@@ -191,6 +191,15 @@ DUMP_OMITTED = {
 MACRO_NAMES = ["Snapshots Panel", "Talkback panel", "AutoTune PANIC",
                "PC TO MASTER", "Save current Session"]
 
+# The fader layout's arg shape: [name, side, layer, bank] then one
+# (category, index) pair per fader, an empty fader being ("", 0). The
+# real desk reports 12 faders per bank and both sides of each bank
+# carrying the same strips - see PROTOCOL.md, "Layout".
+LAYOUT_KEY_ARGS = 4
+LAYOUT_SIDES = ("L", "R")
+LAYOUT_FADERS = 12
+LAYOUT_BANKS_PER_LAYER = 4
+
 STEREO_CHANCE = 0.25
 
 # Meter simulation. The console quantises meters to 3 dB steps over a
@@ -322,6 +331,31 @@ class MicCapture:
         return self.levels[channel]
 
 
+def build_layout(banks):
+    """The console's fader layout for these banks, as it reports it.
+
+    One entry per bank per side, banks filling four to a layer, each
+    padded out to twelve faders the way a part-filled bank is on the
+    desk.
+    """
+    layout = []
+
+    for index, (bank_name, channels) in enumerate(banks.items()):
+        layer, position = divmod(index, LAYOUT_BANKS_PER_LAYER)
+        slots = []
+
+        for fader in range(LAYOUT_FADERS):
+            if fader < len(channels):
+                slots += ["Input_Channels", channels[fader]]
+            else:
+                slots += ["", 0]
+
+        for side in LAYOUT_SIDES:
+            layout.append([bank_name, side, layer, position] + slots)
+
+    return layout
+
+
 def build_banks():
     banks = {}
     channel_names = []
@@ -424,7 +458,7 @@ def perturb(params, rng, flip_chance=0.15, spread=6.0, rename=False):
 class MockMixer:
     def __init__(self, listen_port, client_host, client_port, mic=None,
                  recall_every=None, listen_host="0.0.0.0",
-                 remote_recall=True, drop_rate=0.0):
+                 remote_recall=True, drop_rate=0.0, layout_write=True):
         self.client_host = client_host
         self.client_port = client_port
         self.mic = mic
@@ -439,6 +473,19 @@ class MockMixer:
         self.drop_rate = drop_rate
         self.snapshot = 1
         self.last_recall_at = time.monotonic()
+
+        # The fader layout, one entry per bank per side, in the console's
+        # own arg order: [name, side, layer, bank] then (category, index)
+        # per fader - see PROTOCOL.md, "Layout".
+        self.layout = build_layout(BANKS)
+
+        # Whether writing a bank back is honoured. Nothing has ever been
+        # observed writing /Layout/Layout/Banks on a real desk, so this
+        # is the one behaviour here that is a guess rather than a copy:
+        # --no-layout-write plays the console that ignores the write, so
+        # the honest-failure path in RestoreSessionJob can be exercised
+        # too.
+        self.layout_write = layout_write
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((listen_host, listen_port))
@@ -568,6 +615,17 @@ class MockMixer:
                 perturb(state, rng, flip_chance=0.5, spread=10.0, rename=True)
             print("* every snapshot and the live desk scrambled")
 
+        elif address == "/Mock/Scramble_Layout":
+            # Someone rearranging the surface's banks. Deliberately not
+            # routed through handle_layout_write, so the layout can be
+            # wrecked even on a console playing --no-layout-write - which
+            # is the only way to test what a client does when the desk
+            # reports a layout it refuses to let anyone set.
+            for bank_args in self.layout:
+                for i in range(LAYOUT_KEY_ARGS, len(bank_args) - 1, 2):
+                    bank_args[i], bank_args[i + 1] = "", 0
+            print("* fader layout emptied")
+
         elif address == "/Mock/Dump_State" and args:
             with open(str(args[0]), "w") as f:
                 json.dump({"current": self.snapshot, "live": self.params,
@@ -612,6 +670,8 @@ class MockMixer:
                 print("  (ignored: --no-remote-recall)")
         elif address.endswith("/?"):
             self.handle_query(address[:-2], args)
+        elif address == "/Layout/Layout/Banks":
+            self.handle_layout_write(args)
         elif address == "/Meters/clear" or address.startswith("/Meters/request/"):
             # Split out before handle_set, whose float() coercion would
             # choke on /Meters/request's string argument - it carries a
@@ -790,14 +850,11 @@ class MockMixer:
                 self.send("/Macros/name", [index, name])
 
         elif address == "/Layout/Layout/Banks":
-            # One message per bank, mirroring how a real console answers
-            # a single "/Layout/Layout/Banks/?" query with a broadcast
-            # per bank rather than one combined reply.
-            for bank_name, channels in BANKS.items():
-                bank_args = [bank_name, 0, 0, 0]
-                for channel in channels:
-                    bank_args += ["Input_Channels", channel]
-                self.send("/Layout/Layout/Banks", bank_args)
+            # One message per bank per side, mirroring how a real console
+            # answers a single "/Layout/Layout/Banks/?" query with a
+            # broadcast per bank rather than one combined reply.
+            for bank_args in self.layout:
+                self.send("/Layout/Layout/Banks", list(bank_args))
 
         elif STRIP_RE.match(address):
             # A bare strip ("/Input_Channels/3/?") dumps every parameter
@@ -808,6 +865,26 @@ class MockMixer:
 
         elif address in self.params:
             self.send(address, self.params[address])
+
+    def handle_layout_write(self, args):
+        """A bank written back, matched to the one it replaces by its
+        name/side/layer/bank - the four args that identify it."""
+        if len(args) < LAYOUT_KEY_ARGS:
+            return
+
+        if not self.layout_write:
+            print("  (ignored: --no-layout-write)")
+            return
+
+        key = tuple(args[:LAYOUT_KEY_ARGS])
+
+        for index, existing in enumerate(self.layout):
+            if tuple(existing[:LAYOUT_KEY_ARGS]) == key:
+                self.layout[index] = list(args)
+                print(f"* fader bank {key} rewritten")
+                return
+
+        print(f"  (no such fader bank: {key})")
 
     def handle_set(self, address, args):
         if not args or address not in self.params:
@@ -868,6 +945,10 @@ def main():
                          metavar="SECONDS",
                          help="Periodically recall a snapshot, rewriting all "
                               "levels/pans/mutes and announcing only the recall")
+    parser.add_argument("--no-layout-write", action="store_true",
+                        help="Ignore fader banks written to "
+                             "/Layout/Layout/Banks, playing a console that "
+                             "only reports its layout")
     parser.add_argument("--no-remote-recall", action="store_true",
                          help="Ignore /Snapshots/Recall_Snapshot/{n} from "
                               "clients, as a console that only recalls from "
@@ -924,6 +1005,7 @@ def main():
               recall_every=args.recall_every,
               listen_host=args.listen_host,
               remote_recall=not args.no_remote_recall,
+              layout_write=not args.no_layout_write,
               drop_rate=args.drop_rate).run()
 
 

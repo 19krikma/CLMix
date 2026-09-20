@@ -10,7 +10,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 
-from services.show_backup import BackupJob, RestoreJob, ShowBackupStore
+from services.show_backup import (BackupJob, RestoreJob, RestoreSessionJob,
+                                  ShowBackupStore)
 from ui.logs_window import open_folder
 
 POLL_MS = 150
@@ -77,14 +78,25 @@ class ShowBackupWindow:
             state="disabled"
         )
         self.restore_button.pack(side="right", padx=(0, 8))
+        # Its own button because it is its own job: names and the fader
+        # layout belong to the session, so putting them back needs no
+        # snapshot recalled and no Update pressed - see RestoreSessionJob.
+        self.restore_session_button = ttk.Button(
+            actions, text="Restore Session", command=self.start_restore_session,
+            state="disabled"
+        )
+        self.restore_session_button.pack(side="right", padx=(0, 8))
 
         list_frame = ttk.Frame(self.window, padding=(10, 4))
         list_frame.pack(fill="both", expand=True)
         list_frame.rowconfigure(0, weight=1)
         list_frame.columnconfigure(0, weight=1)
 
+        # "extended": several snapshots of one backup can be picked and
+        # restored in one run, which is the common case after a rebuild -
+        # a handful of a show's snapshots are wrong, not all of them.
         self.tree = ttk.Treeview(
-            list_frame, columns=("details", "status"), selectmode="browse"
+            list_frame, columns=("details", "status"), selectmode="extended"
         )
         self.tree.heading("#0", text="Session / Backup / Snapshot")
         self.tree.heading("details", text="Details")
@@ -133,13 +145,23 @@ class ShowBackupWindow:
 
     def update_buttons(self):
         busy = self.job is not None and not self.job.finished
-        selection = self.tree.selection()
-        target = self._restore_target(selection[0]) if selection else None
+        target = self._selection()
 
         for button in (self.backup_all_button, self.backup_current_button):
             button.configure(state="disabled" if busy else "normal")
 
+        if not target or target[1] is None:
+            restore_text = "Restore to Console"
+        elif len(target[1]) == 1:
+            restore_text = "Restore 1 Snapshot"
+        else:
+            restore_text = f"Restore {len(target[1])} Snapshots"
+
         self.restore_button.configure(
+            text=restore_text,
+            state="normal" if target and not busy else "disabled",
+        )
+        self.restore_session_button.configure(
             state="normal" if target and not busy else "disabled"
         )
         self.remove_button.configure(
@@ -189,8 +211,10 @@ class ShowBackupWindow:
 
         self.update_buttons()
 
-    def _restore_target(self, item):
-        """(backup dir, snapshot file or None) for a backup or snapshot row."""
+    @staticmethod
+    def _row(item):
+        """(backup dir, snapshot file or None) for one row, or None for a
+        session heading or a skipped snapshot with nothing saved."""
         if item.startswith("session:"):
             return None
 
@@ -201,6 +225,33 @@ class ShowBackupWindow:
             return backup_dir, snapshot_file
 
         return item, None
+
+    def _selection(self):
+        """(backup dir, [snapshot files] or None) for what is selected.
+
+        None for a selection there is nothing to do with. A whole backup
+        row means every snapshot in it, so it wins over any snapshot rows
+        picked alongside it. Rows from two different backups are refused
+        rather than guessed at - a restore walks one backup's snapshots.
+        """
+        rows = [row for row in map(self._row, self.tree.selection())
+                if row is not None]
+
+        if not rows:
+            return None
+
+        backups = {backup_dir for backup_dir, _file in rows}
+        if len(backups) != 1:
+            return None
+
+        backup_dir = backups.pop()
+        files = [file for _dir, file in rows if file is not None]
+
+        if len(files) != len(rows):
+            # At least one whole-backup row is in the selection.
+            return backup_dir, None
+
+        return backup_dir, files
 
     # -------------------------------------------------------------- folder
 
@@ -265,14 +316,19 @@ class ShowBackupWindow:
                             all_snapshots=all_snapshots))
 
     def start_restore(self):
-        selection = self.tree.selection()
-        target = self._restore_target(selection[0]) if selection else None
+        target = self._selection()
 
         if target is None or not self._console_ready():
             return
 
-        backup_dir, snapshot_file = target
-        what = "this snapshot" if snapshot_file else "every snapshot in this backup"
+        backup_dir, files = target
+
+        if files is None:
+            what = "every snapshot in this backup"
+        elif len(files) == 1:
+            what = "this snapshot"
+        else:
+            what = f"these {len(files)} snapshots"
 
         if not messagebox.askokcancel(
             "Restore to Console",
@@ -282,13 +338,41 @@ class ShowBackupWindow:
             "live.\n\n"
             "The session must be rebuilt first: the same channel and bus "
             "counts, and snapshots named as they were. Patching is not "
-            "restored.",
+            "restored, and neither are strip names or the fader layout - "
+            "those belong to the session, so use Restore Session for them.",
             icon="warning", parent=self.window
         ):
             return
 
         self._run(RestoreJob(self.get_worker, self.command_queue, self.store,
-                             backup_dir, only_file=snapshot_file))
+                             backup_dir, only_files=files))
+
+    def start_restore_session(self):
+        target = self._selection()
+
+        if target is None or not self._console_ready():
+            return
+
+        if not messagebox.askokcancel(
+            "Restore Session",
+            "This writes the backup's session-level settings to the "
+            "console: channel, bus, DCA and graphic EQ names, and the "
+            "fader banks and layout.\n\n"
+            "These belong to the session rather than to any one snapshot, "
+            "so nothing is recalled and there is no need to press Update - "
+            "the desk reads and banks correctly straight away, whichever "
+            "snapshot it is on. The channel and bus counts still have to "
+            "match the backup.\n\n"
+            "The names are known to write back. The fader layout is not: "
+            "no console has been seen accepting one, so CLMix writes it, "
+            "reads it back and tells you whether it took - if it did not, "
+            "it lists the banks for rebuilding on the surface.",
+            icon="warning", parent=self.window
+        ):
+            return
+
+        self._run(RestoreSessionJob(self.get_worker, self.command_queue,
+                                    self.store, target[0]))
 
     def _run(self, job):
         self.job = job
@@ -305,8 +389,7 @@ class ShowBackupWindow:
             self.job.cancel()
 
     def remove_selected(self):
-        selection = self.tree.selection()
-        target = self._restore_target(selection[0]) if selection else None
+        target = self._selection()
 
         if target is None or target[1] is not None:
             return

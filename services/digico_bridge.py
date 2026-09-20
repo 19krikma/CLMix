@@ -20,18 +20,39 @@ own queries, and CLMix hears the replies to the app's. Both are ordinary
 self-describing state messages; the capture tags who sent what so the
 log stays readable.
 
-Metering is the one thing that cannot be shared. The console keeps a
+Metering is the one thing the console cannot simply share. It keeps a
 single global meter slot table and reports slot numbers only, so two
-clients subscribing at once would each decode the other's meters as
-garbage. While capture is on CLMix stays off the table entirely (see
-MixerWorker.bridge_only) and the app owns it, exactly as it would on
-a desk with nothing else connected.
+clients subscribing at once each decode the other's meters as garbage -
+and the official app rewrites the whole table about once a second
+(PROTOCOL.md, "Subscribing"), so they would take it from each other
+continuously.
 
-In fact the bridge is all CLMix does while it runs - DiGiCo App mode.
-The mixer view and every phone are locked, and apart from its heartbeat
-CLMix sends the console nothing of its own, so no one can move the desk
-underneath a capture and the capture holds the app's traffic, not a mix
-of the app's and CLMix's.
+There are two ways out of that, and which one applies is the operator's
+choice.
+
+By default the bridge is all CLMix does while it runs - DiGiCo App
+mode. The mixer view and every phone are locked, apart from its
+heartbeat CLMix sends the console nothing of its own, and the app is
+left to subscribe to the table exactly as it would on a desk with
+nothing else connected. Nobody can move the desk underneath a capture
+and the capture holds the app's traffic rather than a mix of both,
+which is what you want when the point of the capture is to learn what
+the app does.
+
+With "Keep CLMix usable while capturing" on, none of that lockdown
+applies and the meter table is shared rather than surrendered:
+AppMeterSubscription below takes the app's /Meters/clear and
+/Meters/request before they reach the console, CLMix subscribes to
+everything either side wants, and each /Meters/values that comes back
+is re-numbered into the app's own slots and handed to it. Both ends see
+their own meters and neither can tell. The capture stays readable
+because CLMix's traffic is tagged CLMIX->MIXER and the app's
+intercepted subscription is tagged APP->CLMIX; there are simply two
+clients in the log rather than one. Use it when the capture is
+incidental and the desk still has to be mixed on.
+
+Either way the worker is put into the right state by one call,
+MixerWorker.apply_capture_mode.
 
 See docs/mixer_protocol/PROTOCOL.md for the beacon layout and for what
 the official client was already seen to do on connect.
@@ -46,6 +67,7 @@ from datetime import datetime
 
 from pythonosc.osc_bundle import OscBundle
 from pythonosc.osc_message import OscMessage
+from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.parsing import osc_types
 
 from services.log_store import LOGS_DIR, log
@@ -81,6 +103,21 @@ APP_TIMEOUT_SECONDS = 10.0
 # check and cannot catch /Meters/request or /Meters/clear, which ARE
 # recorded - they show what the app chose to meter.
 METER_VALUES_PREFIX = b"/Meters/values\x00"
+
+# The app's end of the meter subscription, matched on the padded address
+# bytes the same way. These are the two the bridge answers itself when
+# it is serving the app's meters rather than letting it subscribe.
+METER_CLEAR_PREFIX = b"/Meters/clear\x00"
+METER_REQUEST_PREFIX = b"/Meters/request/"
+
+# The app rebuilds its whole subscription about once a second - a
+# /Meters/clear, then one /Meters/request per slot a few milliseconds
+# later (PROTOCOL.md, "Subscribing"). Acting on the clear as it lands
+# would empty the app's half of the console's table and refill it a slot
+# at a time, once a second, blanking everyone's meters each go. So the
+# requests are collected and committed once they stop arriving, and a
+# commit identical to the last one changes nothing.
+METER_COMMIT_QUIET_SECONDS = 0.3
 
 RECV_TIMEOUT_SECONDS = 0.2
 
@@ -137,6 +174,102 @@ def describe(data):
     return f"{message.address} {type_tags(data)} {list(message.params)}"
 
 
+class AppMeterSubscription:
+    """The DiGiCo app's meter subscription, held here instead of on the desk.
+
+    The console has one meter slot table for everyone, so while the app
+    owns it CLMix has none. The way round that is not to share the table
+    but to stop the app using it: its /Meters/clear and /Meters/request
+    never reach the console, CLMix subscribes to everything either side
+    wants, and the values that come back are re-numbered into the app's
+    own slots and handed to it. As far as the app can tell the console
+    answered.
+
+    Slot numbers are each client's own to assign, which is what makes
+    this possible: nothing in a /Meters/values packet says which channel
+    a slot means, so the only thing that needs translating is the
+    numbers.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        # app slot -> meter address, as the app last settled on it.
+        self.slots = {}
+        # meter address -> the app slots bound to it. Usually one, but
+        # nothing stops the app pointing two slots at one address.
+        self._by_address = {}
+        self._pending = {}
+        self._collecting = False
+        self._last_request = 0.0
+
+    def clear(self):
+        """The app resetting its subscription. Starts a new collection
+        rather than emptying anything - see METER_COMMIT_QUIET_SECONDS."""
+        with self._lock:
+            self._pending = {}
+            self._collecting = True
+            self._last_request = time.monotonic()
+
+    def request(self, slot, address):
+        with self._lock:
+            if not self._collecting:
+                # A request with no clear before it: the app adding a
+                # slot to what it already has.
+                self._pending = dict(self.slots)
+                self._collecting = True
+
+            self._pending[slot] = address
+            self._last_request = time.monotonic()
+
+    def commit_if_settled(self):
+        """The app's addresses once its burst has stopped, or None if
+        there is nothing new to apply. Called from the relay loop."""
+        with self._lock:
+            if not self._collecting:
+                return None
+
+            if time.monotonic() - self._last_request < METER_COMMIT_QUIET_SECONDS:
+                return None
+
+            self._collecting = False
+
+            if self._pending == self.slots:
+                return None
+
+            self.slots = self._pending
+            self._pending = {}
+
+            self._by_address = {}
+            for slot, address in sorted(self.slots.items()):
+                self._by_address.setdefault(address, []).append(slot)
+
+            return list(self._by_address)
+
+    def renumber(self, pairs, console_addresses):
+        """[app slot, value, ...] for whatever of `pairs` the app wants.
+
+        `pairs` is the console's own [slot, value, ...] and
+        `console_addresses` maps its slot numbers to addresses. Slots the
+        app never asked for are dropped, which is most of them whenever
+        CLMix is metering strips of its own.
+        """
+        out = []
+
+        with self._lock:
+            if not self._by_address:
+                return out
+
+            for slot, value in pairs:
+                address = console_addresses.get(slot)
+                if address is None:
+                    continue
+
+                for app_slot in self._by_address.get(address, ()):
+                    out += [app_slot, value]
+
+        return out
+
+
 class DigicoAppBridge:
     """Poses as the console to the DiGiCo app and relays it to the real one.
 
@@ -153,7 +286,8 @@ class DigicoAppBridge:
     """
 
     def __init__(self, mixer_ip, send_port, recv_port,
-                 mixer_bind_ip=None, listen_ip=None, capture_dir=CAPTURE_DIR):
+                 mixer_bind_ip=None, listen_ip=None, capture_dir=CAPTURE_DIR,
+                 serve_meters=None, console_meters=None):
         self.mixer_ip = mixer_ip
         self.send_port = send_port
         self.recv_port = recv_port
@@ -162,6 +296,15 @@ class DigicoAppBridge:
         # every adapter except the console's own network.
         self.listen_ip = listen_ip or None
         self.capture_dir = capture_dir
+
+        # Set when CLMix is to own the console's meter table and serve
+        # the app from it: serve_meters(addresses) tells CLMix what the
+        # app wants, console_meters() gives back {console slot: address}.
+        # Both None means the old arrangement - the app subscribes to the
+        # console itself and CLMix does without meters.
+        self.serve_meters = serve_meters
+        self.console_meters = console_meters
+        self.app_meters = AppMeterSubscription() if serve_meters else None
 
         self.capture_path = None
         self.beacon_targets = []
@@ -274,6 +417,9 @@ class DigicoAppBridge:
         sock = self._listen_sock
         apps = self.connected_apps() if sock is not None else []
 
+        if sock is not None and self._relay_meters(data, apps, sock):
+            return
+
         for ip in apps:
             try:
                 sock.sendto(data, (ip, self.recv_port))
@@ -289,6 +435,76 @@ class DigicoAppBridge:
         direction = "MIXER->APP" if apps else "MIXER->CLMIX"
         self._record(direction, sender, data)
 
+    def _relay_meters(self, data, apps, sock):
+        """Send the app its own meters, built from CLMix's subscription.
+
+        Returns False if this is not something to serve that way, leaving
+        the caller to relay the datagram as it would anything else.
+        """
+        if self.app_meters is None or not data.startswith(METER_VALUES_PREFIX):
+            return False
+
+        try:
+            message = OscMessage(data)
+            args = list(message.params)
+        except Exception:
+            # Same reasoning as describe(): a malformed meter packet is
+            # not worth losing the connection over. Nothing goes to the
+            # app for it, and the next one lands 35ms later.
+            return True
+
+        pairs = [(int(args[i]), args[i + 1])
+                 for i in range(0, len(args) - 1, 2)]
+        renumbered = self.app_meters.renumber(pairs, self.console_meters())
+
+        if not renumbered:
+            # Nothing the app asked for changed in this packet.
+            return True
+
+        builder = OscMessageBuilder(address="/Meters/values")
+        for value in renumbered:
+            builder.add_arg(value, builder.ARG_TYPE_INT)
+
+        payload = builder.build().dgram
+
+        for ip in apps:
+            try:
+                sock.sendto(payload, (ip, self.recv_port))
+                self.packets_to_app += 1
+            except OSError as ex:
+                self._note(f"meter relay to app {ip} failed: {ex}")
+
+        return True
+
+    def _intercept_from_app(self, data):
+        """Take the app's meter subscription for CLMix to answer.
+
+        True when the datagram was handled here and must not go to the
+        console - sending it on would hand the console's one meter table
+        straight back to the app, which is the thing being avoided.
+        """
+        if self.app_meters is None:
+            return False
+
+        if data.startswith(METER_CLEAR_PREFIX):
+            self.app_meters.clear()
+            return True
+
+        if not data.startswith(METER_REQUEST_PREFIX):
+            return False
+
+        try:
+            message = OscMessage(data)
+            slot = int(message.address.rsplit("/", 1)[1])
+            address = str(list(message.params)[0])
+        except Exception:
+            # Not a slot number and an address after all - let it through
+            # rather than swallow something that was never a subscription.
+            return False
+
+        self.app_meters.request(slot, address)
+        return True
+
     def from_clmix(self, data):
         """A datagram CLMix itself sent the console, for the record only."""
         self._record("CLMIX->MIXER", (self.mixer_ip, self.send_port), data)
@@ -298,6 +514,7 @@ class DigicoAppBridge:
     def _relay_from_app(self):
         while self._running:
             self._expire_apps()
+            self._commit_app_meters()
 
             try:
                 data, sender = self._listen_sock.recvfrom(65535)
@@ -309,6 +526,10 @@ class DigicoAppBridge:
 
             self._note_app(sender[0])
 
+            if self._intercept_from_app(data):
+                self._record("APP->CLMIX", sender, data)
+                continue
+
             try:
                 self._egress_sock.sendto(data, (self.mixer_ip, self.send_port))
                 self.packets_from_app += 1
@@ -316,6 +537,19 @@ class DigicoAppBridge:
                 self._note(f"relay to console failed: {ex}")
 
             self._record("APP->MIXER", sender, data)
+
+    def _commit_app_meters(self):
+        if self.app_meters is None:
+            return
+
+        addresses = self.app_meters.commit_if_settled()
+
+        if addresses is None:
+            return
+
+        self.serve_meters(addresses)
+        self._note(f"serving the app {len(addresses)} meter(s) from CLMix's "
+                   "own subscription")
 
     def _note_app(self, ip):
         with self._apps_lock:
@@ -445,13 +679,17 @@ class DigicoAppBridge:
             "# One line per datagram, tab-separated:\n"
             "#   time  direction  peer  length  decoded  raw-hex\n"
             "# APP->MIXER    the app sent this; relayed to the console as-is\n"
+            "# APP->CLMIX    the app sent this and CLMix answered it itself,\n"
+            "#               without passing it on - its meter subscription,\n"
+            "#               when CLMix is serving the app's meters\n"
             "# CLMIX->MIXER  CLMix's own traffic, recorded for context only\n"
             "# MIXER->APP    the console sent this; relayed to the app as-is\n"
             "#               (and, as always, read by CLMix too)\n"
             "# MIXER->CLMIX  the console sent this while no app was connected\n"
             "# raw-hex is the complete datagram, never truncated - it is the\n"
             "# record; 'decoded' is python-osc's reading of it, for convenience.\n"
-            "# /Meters/values is relayed but not recorded.\n"
+            "# /Meters/values is relayed but not recorded - nor are the\n"
+            "# ones CLMix builds for the app when it serves its meters.\n"
             "# Lines starting with # are CLMix's own notes.\n"
             "#\n"
         )

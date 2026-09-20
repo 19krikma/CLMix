@@ -245,6 +245,14 @@ class MixerWorker(threading.Thread):
         # different bank than the desktop would meter nothing at all.
         self._meter_sources = {}
 
+        # Meter addresses the DiGiCo app has asked for, verbatim, when
+        # the bridge is serving its meters instead of letting it
+        # subscribe for itself - see DigicoAppBridge and set_app_meters.
+        # Kept apart from _meter_sources because the app subscribes by
+        # raw meter address and can ask for things no CLMix surface
+        # draws: a gate meter, an EQ gain-reduction meter, an aux output.
+        self._meter_app_addresses = []
+
         # DiGiCo App mode: CLMix is only a bridge for the official app
         # (see services/digico_bridge.py) and sends the console nothing
         # of its own beyond the heartbeat that keeps this connection
@@ -281,6 +289,11 @@ class MixerWorker(threading.Thread):
         # slots, not addresses, so this is the only way back to a channel.
         # A stereo channel occupies two slots, one per leg.
         self.meter_slots = {}
+        # slot number -> the meter address bound to it, for every slot,
+        # including ones only the DiGiCo app asked for. meter_slots holds
+        # the subset CLMix itself draws; this is what the bridge needs to
+        # turn the console's slot numbers back into addresses.
+        self.meter_addresses = {}
         # (channel index, leg) -> (peak_db, rms_db); None means no signal.
         self.meter_levels = {}
         # (channel index, leg) -> how many samples have landed for it. The
@@ -665,7 +678,8 @@ class MixerWorker(threading.Thread):
     def _request_snapshot_name(self):
         if self.bridge_only and self.loaded:
             # Not asked for in DiGiCo App mode - the catalog loading built
-            # usually already knows it. If not, leave_bridge_only asks.
+            # usually already knows it. If not, apply_capture_mode asks
+            # on the way out.
             # Only once loaded: loading itself waits on this name, and it
             # all happens before the bridge opens, so none of it can land
             # in the middle of the app's session.
@@ -794,6 +808,10 @@ class MixerWorker(threading.Thread):
 
     def _handle_meter_values(self, args):
         if self.bridge_only:
+            # Not ours: in the passive mode the app owns the slot table,
+            # so these slot numbers mean its channels, not the ones in
+            # meter_slots. Otherwise the table is CLMix's, whether or not
+            # it is also feeding the app from it.
             return
 
         # Flat [slot, value, slot, value, ...] pairs, carrying only the
@@ -868,73 +886,140 @@ class MixerWorker(threading.Thread):
         if self._meter_sources.pop(source, None) is not None:
             self._rebuild_meter_subscription()
 
+    def set_app_meters(self, addresses):
+        """What the DiGiCo app wants metered, as raw meter addresses.
+
+        Called by the bridge when it is answering the app's meter
+        subscription itself rather than passing it to the console. Any
+        thread. Rebuilds only on a real change, because the app re-sends
+        its whole subscription about once a second (PROTOCOL.md,
+        "Subscribing") and rebinding the console's table that often
+        would blank everyone's meters once a second.
+        """
+        addresses = list(addresses)
+
+        if addresses == self._meter_app_addresses:
+            return
+
+        self._meter_app_addresses = addresses
+        self._rebuild_meter_subscription()
+
     def _rebuild_meter_subscription(self):
-        # Ordered union: the desktop's own strips claim slots first, so
-        # if the cap below ever bites it is a phone that loses metering
-        # rather than the operator at the console.
+        # Ordered union, by meter address. The desktop's own strips claim
+        # slots first, then the DiGiCo app if the bridge is serving it -
+        # it asked for named addresses and cannot degrade gracefully the
+        # way a CLMix surface can - and phones last, so if the cap below
+        # ever bites it is a phone that loses metering rather than an
+        # operator at a surface.
         wanted = []
+        display = {}
+
+        def want(address, key=None):
+            if address not in wanted:
+                wanted.append(address)
+            if key is not None:
+                display.setdefault(address, key)
+
         for source in sorted(self._meter_sources, key=lambda s: s != "desktop"):
+            if source == "desktop":
+                for channel in self._meter_sources[source]:
+                    for leg in self.channel_legs(channel):
+                        want(self.channel_meter_address(channel, leg),
+                             (channel, leg))
+
+        for address in self._meter_app_addresses:
+            want(address)
+
+        for source in sorted(self._meter_sources):
+            if source == "desktop":
+                continue
             for channel in self._meter_sources[source]:
-                if channel not in wanted:
-                    wanted.append(channel)
+                for leg in self.channel_legs(channel):
+                    want(self.channel_meter_address(channel, leg),
+                         (channel, leg))
 
         self.meter_slots = {}
+        self.meter_addresses = {}
         self.meter_levels = {}
         self.meter_seq = {}
 
         if self.bridge_only:
             return
 
-        for channel in wanted:
-            for leg in self.channel_legs(channel):
-                if len(self.meter_slots) >= self.MAX_METER_SLOTS:
-                    break
-                self.meter_slots[len(self.meter_slots)] = (channel, leg)
+        for address in wanted[:self.MAX_METER_SLOTS]:
+            slot = len(self.meter_addresses)
+            self.meter_addresses[slot] = address
+
+            key = display.get(address)
+            if key is not None:
+                self.meter_slots[slot] = key
 
         self.command_queue.put("/Meters/clear")
 
-        for slot, (channel, leg) in self.meter_slots.items():
-            self.command_queue.put(
-                f"/Meters/request/{slot} "
-                f"/Input_Channels/{channel}/Channel_Input/post_meter/{leg}"
-            )
+        for slot, address in self.meter_addresses.items():
+            self.command_queue.put(f"/Meters/request/{slot} {address}")
+
+    @staticmethod
+    def channel_meter_address(channel, leg):
+        return f"/Input_Channels/{channel}/Channel_Input/post_meter/{leg}"
 
     # What CLMix may still send in DiGiCo App mode, besides the heartbeat
     # (which _check_heartbeat sends directly, not through the queue).
     # Only the one clear that hands the meter table over on the way in.
     BRIDGE_ONLY_ALLOWED = frozenset({"/Meters/clear"})
 
-    def enter_bridge_only(self):
-        """Switch to DiGiCo App mode. Safe from any thread.
+    def apply_capture_mode(self, capturing, allow_control):
+        """Put the worker into the state a capture needs. Any thread.
 
-        Clears the meter table once, so the app starts on an empty one
-        rather than inheriting CLMix's slots, and blanks every meter here
-        - desktop and phones - rather than leaving them frozen on the
-        last reading.
+        The one place the three states are expressed, because the
+        transitions between them are easy to get wrong:
+
+          not capturing            CLMix drives the desk and owns the
+                                   meter table, as normal.
+          capturing, no control    DiGiCo App mode: the worker drops
+                                   everything CLMix queues bar the one
+                                   clear below, so the capture holds the
+                                   app's traffic and nobody can move the
+                                   desk underneath it.
+          capturing, control       CLMix drives the desk as normal and
+                                   keeps the meter table, subscribing to
+                                   what the app wants as well as its own
+                                   and feeding the app from it - see
+                                   set_app_meters and DigicoAppBridge.
+
+        Only the passive state gives the table up, and only on the way
+        in, so the app inherits an empty one rather than CLMix's slots.
         """
-        if self.bridge_only:
-            return
+        passive = capturing and not allow_control
+        was_passive = self.bridge_only
 
-        self.bridge_only = True
-        self.meter_slots = {}
-        self.meter_levels = {}
-        self.meter_seq = {}
-        self.command_queue.put("/Meters/clear")
+        self.bridge_only = passive
 
-    def leave_bridge_only(self):
-        """Back to normal: take the meter table back for whatever is on
-        screen now, and fetch anything the mode kept CLMix from asking.
+        # Whatever the app had CLMix metering on its behalf goes with the
+        # capture; leaving it would keep slots bound to addresses nothing
+        # is drawing any more.
+        dropped_app_meters = bool(self._meter_app_addresses) and not capturing
+        if not capturing:
+            self._meter_app_addresses = []
 
-        Levels, pans and mutes are the panel's to re-read (it knows what
-        is on screen); the worker's own cache stayed current throughout,
-        since it went on reading every reply the console sent - the
-        app's included.
-        """
-        if not self.bridge_only:
-            return
+        if passive:
+            if not was_passive:
+                # Hand the table over, and blank the meters here -
+                # desktop and phones - rather than leaving them frozen on
+                # their last reading.
+                self.meter_slots = {}
+                self.meter_addresses = {}
+                self.meter_levels = {}
+                self.meter_seq = {}
+                self.command_queue.put("/Meters/clear")
+        elif was_passive or dropped_app_meters:
+            self._rebuild_meter_subscription()
 
-        self.bridge_only = False
-        self._rebuild_meter_subscription()
+        if was_passive and not passive and self.snapshot_name is None:
+            # Asked for on the way out of the passive mode, which is the
+            # one state that suppresses it - see _request_snapshot_name.
+            self._snapshot_name_requested = False
+            self.command_queue.put("/Snapshots/names/?")
 
         if self.snapshot_name is None:
             self._snapshot_name_requested = False
@@ -3051,6 +3136,13 @@ class MainWindow:
         self.snapshot_label = ttk.Label(snapshot_row, text="Snapshot: --")
         self.snapshot_label.pack(side="left")
 
+        # Shown only while a capture runs with CLMix still usable: the
+        # blocking overlay is what says so in the locked mode, and
+        # without it nothing else on this screen would.
+        self.capture_banner = ttk.Label(
+            snapshot_row, text="", foreground="#e5a33f"
+        )
+
         ttk.Separator(self.root, orient="horizontal").pack(fill="x")
 
         # No padding, and the section's own background: everything below
@@ -3069,7 +3161,9 @@ class MainWindow:
         self._build_digico_overlay(frame)
 
         self.build_setup_window()
-        self._show_digico_overlay(bool(self.settings.get("digico_capture")))
+        self._show_digico_overlay(bool(self.settings.get("digico_capture"))
+                                  and not self._capture_allows_control())
+        self._refresh_capture_banner()
 
     def build_setup_window(self):
         """The single Setup window: Config, Accounts and Aux as notebook tabs.
@@ -3236,6 +3330,34 @@ class MainWindow:
             wraplength=780,
             justify="left"
         ).pack(fill="x", pady=(8, 0))
+
+        control_row = ttk.Frame(frame)
+        control_row.pack(fill="x", pady=(10, 0))
+
+        self.capture_control_var = tk.BooleanVar(
+            value=bool(self.settings.get("digico_capture_control"))
+        )
+        ttk.Checkbutton(
+            control_row,
+            text="Keep CLMix usable while capturing",
+            variable=self.capture_control_var,
+            command=self._on_capture_control_toggled
+        ).pack(side="left")
+
+        ttk.Label(
+            frame,
+            text="With that on, the mixer view, the meters and the phones "
+                 "all go on working through a capture. The console keeps "
+                 "one meter list for everyone, so CLMix takes it over and "
+                 "answers the app's meters from it - both sides see their "
+                 "own, and neither knows. Everything CLMix sends is still "
+                 "recorded, marked CLMIX->MIXER, so the capture stays "
+                 "readable; it just has two clients in it rather than only "
+                 "the app.",
+            wraplength=780,
+            justify="left",
+            foreground="#888888"
+        ).pack(fill="x", pady=(4, 0))
 
         self.capture_status_label = ttk.Label(
             frame, text="", wraplength=780, justify="left"
@@ -3492,6 +3614,11 @@ class MainWindow:
             "hidden_auxes": [],
             "backup_dir": None,
             "digico_capture": False,
+            # Whether a capture leaves CLMix usable - see
+            # _set_digico_mode. Off by default: a capture taken to learn
+            # what the official app does is worth more with only the app
+            # in it.
+            "digico_capture_control": False,
             # None means services.show_backup.DEFAULT_ROOT.
             "show_backup_dir": None,
         }
@@ -3744,7 +3871,7 @@ class MainWindow:
             # Before the worker starts, so nothing the panel queues on
             # load - its first meter subscription included - ever reaches
             # the console.
-            self.worker.enter_bridge_only()
+            self.worker.apply_capture_mode(True, self._capture_allows_control())
 
         self.worker.start()
         log("debug", "Worker thread started")
@@ -3756,7 +3883,8 @@ class MainWindow:
             bind_ip=remote_bind_ip
         )
 
-        if self.settings.get("digico_capture"):
+        if self.settings.get("digico_capture") and \
+                not self._capture_allows_control():
             self.remote_server.locked_reason = self.DIGICO_MODE_MESSAGE
 
         self.remote_server.start()
@@ -3964,42 +4092,77 @@ class MainWindow:
     def _on_capture_toggled(self):
         self._set_digico_mode(self.capture_var.get())
 
+    def _on_capture_control_toggled(self):
+        """The "keep CLMix usable" switch, flipped at any time.
+
+        Only means anything while a capture is running, but it is set
+        before one starts as often as during, so it saves either way and
+        re-applies the mode when there is one to re-apply.
+        """
+        self.settings["digico_capture_control"] = self.capture_control_var.get()
+        self.save_settings()
+
+        if self.settings.get("digico_capture"):
+            # The bridge decides at construction whether it serves the
+            # app's meters, so a running one has to be replaced rather
+            # than reconfigured. That starts a fresh capture file, which
+            # is honest: what the log means either side of the switch is
+            # not the same thing.
+            self._stop_capture()
+            self._set_digico_mode(True)
+
+    def _capture_allows_control(self):
+        return bool(self.settings.get("digico_capture_control"))
+
     def _set_digico_mode(self, enabled):
         """Enter or leave DiGiCo App mode, mid-session included.
 
-        In the mode CLMix is nothing but the bridge: the mixer view is
-        covered and inert, every phone is sent away with the reason and
-        refused until it ends, and the worker drops anything CLMix
-        itself tries to send (see MixerWorker.bridge_only) - so nobody
-        can move the desk underneath a capture, from here or a phone.
-        Leaving it puts all of that back and re-reads what is on screen,
-        since the app will have been changing things the whole time.
+        By default CLMix is nothing but the bridge while this is on: the
+        mixer view is covered and inert, every phone is sent away with
+        the reason and refused until it ends, and the worker drops
+        anything CLMix itself tries to send (see
+        MixerWorker.bridge_only) - so nobody can move the desk
+        underneath a capture, from here or a phone, and the capture
+        holds the app's traffic rather than a mix of both.
+
+        With "Keep CLMix usable" on, none of that lockdown applies and
+        only the meters are given up (MixerWorker.suspend_meters), that
+        being the one thing the console genuinely cannot share. CLMix's
+        own traffic is still recorded, tagged CLMIX->MIXER, so a capture
+        taken this way is still readable - it just has two clients in it.
+
+        Leaving the mode puts everything back and re-reads what is on
+        screen, since the app will have been changing things throughout.
         """
         self.capture_var.set(enabled)
         self.settings["digico_capture"] = enabled
         self.save_settings()
         self._capture_error = None
 
-        log("info", f"DiGiCo App mode {'on' if enabled else 'off'}")
+        control = self._capture_allows_control()
+        locked = enabled and not control
 
-        self._show_digico_overlay(enabled)
+        log("info", f"DiGiCo App mode {'on' if enabled else 'off'}"
+                    + (" (CLMix still usable)" if enabled and control else ""))
+
+        self._show_digico_overlay(locked)
+        self._refresh_capture_banner()
 
         if self.remote_server is not None:
             self.remote_server.locked_reason = \
-                self.DIGICO_MODE_MESSAGE if enabled else None
+                self.DIGICO_MODE_MESSAGE if locked else None
 
         worker = self.worker
         if worker is None or not worker.is_alive():
             return
 
-        if enabled:
-            worker.enter_bridge_only()
+        worker.apply_capture_mode(enabled, control)
 
+        if enabled:
             if worker.loaded:
                 self._start_capture()
         else:
             self._stop_capture()
-            worker.leave_bridge_only()
 
             if worker.loaded:
                 # Queries level, send_on and (stereo) pan for the strips
@@ -4064,10 +4227,18 @@ class MainWindow:
         if self.capture_bridge is not None or worker is None:
             return
 
+        # Only when CLMix is still driving the desk can it own the
+        # console's meter table, and only then is there a subscription to
+        # serve the app from. In the locked mode CLMix sends nothing, so
+        # the app subscribes to the console itself as it always did.
+        serving = self._capture_allows_control()
+
         bridge = DigicoAppBridge(
             worker.mixer_ip, worker.send_port, worker.recv_port,
             mixer_bind_ip=worker.bind_ip,
-            listen_ip=self.settings.get("remote_bind_ip") or None
+            listen_ip=self.settings.get("remote_bind_ip") or None,
+            serve_meters=worker.set_app_meters if serving else None,
+            console_meters=(lambda: worker.meter_addresses) if serving else None,
         )
 
         try:
@@ -4125,6 +4296,16 @@ class MainWindow:
         return (f"Relaying for {', '.join(apps)} - "
                 f"{bridge.packets_from_app} datagrams from the app, "
                 f"{bridge.packets_to_app} to it. Recording to {file_name}.")
+
+    def _refresh_capture_banner(self):
+        """Show or hide the control-bar note about a running capture."""
+        if self.settings.get("digico_capture") and self._capture_allows_control():
+            self.capture_banner.config(
+                text="   DiGiCo App Capture running"
+            )
+            self.capture_banner.pack(side="left")
+        else:
+            self.capture_banner.pack_forget()
 
     def _refresh_capture_status(self):
         text = self._capture_status_text()

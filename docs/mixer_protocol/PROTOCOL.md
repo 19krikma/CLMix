@@ -112,6 +112,7 @@ Meters are **not** readable via `/?`. They use a **slot-based subscription**: yo
 - `/Meters/request/{slot}` takes exactly **one OSC string**: the full meter address to bind to that slot number. Slots are zero-based and assigned by you.
 - Any address ending in a meter leaf works, e.g. `Channel_Input/post_meter/left`, `.../pre_meter/right`, `Dynamics/GR_meter_1`. See the per-category tables below for the full set.
 - The official client subscribed 12 slots - one per visible strip. Subscribe only what is actually on screen; this is a continuous 30 Hz stream, not a poll.
+- **Slot numbers are each client's own**, and nothing in a `/Meters/values` packet says which channel a slot means. That makes the stream proxyable: one client can subscribe to the union of what several want, then re-number each packet into whatever slots each of them asked for and hand it on. `services/digico_bridge.py` does exactly this, so CLMix and the official app can both meter at once off a table only CLMix is subscribed to - the app's `/Meters/clear` and `/Meters/request` never reach the console. It is the only way two clients can meter this desk simultaneously.
 - **The app re-asserts the whole subscription about once a second**, and not only when the visible set changes: two `/Meters/clear` and then every slot again, 8-slot to 16-slot bursts, roughly every 1.1 s for as long as the meter view is up. Two clients doing this would simply take the table from each other once a second, which is why CLMix stays off it entirely while the bridge is running (`services/digico_bridge.py`).
 - **Slots are not capped at 12.** The app used 0..15 for a bank of 16 legs, and adds more on top when a processing panel is open - the selected channel's `Dynamics/gate_meter`, `Dynamics/GR_meter_{n}` and `EQ/GR_meter_{n}` go into slots above the strip meters. The ceiling, if there is one, has not been found.
 - Two meter addresses the whole-strip dump never mentioned turned up in the app's subscriptions: **`/Input_Channels/{n}/Dynamics/gate_meter`** and **`/Input_Channels/{n}/EQ/GR_meter_0`**. The second one matters beyond itself: `EQ/GR_meter` is **0-based**, while `Dynamics/GR_meter` is 1-based (`GR_meter_1`..`GR_meter_4`). Don't assume one convention across the address space.
@@ -252,6 +253,23 @@ Show Backup (`services/show_backup.py`) speaks these on top, all of them added f
 
 Newly discovered below (channel EQ, dynamics, gate, delay, input gain/phantom/pad, routing to groups/matrix, aux/group/matrix bus processing, DCAs, graphic EQs, multitrack returns) is **not yet wired into the app** - it's everything else the console exposes.
 
+## Names are session state
+
+Every naming address on this console - `Channel_Input/name`, `Buss_Trim/name`, and the bare `/name` on `Control_Groups`, `Graphic_EQ` and `Multis` - belongs to the **session**, not to a snapshot. The desk keeps a strip's name across a recall, which is why the channel you renamed stays renamed whatever scene you jump to.
+
+Evidence from the 2026-09-20 capture, which is corroboration rather than proof:
+
+- The recall at 08:06:09 broadcast **no** name messages at all, while broadcasting other changed parameters in the same burst.
+- Across 45 distinct input channels, read repeatedly over eight minutes and across that recall, **no channel name ever reported two different values**.
+
+The caveat is that the one recall observed was to the snapshot already loaded, so it changed very little - this is consistent with names being session state rather than demonstrating it outright.
+
+**What this means for a backup.** Saving names inside every snapshot stores the same strings once per snapshot and makes a restore rename the whole desk once per snapshot, for no gain. `services/show_backup.py` therefore lifts them into the manifest once and restores them as their own job (`RestoreNamesJob`), which needs no snapshot recalled and no Update pressed - so a rebuilt desk can be made to *read* correctly in seconds, long before anyone has time for the per-snapshot settings.
+
+Because the claim above is corroborated rather than proved, the backup checks it instead of trusting it: every snapshot's names are compared against the session's, and any that disagree are kept with that snapshot and reported. If this console turns out to be per-snapshot after all, a backup will say so rather than quietly losing a name.
+
+There is one genuinely notable asymmetry to remember when writing names back: a **string SET is echoed even when the value has not changed**, unlike a numeric one - see [Transport / wire protocol](#transport--wire-protocol).
+
 ## Parameters a strip dump leaves out
 
 **A whole-strip dump is not the whole strip.** This is the most consequential thing the 2026-09-20 capture established, because everything else in this document rests on the opposite assumption - the 946 addresses below were collected by dumping one strip per category and writing down what came back.
@@ -361,11 +379,29 @@ Whether the console *accepts* `/Snapshots/Recall_Snapshot/{n}` as a command is s
 
 ### Layout
 
-Custom surface bank layouts (which strips are assigned to which physical layer).
+The custom fader layout: which strip sits on each fader, for every bank, on every layer, on both sides of the surface. `/Layout/Layout/Banks/?` broadcasts **one message per bank per side**.
 
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
-| `/Layout/Layout/Banks` | 1 | string | `["CHOIR", "R", 2, 0, "Input_Channels"...` | `/Layout/Layout/Banks` |
+| `/Layout/Layout/Banks` | per bank per side | `ssii` then `si` x12 | `["CHOIR", "R", 2, 0, "Input_Channels", 58, ...]` | `/Layout/Layout/Banks` |
+
+The argument shape is fixed - `,ssiisisisisisisisisisisisisi` in every one of the 18 replies captured on 2026-09-20:
+
+| Args | Meaning |
+|---|---|
+| 0 | Bank name, e.g. `"VOCALS"`, `"DCA/    FX"` (the spacing is the operator's) |
+| 1 | `"L"` or `"R"` - which side of the surface |
+| 2 | Layer, `0`-`2` |
+| 3 | Bank within that layer, `0`-`3` |
+| 4.. | **12 `(category, index)` pairs**, one per fader, e.g. `"Input_Channels", 33`. An empty fader is `"", 0` |
+
+So a fader can carry anything, not just an input: `Control_Groups`, `Aux_Outputs`, `Group_Outputs`, `Matrix_Outputs` and `Multis` all appeared on faders in this session.
+
+**All four of the first arguments are needed to identify a bank.** The `L` and `R` entries of one bank carry the same name, so keying a collection of these on the name alone silently keeps one of each pair and loses half the layout. (They held identical strips in every bank captured here, but that is an observation about this session's layout, not a rule.)
+
+**Writing it back is unproven.** The official app only ever reads this address - it was never written in eight minutes of deliberate driving - and no write form has been confirmed. `services/show_backup.py` attempts it anyway, by sending the console's own reply back verbatim, then reads the layout again to see whether it took, and reports the banks for rebuilding by hand if it did not. Anyone testing this on a real desk: `tools/mock_mixer.py --no-layout-write` plays the console that ignores the write.
+
+One practical trap if you do write it: **every bank goes to the same address**, so a client that coalesces queued commands by address (as `MixerWorker._drain_commands` does) will collapse the whole layout into a single bank. They have to be paced.
 
 ### Input_Channels
 
@@ -414,6 +450,32 @@ as **non-zero means patched** rather than `== 2.0`.
 It is stored channel state, so a snapshot recall also broadcasts it for
 every channel whose value changes, alongside that channel's
 `analog_gain`, `phantom` and EQ.
+
+**Read freely; do not write it.** The 2026-09-20 capture is independent
+evidence for this. The official app queried `input_type` 112 times - it
+is part of the set it reads whenever an input panel is opened, alongside
+`phase`, `analog_gain`, `trim`, `Insert/insert_A_in`, `insert_B_in`,
+`Channel_Delay/*`, `stereo_mode` and `main/alt_in` - and was answered
+every time. **It never once wrote it**, in eight minutes of deliberately
+opening panels and moving controls; the only things the app set all
+session were `analog_gain`, `trim`, `mute`, `Channel_Input/name` and
+`Channel_Delay/delay_on`. That is the behaviour you would expect of a
+value that reports a patch rather than making one.
+
+The same capture corroborates the head-amp rule above from the other
+direction: the two unpatched channels (18 and 43) reported `input_type
+0.0` **and** `analog_gain 0.0` / `phantom 0.0`, while every patched
+channel reported `2.0` with a real gain - so an empty channel really has
+no head-amp state to give, rather than holding a stale one. Only `0.0`
+and `2.0` have now been seen across both sessions. `main/alt_in` read
+`0.0` on all 122 samples, so nothing here exercised the alt slot.
+
+The practical consequence for CLMix: `input_type` is worth reading (it
+is how you know a strip is live at all) and is deliberately in
+`NEVER_RESTORE_SUFFIXES` in `services/show_backup.py`. Even if the desk
+accepted a write, no address on the wire carries socket identity, so
+there is nothing to tell it *which* socket to patch - see
+`tools/probe_patching.py`.
 
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
@@ -827,6 +889,7 @@ Multitrack recorder return channels (e.g. "FX"). Just fader/mute/solo/name.
 
 ## Undocumented / not reachable this session
 
+- **Whether `Channel_Input/input_type` can be written.** Read constantly by the official app, never written by it - see [Input patching](#input-patching-channel_inputinput_type). Untested rather than disproven: nobody has yet sent `input_type 2.0` to an unpatched channel to see whether the desk ignores it, refuses it, or does something surprising. Worth trying **on a scratch session, not a show file**, since a half-applied patch state is not something to discover during a soundcheck. Even a success would be of limited use - no address carries socket identity, so there is no way to say *which* socket to patch to.
 - `/Macros/Buttons/?` - asked six times by the official app across two sessions, never answered once. Whatever the app wanted from it, it carried on without it. No address that *fires* a macro has been seen either, so macros are readable by name and nothing more.
 - **Storing a snapshot.** Still the one gap that costs real time: a restore has to write a snapshot's settings to the live desk and then ask the operator to press Update. The app never stored a snapshot during this capture, so there was nothing to learn from it - the next capture worth taking is one where somebody does.
 - `/Talkback_Outputs/{n}` - exists (count 2) per console topology, but no query form tried got a reply.

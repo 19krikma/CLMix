@@ -7,12 +7,22 @@ on the wire says which socket a channel is patched to (PROTOCOL.md,
 come back from here:
 
     <root>/<session name>/<date time>/
-        session.json                 what the console was, and the
-                                     snapshot list; the backup's manifest
+        session.json                 what the console was, the snapshot
+                                     list, the macro names, the fader
+                                     layout and every strip and bus
+                                     name; the manifest
         snapshots/
             001 - Show 1.json        every parameter the console
             002 - Soundcheck.json    reported for every strip, read
             ...                      with that snapshot recalled
+
+Names and the fader layout sit in the manifest rather than in the
+snapshots because that is where the console keeps them - a recall changes
+neither (PROTOCOL.md, "Names are session state" and "Layout"). That split
+is what lets the two halves be put back independently: RestoreSessionJob
+makes a rebuilt desk read and bank correctly in seconds without recalling
+anything, and RestoreJob puts the settings back on whichever snapshots
+are asked for, one, several or all of them.
 
 Nothing here is a fixed list of parameters. A backup asks each strip for
 everything it has ("/Input_Channels/3/?" dumps the lot) and keeps
@@ -97,6 +107,35 @@ NOT_CATEGORIES = {"Name", "Channels", "Session"}
 # "Input patching") - the patch is what sets it, not the other way round,
 # and the patch is rebuilt by hand.
 NEVER_RESTORE_SUFFIXES = ("/Channel_Input/input_type",)
+
+# Names belong to the session, not to a snapshot: the desk keeps them
+# across a recall, so every snapshot of one session reports the same
+# ones. Saving them per snapshot stored the same strings once per
+# snapshot and made a restore rewrite them each time round, which is why
+# they are lifted into the manifest instead and restored on their own.
+#
+# Every naming address the console has ends in "/name" and nothing else
+# contains the word, so the suffix is the whole rule - it catches
+# Channel_Input/name, Buss_Trim/name and the bare /name on Control_Groups,
+# Graphic_EQ and Multis alike. See PROTOCOL.md, "Names are session state".
+NAME_SUFFIX = "/name"
+
+# The fader layout, and session state for the same reason names are: one
+# reply per bank per side, saying which strip sits on each of the 12
+# faders. Args are [name, side, layer, bank] then 12 (category, index)
+# pairs, an empty slot being ("", 0) - see PROTOCOL.md, "Layout".
+#
+# Those first four identify a bank between them, and all four are needed:
+# the L and R sides of one bank carry the same name, so keying on the
+# name alone silently kept one of every pair.
+LAYOUT_ADDRESS = "/Layout/Layout/Banks"
+LAYOUT_KEY_ARGS = 4
+
+# Every bank goes to the same address, and the worker coalesces queued
+# commands by address (MixerWorker._drain_commands), so a burst of these
+# would arrive as one bank. Spaced wide enough to clear the worker's
+# 0.1s receive timeout twice over.
+LAYOUT_WRITE_GAP = 0.25
 
 # Whole-strip dumps: how many strips to have in flight at once, and when
 # one counts as finished - at least MIN_WAIT after asking, then QUIET
@@ -196,6 +235,70 @@ def flatten(snapshot_data):
         for leaf, (tags, args) in params.items():
             flat[f"/{strip}/{leaf}"] = (tags, args)
     return flat
+
+
+def is_name(address):
+    return address.endswith(NAME_SUFFIX)
+
+
+def bank_key(args):
+    """What identifies one fader bank: its name, side, layer and position."""
+    return tuple(args[:LAYOUT_KEY_ARGS])
+
+
+def describe_bank(args):
+    """One bank written out for an operator rebuilding it by hand."""
+    name, side, layer, bank = (list(args) + ["", "", "", ""])[:LAYOUT_KEY_ARGS]
+    slots = []
+
+    for i in range(LAYOUT_KEY_ARGS, len(args) - 1, 2):
+        kind, index = args[i], args[i + 1]
+        slots.append(f"{kind} {index}" if kind else "-")
+
+    return f"{name} ({side}, layer {layer}, bank {bank}): " + ", ".join(slots)
+
+
+def split_names(results):
+    """(names, the rest) from a dump, as {address: (tags, args)} and the
+    same strip-keyed shape the dump came in."""
+    names = {}
+    rest = {}
+
+    for prefix, params in results.items():
+        kept = {}
+        for address, value in params.items():
+            if is_name(address):
+                names[address] = value
+            else:
+                kept[address] = value
+        rest[prefix] = kept
+
+    return names, rest
+
+
+def backup_names(backup_dir, manifest, store):
+    """A backup's session-level names, {address: (tags, args)}.
+
+    Backups written before names moved to the manifest keep them inside
+    each snapshot instead, all snapshots holding the same ones, so the
+    first snapshot that has any answers just as well.
+    """
+    saved = manifest.get("names")
+    if saved:
+        return {address: tuple(value) for address, value in saved.items()}
+
+    for entry in manifest.get("snapshots", []):
+        if entry.get("skipped") or not entry.get("file"):
+            continue
+
+        names = {address: value
+                 for address, value in flatten(
+                     store.load_snapshot(backup_dir, entry)).items()
+                 if is_name(address)}
+        if names:
+            return names
+
+    return {}
 
 
 def _float32(value):
@@ -598,6 +701,32 @@ class ShowBackupJob(threading.Thread):
 
         self._ask_and_wait([])
 
+    @staticmethod
+    def _banks_from(multi):
+        """The fader layout out of a Collector's multi replies, newest
+        answer per bank, in a stable order."""
+        banks = {}
+
+        for args in multi.get(LAYOUT_ADDRESS, []):
+            if len(args) >= LAYOUT_KEY_ARGS:
+                banks[bank_key(args)] = list(args)
+
+        return [banks[key] for key in sorted(banks, key=repr)]
+
+    def read_layout(self):
+        """The fader layout as the console holds it right now.
+
+        Its own read rather than a slice of read_session's, so a restore
+        can check what it wrote. Clears the session replies first, since
+        the banks accumulate one entry per answer.
+        """
+        self.collector.clear_session()
+
+        for _ in range(SESSION_ASKS):
+            self._ask_and_wait([f"{LAYOUT_ADDRESS}/?"])
+
+        return self._banks_from(self.collector.multi)
+
     def read_session(self):
         """Who the console is, its shape, and its snapshot list."""
         self.status = "Reading the session..."
@@ -643,10 +772,7 @@ class ShowBackupJob(threading.Thread):
             raise JobAborted("The console did not report its channel layout.")
 
         # Asked more than once, so the same bank can be here twice.
-        banks = {}
-        for args in multi.get("/Layout/Layout/Banks", []):
-            if args:
-                banks[str(args[0])] = args
+        banks = self._banks_from(multi)
 
         # Console-wide, not per-snapshot, and there is no known way to
         # write one back - kept so a rebuilt session can have its macros
@@ -667,7 +793,7 @@ class ShowBackupJob(threading.Thread):
                 for key in ("Input_Channels", "Aux_Outputs", "Group_Outputs")
                 if f"/Console/{key}/modes" in singles
             },
-            "banks": list(banks.values()),
+            "banks": banks,
             "macros": [{"index": i, "name": macros[i]} for i in sorted(macros)],
             "snapshots": [snapshots[i] for i in sorted(snapshots)],
             "current": self.current_snapshot(),
@@ -834,6 +960,49 @@ class ShowBackupJob(threading.Thread):
 
         return answer == AUTO
 
+    @staticmethod
+    def _flat(results):
+        flat = {}
+        for params in results.values():
+            flat.update(params)
+        return flat
+
+    def _check_layout(self, saved, console):
+        """Refuse to write a backup onto a desk of a different shape: a
+        channel's settings belong on that channel number, and a rebuilt
+        session that is not laid out the same would put them elsewhere."""
+        differences = [
+            f"{category}: {saved.get(category, 0)} in the backup, "
+            f"{console.get(category, 0)} on the console"
+            for category in sorted(set(saved) | set(console))
+            if category not in SKIP_CATEGORIES
+            and saved.get(category, 0) != console.get(category, 0)
+        ]
+
+        if differences:
+            raise JobAborted("The console is not laid out like the backup - "
+                             + "; ".join(differences))
+
+    def _write(self, addresses, saved):
+        for start in range(0, len(addresses), WRITE_BATCH):
+            self.check()
+            for address in addresses[start:start + WRITE_BATCH]:
+                tags, args = saved[address]
+                self.send((address, list(args), tags or None))
+            time.sleep(WRITE_BATCH_GAP)
+
+    def _verify(self, addresses, saved):
+        """The written addresses that still do not read back as saved."""
+        if not addresses:
+            return []
+
+        self.sleep(VERIFY_SETTLE_SECONDS)
+        strips = sorted({STRIP_ADDRESS.match(a).group(1) for a in addresses})
+        now = self._flat(self.dump(strips))
+
+        return [a for a in addresses
+                if a not in now or not same_value(now[a][1], saved[a][1])]
+
     def _wait_for_recall_end(self, started):
         """Block until the desk says the recall is over, or gives up on it.
 
@@ -902,6 +1071,8 @@ class BackupJob(ShowBackupJob):
             "macros": info["macros"],
             "snapshot_at_backup": original,
             "surface_snapshot_at_backup": info["surface"],
+            # Filled from the first snapshot read - see NAME_SUFFIX.
+            "names": {},
             "snapshots": [],
         }
         self._save_manifest()
@@ -932,6 +1103,8 @@ class BackupJob(ShowBackupJob):
                 self.progress = (done, total)
 
             results = self.dump(strips, strip_done)
+            names, results = split_names(results)
+            odd = self._keep_names(names, results, label)
             count = sum(len(params) for params in results.values())
 
             entry["file"] = f"{SNAPSHOTS_DIR}/{snapshot['index']:03d} - " \
@@ -954,7 +1127,9 @@ class BackupJob(ShowBackupJob):
 
             self.manifest["snapshots"].append(entry)
             self._save_manifest()
-            self.note(f"Saved snapshot {label}: {count} settings.")
+            self.note(f"Saved snapshot {label}: {count} settings"
+                      + (f", and {odd} name(s) this snapshot does not share "
+                         "with the session" if odd else "") + ".")
 
         self._return_to(original, info)
 
@@ -965,6 +1140,45 @@ class BackupJob(ShowBackupJob):
 
         return (f"Backed up {len(saved)} of {len(targets)} snapshot(s) "
                 f"to {self.backup_dir}.")
+
+    def _keep_names(self, names, results, label):
+        """Put this snapshot's names in the manifest, and return how many
+        of them disagreed with what the session already recorded.
+
+        The first snapshot read sets the session's names. Every later one
+        is checked against it rather than trusted: names being session
+        state is what makes this safe (PROTOCOL.md, "Names are session
+        state"), so a snapshot that disagrees is either a desk that does
+        not work that way or a name changed mid-backup. Either way the
+        odd ones out stay in that snapshot's own file, so moving names
+        up a level can never lose one.
+        """
+        session = self.manifest["names"]
+
+        if not session:
+            session.update({address: list(value)
+                            for address, value in sorted(names.items())})
+            return 0
+
+        odd = 0
+
+        for address, (tags, args) in names.items():
+            known = session.get(address)
+
+            if known is not None and same_value(known[1], args):
+                continue
+
+            match = STRIP_ADDRESS.match(address)
+            if match:
+                results.setdefault(match.group(1), {})[address] = (tags, args)
+                odd += 1
+
+        if odd:
+            log("warning", f"Show Backup: snapshot {label} reported {odd} "
+                           "name(s) differing from the session's - kept with "
+                           "the snapshot")
+
+        return odd
 
     def _return_to(self, original, info):
         if original is None or self.current_snapshot() == original:
@@ -994,13 +1208,20 @@ class RestoreJob(ShowBackupJob):
     reported and left alone. For each one: get the desk onto it, read
     what it holds now, write only what differs, read it back to check,
     and have the operator press Update to store it.
+
+    `only_files` restricts it to the snapshot files named - one of them,
+    a handful, or None for every snapshot in the backup. Strip and bus
+    names are not written here at all; they belong to the session and go
+    back through RestoreSessionJob (see NAME_SUFFIX). The exception is a
+    name a backup recorded as differing from its session's, which stays
+    with its snapshot and is restored with it.
     """
 
     def __init__(self, get_worker, command_queue, store, backup_dir,
-                 only_file=None):
+                 only_files=None):
         super().__init__(get_worker, command_queue, store)
         self.backup_dir = Path(backup_dir)
-        self.only_file = only_file
+        self.only_files = set(only_files) if only_files else None
 
     def execute(self):
         manifest = self.store.load_manifest(self.backup_dir)
@@ -1010,7 +1231,7 @@ class RestoreJob(ShowBackupJob):
 
         entries = [e for e in manifest["snapshots"]
                    if not e.get("skipped") and e.get("file")
-                   and (self.only_file is None or e["file"] == self.only_file)]
+                   and (self.only_files is None or e["file"] in self.only_files)]
         plan = self._match(entries, info["snapshots"])
 
         if not plan:
@@ -1018,12 +1239,23 @@ class RestoreJob(ShowBackupJob):
                              "by name. Create them with the same names first.")
 
         original = info["current"]
+
+        # A backup taken before names moved up a level has the session's
+        # names copied into every snapshot file. Writing those here would
+        # rename the desk once per snapshot for no gain, so they are left
+        # to RestoreSessionJob, which reads them out of the same files. In
+        # a backup that does carry manifest names, anything still named
+        # inside a snapshot is there because it disagreed with the
+        # session - which is exactly what should be restored with it.
+        keep_names = bool(manifest.get("names"))
+
         loaded = {}
         total = 0
         for entry, _target in plan:
             data = self.store.load_snapshot(self.backup_dir, entry)
             flat = {address: value for address, value in flatten(data).items()
-                    if not address.endswith(NEVER_RESTORE_SUFFIXES)}
+                    if not address.endswith(NEVER_RESTORE_SUFFIXES)
+                    and (keep_names or not is_name(address))}
             loaded[entry["file"]] = flat
             total += len({STRIP_ADDRESS.match(a).group(1) for a in flat})
 
@@ -1088,29 +1320,6 @@ class RestoreJob(ShowBackupJob):
 
         return f"Restored {restored} of {len(plan)} snapshot(s)."
 
-    @staticmethod
-    def _flat(results):
-        flat = {}
-        for params in results.values():
-            flat.update(params)
-        return flat
-
-    def _check_layout(self, saved, console):
-        """Refuse to write a backup onto a desk of a different shape: a
-        channel's settings belong on that channel number, and a rebuilt
-        session that is not laid out the same would put them elsewhere."""
-        differences = [
-            f"{category}: {saved.get(category, 0)} in the backup, "
-            f"{console.get(category, 0)} on the console"
-            for category in sorted(set(saved) | set(console))
-            if category not in SKIP_CATEGORIES
-            and saved.get(category, 0) != console.get(category, 0)
-        ]
-
-        if differences:
-            raise JobAborted("The console is not laid out like the backup - "
-                             + "; ".join(differences))
-
     def _match(self, entries, console_snapshots):
         """(backup entry, console snapshot) pairs, matched by name - the
         nth snapshot of a name in the backup to the nth on the desk."""
@@ -1135,22 +1344,136 @@ class RestoreJob(ShowBackupJob):
 
         return plan
 
-    def _write(self, addresses, saved):
-        for start in range(0, len(addresses), WRITE_BATCH):
+
+class RestoreSessionJob(ShowBackupJob):
+    """Writes back what belongs to the session rather than a snapshot:
+    strip and bus names, and the fader layout.
+
+    Both are session state - the desk keeps them across a recall
+    (PROTOCOL.md, "Names are session state" and "Layout") - so putting
+    them back needs no snapshot recalled, no Update pressed and no
+    waiting on the operator at all. That makes this the cheap half of a
+    rebuild: the desk reads and banks correctly within seconds, and the
+    hours of per-snapshot settings can follow whenever there is time.
+
+    Works on backups written before names moved into the manifest too -
+    see backup_names().
+
+    The layout half is the one unproven thing in this file. Nothing has
+    ever been seen writing /Layout/Layout/Banks - the official app only
+    reads it - so the write is a well-formed guess: the console's own
+    reply sent back to it verbatim. It is checked by reading the layout
+    again afterwards, and if the desk ignored it the job says so and
+    prints the banks for rebuilding by hand, rather than reporting a
+    success it has not verified.
+    """
+
+    def __init__(self, get_worker, command_queue, store, backup_dir):
+        super().__init__(get_worker, command_queue, store)
+        self.backup_dir = Path(backup_dir)
+
+    def execute(self):
+        manifest = self.store.load_manifest(self.backup_dir)
+        names = backup_names(self.backup_dir, manifest, self.store)
+        banks = [list(args) for args in manifest.get("banks") or []]
+
+        if not names and not banks:
+            raise JobAborted("This backup holds no session-level settings.")
+
+        info = self.read_session()
+        self._check_layout(manifest["topology"], info["topology"])
+
+        written = self._restore_names(names)
+        self._restore_banks(banks)
+
+        return (f"Restored {written} of {len(names)} name(s) "
+                f"and attempted {len(banks)} fader bank(s).")
+
+    # --- names
+
+    def _restore_names(self, saved):
+        if not saved:
+            return 0
+
+        strips = sorted({STRIP_ADDRESS.match(a).group(1) for a in saved
+                         if STRIP_ADDRESS.match(a)})
+        self.progress = (0, len(strips))
+
+        done = 0
+
+        def strip_done(_prefix):
+            nonlocal done
+            done += 1
+            self.progress = (done, len(strips))
+
+        self.status = "Reading the names on the console now..."
+        now = self._flat(self.dump(strips, strip_done))
+
+        unknown = [a for a in saved if a not in now]
+        writes = [a for a in saved
+                  if a in now and not same_value(now[a][1], saved[a][1])]
+
+        self.status = f"Writing {len(writes)} name(s)..."
+        self._write(writes, saved)
+
+        wrong = self._verify(writes, saved)
+        if wrong:
+            self._write(wrong, saved)
+            wrong = self._verify(wrong, saved)
+
+        summary = (f"{len(writes)} name(s) written, "
+                   f"{len(saved) - len(writes) - len(unknown)} already correct")
+        if wrong:
+            summary += (f", {len(wrong)} did not take (e.g. "
+                        f"{', '.join(wrong[:3])})")
+        if unknown:
+            summary += f", {len(unknown)} not on this console"
+        self.note(summary + ".")
+
+        return len(writes) - len(wrong)
+
+    # --- fader layout
+
+    def _restore_banks(self, saved):
+        if not saved:
+            return
+
+        self.status = "Reading the fader layout on the console now..."
+        before = {bank_key(args): args for args in self.read_layout()}
+
+        writes = [args for args in saved
+                  if before.get(bank_key(args)) != args]
+
+        if not writes:
+            self.note(f"All {len(saved)} fader bank(s) already match the "
+                      "backup.")
+            return
+
+        self.status = f"Writing {len(writes)} fader bank(s)..."
+        for args in writes:
             self.check()
-            for address in addresses[start:start + WRITE_BATCH]:
-                tags, args = saved[address]
-                self.send((address, list(args), tags or None))
-            time.sleep(WRITE_BATCH_GAP)
+            self.send((LAYOUT_ADDRESS, list(args), None))
+            self.sleep(LAYOUT_WRITE_GAP)
 
-    def _verify(self, addresses, saved):
-        """The written addresses that still do not read back as saved."""
-        if not addresses:
-            return []
+        self.status = "Checking the fader layout..."
+        after = {bank_key(args): args for args in self.read_layout()}
+        wrong = [args for args in writes if after.get(bank_key(args)) != args]
 
-        self.sleep(VERIFY_SETTLE_SECONDS)
-        strips = sorted({STRIP_ADDRESS.match(a).group(1) for a in addresses})
-        now = self._flat(self.dump(strips))
+        if not wrong:
+            self.note(f"{len(writes)} fader bank(s) restored.")
+            return
 
-        return [a for a in addresses
-                if a not in now or not same_value(now[a][1], saved[a][1])]
+        if len(wrong) == len(writes) and not after:
+            self.note("The console did not answer for its fader layout, so "
+                      "whether the banks were written is unknown.")
+        elif len(wrong) == len(writes):
+            self.note("The console ignored every fader bank written to it - "
+                      "the layout is not settable over OSC on this desk, and "
+                      "has to be rebuilt on the surface. It is listed below "
+                      "and in the backup's session.json.")
+        else:
+            self.note(f"{len(writes) - len(wrong)} fader bank(s) restored, "
+                      f"{len(wrong)} did not take - those are listed below.")
+
+        for args in wrong:
+            self.note("  " + describe_bank(args))
