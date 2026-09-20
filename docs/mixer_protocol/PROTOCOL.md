@@ -434,6 +434,8 @@ APP->MIXER  /Input_Channels/44/.../trim ,f [41.78010559082031]
 MIXER->APP  /Input_Channels/44/.../trim ,f [40.0]                  <- pinned
 ```
 
+CLMix's own gain and trim dials deliberately sweep the **union** of the two, `-40` to `+60`, so the pair read alike and neither is short of a value its parameter really holds; a dial turned into a region the desk clamps snaps back as soon as it is let go, because it defers to whatever the console reports.
+
 **Never assume a SET was stored as sent.** The console accepts the
 datagram either way and reports what it actually kept, so the echo is
 the value - which is another reason to read back rather than trust a

@@ -129,8 +129,8 @@ class ChannelInputBottomSheet(
 
         setUpDial(
             dial = binding.gainDial,
-            min = GAIN_MIN,
-            max = GAIN_MAX,
+            min = HEAD_AMP_MIN,
+            max = HEAD_AMP_MAX,
             initial = gain,
             format = { binding.gainValue.text = formatDb(it) },
             onChanged = { value, force ->
@@ -145,8 +145,8 @@ class ChannelInputBottomSheet(
 
         setUpDial(
             dial = binding.trimDial,
-            min = TRIM_MIN,
-            max = TRIM_MAX,
+            min = HEAD_AMP_MIN,
+            max = HEAD_AMP_MAX,
             initial = trim,
             format = { binding.trimValue.text = formatDb(it) },
             onChanged = { value, force ->
@@ -349,19 +349,27 @@ class ChannelInputBottomSheet(
     }
 
     companion object {
-        // Ranges the dials sweep. The console never states its own
-        // limits over OSC, so these were read off the desk instead: the
-        // official app sends unclamped dial positions and the console
-        // pins them, so the values it reports back are the range. See
-        // docs/mixer_protocol/PROTOCOL.md, "Head-amp ranges".
+        // One span for both head-amp dials. The console never states its
+        // own limits over OSC, so these were read off the desk: the
+        // official app sends unclamped dial positions and the desk pins
+        // them, which makes whatever it reports back the range. Measured
+        // 2026-09-20 - gain -20..+60, trim -40..+40 (see
+        // docs/mixer_protocol/PROTOCOL.md, "Head-amp ranges").
         //
-        // Gain was 0..60 here, which silently cost the bottom 20 dB of
-        // the desk's range - a channel the console had at -12 dB could
-        // not be dialled back to where it was.
-        private const val GAIN_MIN = -20.0
-        private const val GAIN_MAX = 60.0
-        private const val TRIM_MIN = -40.0
-        private const val TRIM_MAX = 40.0
+        // Deliberately the union of the two rather than a pair each, so
+        // gain and trim read alike and neither dial can be short of a
+        // value its parameter really holds. The cost is that each can be
+        // turned into a region the desk will clamp - gain below -20,
+        // trim above +40 - which is harmless here because a dial left
+        // alone snaps back to whatever the console reports (see the
+        // idle() checks in update()), so it corrects itself within
+        // SETTLE_MS of letting go.
+        //
+        // Gain was 0..60 before this, which silently cost the bottom
+        // 20 dB of the desk's range - a channel the console had at
+        // -12 dB could not be dialled back to where it was.
+        private const val HEAD_AMP_MIN = -40.0
+        private const val HEAD_AMP_MAX = 60.0
 
         // How long after a turn to keep ignoring pushes for that dial.
         private const val SETTLE_MS = 700L
