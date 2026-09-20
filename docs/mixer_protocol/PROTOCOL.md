@@ -1,6 +1,6 @@
 # Mixer OSC Protocol Reference
 
-Reverse-engineered by live-probing the actual console at `10.5.20.242` on 2026-08-09 (send port 1091, recv port 1090 at that time), and extended on 2026-09-03 from live probing plus two packet captures of the **official DiGiCo client** talking to the same console (`digico.pcapng`, `sound sample.pcapng`).
+Reverse-engineered by live-probing the actual console at `10.5.20.242` on 2026-08-09 (send port 1091, recv port 1090 at that time), and extended on 2026-09-03 from live probing plus two packet captures of the **official DiGiCo client** talking to the same console (`digico.pcapng`, `sound sample.pcapng`), and again on 2026-09-20 from an eight-minute recording of the official app made with CLMix's own DiGiCo App Capture (`services/digico_bridge.py`) - the first capture taken with the app driven deliberately, opening panels and moving controls to see what each one asks for.
 
 > **The send/recv ports are console configuration, not protocol constants.** They have been observed as 1091/1090, then 800/900, then 10025/10026 on this same console. Never hardcode them; treat them as user settings (which is what CLMix already does). The console is a **DiGiCo Q225 Quantum**. Its `/Console/Name` reply is `SD7Q-Q2`, which is a name string rather than the model - don't read the "SD7" in it as the console type.
 
@@ -15,6 +15,7 @@ This document was generated from **946 concrete addresses** the console actually
 - **GET a value:** send the address with `/?` appended, empty arg list, e.g. `/Input_Channels/1/Channel_Input/name/?`. The console replies with the same address (no `/?`) and the current value(s) as OSC args.
 - **GET a whole channel strip in one shot:** append `/?` directly to a bare index path with *no* leaf, e.g. `/Input_Channels/1/?` or `/Aux_Outputs/1/?` - the console dumps **every** parameter under that strip as a burst of individual reply messages (that's how this whole document was built: one query per category, not hundreds of guesses).
 - **SET a value:** send the bare address (no `/?`) with the new value as the single OSC arg, e.g. `/Input_Channels/1/mute 1.0`. Confirmed live: the console only echoes the address back to listeners when the value actually *changes* - setting a parameter to its current value produces no reply, so don't rely on a SET always producing a confirmation message.
+  Re-confirmed decisively 2026-09-20 watching the app drag an input gain: every step of the drag was echoed, and then the app went on sending `analog_gain 60.0` six more times after the control hit the top of its travel, for which the console said nothing at all. **The exception is strings.** Setting `/Input_Channels/5/Channel_Input/name` to the name it already held *was* echoed, twice over, on both attempts. So "no echo" is a property of unchanged numbers, not of unchanged values; code that waits for an echo to confirm a write must not assume one is coming.
 - Args observed as OSC float32 for virtually everything, including boolean-style on/off flags (`0.0`/`1.0`) - only names/labels come back as OSC strings.
 - Meter addresses (anything with `meter` in the name) reply with an **empty arg list** when queried directly with `/?`. They are not gettable that way - but they are fully readable through the meter subscription mechanism documented in [Metering](#metering) below.
 - `/Talkback_Outputs/*` (2 exist per `/Console/Channels/?`) did not answer any address pattern tried (`/Talkback_Outputs/1/?`, `.../mute`, `.../name`, `.../fader`, `.../Buss_Trim/name`) - left undocumented.
@@ -73,6 +74,20 @@ Captured 2026-09-03. Client `10.5.20.211:63337` to console `:800`; console repli
 
 Steps 2-8 are fired as a single burst within about 1 ms; the client does not wait for each reply.
 
+**Re-observed 2026-09-20, and step 1 is not what it looked like.** The app sent `/Console/Name/?` and was answered in 36 ms - and then kept asking, about every 1.5 s, for a further **16 seconds**, before firing the boot burst. It was not retrying until answered; it was sitting on its connection screen polling for a console to still be there, and the burst went out when the session was actually opened. So `/Console/Name/?` is both the handshake and an idle poll, and a console seeing it repeatedly is not a sign anything is wrong.
+
+The burst itself was the same set of queries in a slightly different order (`Session/Filename`, `Aux_Outputs/modes`, `Surface_Snapshot`, `Input_Channels/modes`, `Channels`, `Session/Filename` again, `Group_Outputs/modes`, `Multis`, then `Layout/Layout/Banks` 55 ms later), which suggests the order is incidental and only the set matters. `/Console/Session/Filename/?` appearing twice in one burst is the keep-alive's first tick landing inside it.
+
+Then, per visible strip, the app reads the nine parameters its channel strip actually draws:
+
+```
+Channel_Input/name      mute        CGs_level
+Channel_Input/main/alt_in   solo    CGs_mute
+Panner/pan              fader       Channel_Input/stereo_mode
+```
+
+followed by `/Meters/clear` and one `/Meters/request/{slot}` per leg. Opening a processing panel adds that panel's parameters for the selected channel only - the whole EQ section, or the whole dynamics section - rather than re-reading the strip.
+
 ### Keep-alive
 
 The official client sends **`/Console/Session/Filename/?` every 2.00 seconds** for the entire life of the session - dead regular, and the only recurring traffic in a settled connection.
@@ -97,6 +112,9 @@ Meters are **not** readable via `/?`. They use a **slot-based subscription**: yo
 - `/Meters/request/{slot}` takes exactly **one OSC string**: the full meter address to bind to that slot number. Slots are zero-based and assigned by you.
 - Any address ending in a meter leaf works, e.g. `Channel_Input/post_meter/left`, `.../pre_meter/right`, `Dynamics/GR_meter_1`. See the per-category tables below for the full set.
 - The official client subscribed 12 slots - one per visible strip. Subscribe only what is actually on screen; this is a continuous 30 Hz stream, not a poll.
+- **The app re-asserts the whole subscription about once a second**, and not only when the visible set changes: two `/Meters/clear` and then every slot again, 8-slot to 16-slot bursts, roughly every 1.1 s for as long as the meter view is up. Two clients doing this would simply take the table from each other once a second, which is why CLMix stays off it entirely while the bridge is running (`services/digico_bridge.py`).
+- **Slots are not capped at 12.** The app used 0..15 for a bank of 16 legs, and adds more on top when a processing panel is open - the selected channel's `Dynamics/gate_meter`, `Dynamics/GR_meter_{n}` and `EQ/GR_meter_{n}` go into slots above the strip meters. The ceiling, if there is one, has not been found.
+- Two meter addresses the whole-strip dump never mentioned turned up in the app's subscriptions: **`/Input_Channels/{n}/Dynamics/gate_meter`** and **`/Input_Channels/{n}/EQ/GR_meter_0`**. The second one matters beyond itself: `EQ/GR_meter` is **0-based**, while `Dynamics/GR_meter` is 1-based (`GR_meter_1`..`GR_meter_4`). Don't assume one convention across the address space.
 
 ### Receiving
 
@@ -197,6 +215,8 @@ A single query to `/Console/Channels/?` triggers the console to broadcast one co
 
 Console name (`/Console/Name`): **SD7Q-Q2**
 
+**Only the burst answers.** The individual count addresses are push-only: the app sent `/Console/Multis/?` fourteen times on its own and was answered none of them, and the two replies it did get both arrived in the burst triggered by a `/Console/Channels/?` sent in the same millisecond. Treat `/Console/Channels/?` as the only way to read any of these - asking for one category by name looks exactly like a dead console.
+
 ## Already used by CLMix today
 
 For reference, these are the addresses `ui/main_window.py` already speaks - all confirmed live against this console during probing:
@@ -219,7 +239,40 @@ For reference, these are the addresses `ui/main_window.py` already speaks - all 
 | `/Snapshots/Recall_Snapshot/{n}`, `/Snapshots/Change_Surface_Snapshot/{n}` | Broadcast on snapshot recall |
 | `/Layout/Layout/Banks/?` | Custom surface bank layout (one reply per bank) |
 
+Show Backup (`services/show_backup.py`) speaks these on top, all of them added from the 2026-09-20 capture:
+
+| Address pattern | Purpose |
+|---|---|
+| `/{category}/{n}/?` | The whole-strip dump a backup is built from |
+| `/{category}/{n}/Dynamics/gate_hold`, `gate_range`, `gate-duck-comp` | Asked for by name because the dump omits them - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
+| `/Snapshots/name/?` with `,i [n]` | Refills one snapshot name the bulk list dropped |
+| `/Snapshots/Surface_Snapshot/?` | Recorded in the manifest beside the recalled snapshot |
+| `/Macros/names/?` | Macro names, saved for a rebuild; nothing writes them back |
+| `/Snapshots/End_Recall_Snapshot` (listened for) | When it is safe to start reading after a recall |
+
 Newly discovered below (channel EQ, dynamics, gate, delay, input gain/phantom/pad, routing to groups/matrix, aux/group/matrix bus processing, DCAs, graphic EQs, multitrack returns) is **not yet wired into the app** - it's everything else the console exposes.
+
+## Parameters a strip dump leaves out
+
+**A whole-strip dump is not the whole strip.** This is the most consequential thing the 2026-09-20 capture established, because everything else in this document rests on the opposite assumption - the 946 addresses below were collected by dumping one strip per category and writing down what came back.
+
+Three parameters the app asked for by name are not in any of those dumps, and answer a direct `/?` perfectly well:
+
+| Address | Type | Sample | What it is |
+|---|---|---|---|
+| `/Input_Channels/{n}/Dynamics/gate_hold` | float (seconds) | `[0.0799]`, `[0.0359]` | Gate hold time |
+| `/Input_Channels/{n}/Dynamics/gate_range` | float (dB) | `[15.0]`, `[40.235]` | Gate range/depth |
+| `/Input_Channels/{n}/Dynamics/gate-duck-comp` | float (enum) | `[0.0]`, `[2.0]` | Which of gate / duck / comp the section is running - the sibling of the already-documented `comp-multiband-desser` |
+
+The app queries all three whenever it opens a channel's dynamics panel, and the console answers with real per-channel values, so they are ordinary stored channel state that the dump simply does not volunteer.
+
+**Consequences:**
+
+- A backup built purely from strip dumps silently loses them. `services/show_backup.py` asks for them by name after each dump (`DUMP_GAP_LEAVES`) for exactly this reason, and `tools/mock_mixer.py` reproduces the gap so the code that copes with it is actually exercised.
+- More generally: **the dump cannot be trusted to be exhaustive.** There is no reason to think these three are the only ones, and no way to enumerate what is missing except by watching the official app ask for something and noticing it was never in the dump. Every future capture is worth diffing against `commands.csv` on exactly this question.
+- Only `Input_Channels` was observed. The `Dynamics` block is identical across `Aux_Outputs`, `Group_Outputs` and `Matrix_Outputs` in the map below, so the same three are very likely missing there too; CLMix asks for them on any strip whose dump showed a gate, which costs nothing if they are not there.
+
+> **These three are deliberately *not* in `commands.csv`.** That file is the record of what the console's own dumps returned, and `tools/mock_mixer.py` builds its simulated strips straight from it - putting them in would both misrepresent the dump and quietly remove the gap the mock exists to reproduce. They live here and in `DUMP_GAP_LEAVES` instead.
 
 ## Full command map by category
 
@@ -244,6 +297,28 @@ Console identity/topology. A single query ("/Console/Channels/?") triggers a bur
 
 `/Console/Session/Filename` is the currently loaded session file. The official client polls it every 2.0 s as its keep-alive - see [Connection lifecycle](#connection-lifecycle).
 
+### Bulk routing reads under `/Console`
+
+Three addresses under `/Console` carry per-strip routing as one message instead of one per send. They duplicate what the strip dump already gives, but in a form that is one datagram per strip rather than 12, which is why the app uses them.
+
+| Pattern | Type | Sample | Same as |
+|---|---|---|---|
+| `/Console/Input_Channels/{n}/group_sends` | int list, one per Group_Output | `,iii [1, 1, 0]` | `/Input_Channels/{n}/Group_Send/{g}/group` |
+| `/Console/Matrix_Inputs/{n}/send_levels` | float list, one per Matrix_Output | `,ffff... [0.0, 0.0, -150.0, ...]` | `/Matrix_Inputs/{n}/Matrix_Send/{m}/send_level` |
+| `/Console/Matrix_Inputs/{n}/send_ons` | int list, one per Matrix_Output | `,iiii... [1, 1, 0, ...]` | `/Matrix_Inputs/{n}/Matrix_Send/{m}/send_on` |
+
+`-150.0` is this console's "off" for a send level. Note the types: these lists come back as `i` where the per-send addresses are `f`, so a value read through one and written through the other needs converting.
+
+### Macros
+
+The console's macro buttons, by name. Nothing here writes or fires one - `/Macros/Buttons/?` was asked six times and never answered, and no address that triggers a macro has been seen - so this is a read-only catalogue.
+
+| Pattern | Count | Type | Sample value |
+|---|---|---|---|
+| `/Macros/name` | per macro | `[index, name]`, `,is` | `[11, "Save Current Snapshot"]` |
+
+`/Macros/names/?` broadcasts one `/Macros/name` per macro, 22 of them on this console, and the index is **0-based**. Worth saving in a show backup: macro names are session work, and re-typing them from memory after a rebuild is exactly the kind of hour this tool exists to avoid.
+
 ### Snapshots
 
 Scene/snapshot recall and naming.
@@ -253,7 +328,36 @@ Scene/snapshot recall and naming.
 | `/Snapshots/Current_Snapshot` | 1 | int | `[3]` | `/Snapshots/Current_Snapshot` |
 | `/Snapshots/Surface_Snapshot` | 1 | int | `[13]` | `/Snapshots/Surface_Snapshot` |
 | `/Snapshots/count` | 1 | int | `[10]` | `/Snapshots/count` |
-| `/Snapshots/name` | per snapshot | `[index, cue, 0, name]` | `[13, 450, 0, "NATALIYA FILISTOVICH"]` | reply to `/Snapshots/names/?` |
+| `/Snapshots/name` | per snapshot | `[index, cue, 0, name]`, `,iiis` | `[14, 450, 0, "NATALIYA FILISTOVICH"]` | reply to `/Snapshots/names/?` |
+
+**Snapshot indices are 0-based.** `/Snapshots/count` came back `17` for a session whose snapshots ran `0` ("CL DEFAULT") to `16`, and `/Snapshots/Current_Snapshot` uses the same numbering. So the valid range is `0 .. count - 1`, and there is no snapshot `count`.
+
+**One name at a time: `/Snapshots/name/?` takes an index argument.** Sending it with `,i [n]` returns that one snapshot's name, in the same `,iiis` shape as the bulk list:
+
+```
+-> /Snapshots/name/?   ,i  [1]
+<- /Snapshots/name     ,iiis  [1, 82, 0, "VIKA GUTSUL"]
+```
+
+This is how the app follows the current snapshot's name - it polls exactly this, every 3 s, rather than re-reading the whole list. It is also the repair for the one real hazard in `/Snapshots/names/?`: that reply is one datagram per snapshot, so a single lost packet silently drops a snapshot from your list, and re-asking for all of them to recover one is both wasteful and no less likely to drop another. Ask for the missing index instead.
+
+#### Snapshot recall on the wire
+
+A recall - whether started at the surface or by a client - broadcasts **four messages in a fixed order**, 11 ms end to end for a snapshot that changed nothing:
+
+```
+/Snapshots/Recall_Snapshot/1         ,i [0]
+/Snapshots/Change_Surface_Snapshot/1 ,i [0]
+/Snapshots/Current_Snapshot          ,i [1]
+/Snapshots/End_Recall_Snapshot       ,i [0]
+```
+
+The index is in the **address**; the argument is a constant int `0` carrying no information. Two things follow that matter to anyone reading the desk around a recall:
+
+- **`/Snapshots/Current_Snapshot` arrives in the middle, not at the end.** Waiting for it and then reading parameters means reading a desk that is still moving. On a snapshot that changes hundreds of values the tail of that burst keeps coming after it.
+- **`/Snapshots/End_Recall_Snapshot` is the console saying it has finished.** It is the signal to wait for. `services/show_backup.py` does, falling back to a fixed settle for a desk that never sends one.
+
+Whether the console *accepts* `/Snapshots/Recall_Snapshot/{n}` as a command is still unconfirmed - this capture only ever saw it broadcast. But since the desk's own form carries `,i [0]`, that is the form worth sending, and it is what CLMix sends.
 
 ### Layout
 
@@ -358,13 +462,17 @@ every channel whose value changes, alongside that channel's
 | `/Input_Channels/{n}/Dynamics/gate_attack` | 1 | float | `[0.0019596272613853216]` | `/Input_Channels/1/Dynamics/gate_attack` |
 | `/Input_Channels/{n}/Dynamics/gate_centre_freq` | 1 | float | `[127.0]` | `/Input_Channels/1/Dynamics/gate_centre_freq` |
 | `/Input_Channels/{n}/Dynamics/gate_freq_width` | 1 | float | `[255.0]` | `/Input_Channels/1/Dynamics/gate_freq_width` |
+| `/Input_Channels/{n}/Dynamics/gate_hold` | 1 | float (seconds) | `[0.0799]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
 | `/Input_Channels/{n}/Dynamics/gate_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/gate_in` |
+| `/Input_Channels/{n}/Dynamics/gate_meter` | 1 | none (meter/empty) | `[]` | subscribed by the app; not in the dump |
+| `/Input_Channels/{n}/Dynamics/gate_range` | 1 | float (dB) | `[15.0]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
+| `/Input_Channels/{n}/Dynamics/gate-duck-comp` | 1 | float (enum) | `[2.0]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
 | `/Input_Channels/{n}/Dynamics/gate_release` | 1 | float | `[0.017051173374056816]` | `/Input_Channels/1/Dynamics/gate_release` |
 | `/Input_Channels/{n}/Dynamics/gate_thresh` | 1 | float | `[-9.41171646118164]` | `/Input_Channels/1/Dynamics/gate_thresh` |
 | `/Input_Channels/{n}/Dynamics/input_meter/left` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Dynamics/input_meter/left` |
 | `/Input_Channels/{n}/Dynamics/input_meter/right` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Dynamics/input_meter/right` |
 | `/Input_Channels/{n}/Dynamics/key_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/key_solo` |
-| `/Input_Channels/{n}/EQ/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Input_Channels/1/EQ/GR_meter_1` |
+| `/Input_Channels/{n}/EQ/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Input_Channels/1/EQ/GR_meter_1` - but the app subscribes `GR_meter_0` too, so this one is 0-based |
 | `/Input_Channels/{n}/EQ/dynamic_eq_on_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/EQ/dynamic_eq_on_1` |
 | `/Input_Channels/{n}/EQ/eq_Q_{n}` | 4 | float | `[2.9718434810638428]` | `/Input_Channels/1/EQ/eq_Q_1` |
 | `/Input_Channels/{n}/EQ/eq_attack_{n}` | 4 | float | `[0.009999999776482582]` | `/Input_Channels/1/EQ/eq_attack_1` |
@@ -719,6 +827,8 @@ Multitrack recorder return channels (e.g. "FX"). Just fader/mute/solo/name.
 
 ## Undocumented / not reachable this session
 
+- `/Macros/Buttons/?` - asked six times by the official app across two sessions, never answered once. Whatever the app wanted from it, it carried on without it. No address that *fires* a macro has been seen either, so macros are readable by name and nothing more.
+- **Storing a snapshot.** Still the one gap that costs real time: a restore has to write a snapshot's settings to the live desk and then ask the operator to press Update. The app never stored a snapshot during this capture, so there was nothing to learn from it - the next capture worth taking is one where somebody does.
 - `/Talkback_Outputs/{n}` - exists (count 2) per console topology, but no query form tried got a reply.
 - `/Console/Session_Name`, `/Console/Show_File`, `/Console/Sample_Rate`, `/Console/Version`, `/Console/Type`, `/Console/Desk_Type` - guessed metadata addresses, none answered.
   **Resolved since:** the real session address is `/Console/Session/Filename` (not `/Console/Session`), found by capturing the official client rather than by guessing. Worth remembering as a method - guessing addresses found almost nothing here, while one capture of the real client resolved several at once.
@@ -733,5 +843,6 @@ Multitrack recorder return channels (e.g. "FX"). Just fader/mute/solo/name.
 | 2026-09-03 | `~/Documents/digico.pcapng` - official client, 92 s | Discovery beacon on 2029; `/Console/Name/?` handshake; 2.0 s keep-alive; meter subscription mechanism |
 | 2026-09-03 | `~/Documents/sound sample.pcapng` - official client with live audio, 42 s | Meter value encoding: packed peak/RMS fields, 3 dB quantisation, `126` no-signal sentinel |
 | 2026-09-03 | `~/Pictures/VID2026090321*.mp4` - phone video of the console's meters and CLMix side by side | Corrected the meter scale: a field is dB directly (`dB = -field`, 0..-60), not `-field/3` |
+| 2026-09-20 | `digico-capture_2026-09-20_08-05-51.log` - official app via CLMix's own DiGiCo App Capture, 8 min, 13,119 datagrams | That a strip dump is not exhaustive (`gate_hold`, `gate_range`, `gate-duck-comp`); snapshot indices are 0-based; the four-message recall burst and `End_Recall_Snapshot`; `/Snapshots/name/?` by index; `/Macros/names/?`; the bulk `/Console` routing reads; that per-category counts answer only inside the `/Console/Channels/?` burst; meter subscriptions re-asserted ~1/s and running past 12 slots; that a string SET echoes even unchanged |
 
 Anything marked "unidentified" above stayed unidentified because only one console was ever observed - constant fields may be constant by circumstance rather than by design.

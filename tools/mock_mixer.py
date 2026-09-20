@@ -9,8 +9,10 @@ level/pan/on -
 to let the desktop app (and, through it, phone clients via RemoteServer)
 be exercised end-to-end. Every strip carries the real console's full
 parameter set (built from docs/mixer_protocol/commands.csv), so a
-whole-strip dump ("/Input_Channels/3/?") answers the way the desk does,
-and each snapshot stores its own copy of the lot. Simulates:
+whole-strip dump ("/Input_Channels/3/?") answers the way the desk does -
+including leaving three gate parameters out of it, which the real desk
+also does and which a backup has to ask for by name (see DUMP_OMITTED).
+Each snapshot stores its own copy of the lot. Simulates:
 
     - 5 aux buses  ("Reverb", "Monitor 1", "Monitor 2", "Delay", "FX Send")
     - 5 banks      (see BANK_NAMES), each with a random channel count
@@ -20,8 +22,15 @@ and each snapshot stores its own copy of the lot. Simulates:
                     metering can both be exercised
     - snapshots    see SNAPSHOT_NAMES; recallable by clients via
                    /Snapshots/Recall_Snapshot/{n} (unless
-                   --no-remote-recall), with test-only surface actions
-                   under /Mock/ - see MockMixer.handle_mock_control
+                   --no-remote-recall), announced with the desk's real
+                   four-message recall burst ending in
+                   /Snapshots/End_Recall_Snapshot, and readable either
+                   as the whole list (/Snapshots/names/?) or one at a
+                   time (/Snapshots/name/? with an index). Test-only
+                   surface actions live under /Mock/ - see
+                   MockMixer.handle_mock_control
+    - macros       names only, via /Macros/names/? - as on the desk,
+                   nothing here fires one
     - meters       a ~29Hz /Meters/values stream for whatever slots the
                    client subscribed, in the console's packed peak/RMS
                    wire format
@@ -164,6 +173,23 @@ NESTED_BUS_CATEGORY = {
 }
 NESTED_BUS_RE = re.compile(r"(Aux_Send|Group_Send|Matrix_Send)/(\d+)/")
 STRIP_RE = re.compile(r"^/([A-Za-z_]+)/(\d+)$")
+
+# Parameters the real console answers by name but leaves out of its own
+# whole-strip dump (PROTOCOL.md, "Parameters a strip dump leaves out").
+# Reproduced here, gap and all, because a mock whose dump is complete
+# cannot test the code that exists to cope with one that is not - see
+# ShowBackupJob._fill_dump_gaps. Added to any strip that has a gate.
+DUMP_TRIGGER_LEAF = "Dynamics/gate_thresh"
+DUMP_OMITTED = {
+    "Dynamics/gate_hold": [0.08],
+    "Dynamics/gate_range": [15.0],
+    "Dynamics/gate-duck-comp": [0.0],
+}
+
+# The console's macro names, as /Macros/names/? reports them - 0-based,
+# and console-wide rather than per-snapshot.
+MACRO_NAMES = ["Snapshots Panel", "Talkback panel", "AutoTune PANIC",
+               "PC TO MASTER", "Save current Session"]
 
 STEREO_CHANCE = 0.25
 
@@ -360,6 +386,12 @@ def build_console_params(counts, templates):
                 params[address] = list(sample)
                 order.append(address)
 
+            if f"{prefix}/{DUMP_TRIGGER_LEAF}" in params:
+                # Deliberately not appended to `order`: these answer a
+                # direct query and stay out of the dump, as on the desk.
+                for leaf, sample in DUMP_OMITTED.items():
+                    params[f"{prefix}/{leaf}"] = list(sample)
+
     return params, strips
 
 
@@ -492,8 +524,12 @@ class MockMixer:
         """Load stored snapshot `index` into the live desk and announce it.
 
         Levels, pans, mutes and everything else change; the ONLY thing
-        sent is the recall broadcast, exactly as a console does it. Names
-        survive the recall, as the desk keeps them per session.
+        sent is the recall burst, exactly as a console does it - the four
+        messages below, in that order, with the index in the address and
+        a single zero as the argument. Note that Current_Snapshot lands
+        in the middle of it and End_Recall_Snapshot closes it, which is
+        what tells a client the desk has stopped moving. Names survive
+        the recall, as the desk keeps them per session.
         """
         if index not in self.snapshot_state:
             return
@@ -505,7 +541,10 @@ class MockMixer:
         self.snapshot = index
 
         print(f"* snapshot recall -> {index} ({SNAPSHOT_NAMES[index - 1]})")
-        self.send(f"/Snapshots/Recall_Snapshot/{index}", [])
+        self.send(f"/Snapshots/Recall_Snapshot/{index}", [0])
+        self.send(f"/Snapshots/Change_Surface_Snapshot/{index}", [0])
+        self.send("/Snapshots/Current_Snapshot", [index])
+        self.send("/Snapshots/End_Recall_Snapshot", [0])
 
     def handle_mock_control(self, address, args):
         """Test-only stand-ins for someone at the surface, under /Mock/.
@@ -572,7 +611,7 @@ class MockMixer:
             else:
                 print("  (ignored: --no-remote-recall)")
         elif address.endswith("/?"):
-            self.handle_query(address[:-2])
+            self.handle_query(address[:-2], args)
         elif address == "/Meters/clear" or address.startswith("/Meters/request/"):
             # Split out before handle_set, whose float() coercion would
             # choke on /Meters/request's string argument - it carries a
@@ -703,7 +742,7 @@ class MockMixer:
         stepped = round(level / METER_STEP_DB) * METER_STEP_DB
         return min(METER_MAX_FIELD, max(METER_MIN_FIELD, int(stepped)))
 
-    def handle_query(self, address):
+    def handle_query(self, address, args=()):
         if address == "/Console/Channels":
             for category in CATEGORY_ORDER:
                 self.send(f"/Console/{category}", [self.counts[category]])
@@ -729,10 +768,26 @@ class MockMixer:
         elif address == "/Snapshots/count":
             self.send(address, [len(SNAPSHOT_NAMES)])
 
+        elif address == "/Snapshots/Surface_Snapshot":
+            self.send(address, [self.snapshot])
+
         elif address == "/Snapshots/names":
             # [index, cue number, 0, name] - the real console's shape.
             for index, name in enumerate(SNAPSHOT_NAMES, start=1):
                 self.send("/Snapshots/name", [index, index * 10, 0, name])
+
+        elif address == "/Snapshots/name":
+            # The same reply for one snapshot, asked for by index - what
+            # the official app uses to follow the current snapshot's name
+            # without pulling the whole list.
+            index = int(args[0]) if args else 0
+            if 1 <= index <= len(SNAPSHOT_NAMES):
+                self.send(address, [index, index * 10, 0,
+                                    SNAPSHOT_NAMES[index - 1]])
+
+        elif address == "/Macros/names":
+            for index, name in enumerate(MACRO_NAMES):
+                self.send("/Macros/name", [index, name])
 
         elif address == "/Layout/Layout/Banks":
             # One message per bank, mirroring how a real console answers

@@ -20,6 +20,12 @@ whatever comes back, and a restore writes back whatever was kept. So as
 the protocol notes grow - the DiGiCo App capture is how - backups grow
 with them, with no change here.
 
+With one caveat, which is the reason DUMP_GAP_LEAVES exists: the
+console's dump turned out not to be the whole strip. A capture of the
+official app showed it asking by name for three gate parameters the dump
+never volunteers, so "everything it has" needs a short list of known
+exceptions asked for on top. Anything found the same way belongs there.
+
 Two things the console may or may not let CLMix do over OSC:
 
   - Recall a snapshot. The backup has to be on each snapshot to read it.
@@ -30,6 +36,11 @@ Two things the console may or may not let CLMix do over OSC:
     writes a snapshot's settings to the live desk and then asks the
     operator to press Update, which is seconds per snapshot rather than
     hours per show.
+
+The manifest also carries the console's macro names, which are session
+work nobody wants to retype from memory. Nothing can write them back -
+no address for it has been seen - so they are saved to be read, not
+restored.
 
 Both run in a background thread (ShowBackupJob) that the window polls.
 """
@@ -61,8 +72,19 @@ SNAPSHOTS_DIR = "snapshots"
 # The console broadcasts this address when a snapshot is recalled, and
 # this is the guess that it also accepts it as a command - unconfirmed on
 # a real desk. ensure_snapshot() checks rather than trusts it, and falls
-# back to the operator recalling on the surface.
-RECALL_COMMAND = "/Snapshots/Recall_Snapshot/{index}"
+# back to the operator recalling on the surface. The arguments mirror the
+# console's own broadcast exactly - index in the address, a single int
+# zero as the argument (PROTOCOL.md, "Snapshot recall on the wire") -
+# since a form the desk itself emits is the best guess available.
+RECALL_COMMAND = ("/Snapshots/Recall_Snapshot/{index}", [0], "i")
+
+# The desk announces the end of a recall. Current_Snapshot arrives in the
+# middle of that burst, not at the end of it, so on a snapshot that
+# changes a lot the desk is still pushing new values when it lands -
+# reading strips then catches parameters on their way. Waited for after
+# every recall, however it was started.
+RECALL_END = "/Snapshots/End_Recall_Snapshot"
+RECALL_END_MAX_WAIT = 20.0
 
 # Reported in /Console/Channels/? but nothing under it answers (PROTOCOL).
 SKIP_CATEGORIES = {"Talkback_Outputs"}
@@ -94,6 +116,18 @@ STRIP_MAX_WAIT = 4.0
 # STRIP_ASKS reads of any strip.
 STRIP_ASKS = 5
 
+# A whole-strip dump is not quite the whole strip. These three answer a
+# direct "/?" but the console leaves them out of its own dump - found by
+# capturing the official app, which asks for them by name (PROTOCOL.md,
+# "Parameters a strip dump leaves out"). Without them a backup silently
+# loses the gate's hold time and range and the choice between gate, duck
+# and compressor. Asked for after the dump, on strips whose dump showed a
+# gate at all, so the categories with no dynamics cost nothing - and if a
+# desk does include them in its dump, asking again simply agrees.
+DUMP_GAP_TRIGGER = "/Dynamics/gate_thresh"
+DUMP_GAP_LEAVES = ("/Dynamics/gate_hold", "/Dynamics/gate_range",
+                   "/Dynamics/gate-duck-comp")
+
 SESSION_QUIET = 0.6
 SESSION_MAX_WAIT = 6.0
 
@@ -109,8 +143,16 @@ SESSION_QUERIES = (
     "/Console/Input_Channels/modes/?", "/Console/Aux_Outputs/modes/?",
     "/Console/Group_Outputs/modes/?", "/Snapshots/count/?",
     "/Snapshots/names/?", "/Snapshots/Current_Snapshot/?",
-    "/Layout/Layout/Banks/?",
+    "/Snapshots/Surface_Snapshot/?", "/Layout/Layout/Banks/?",
+    "/Macros/names/?",
 )
+
+# One reply per missing snapshot name, asked for by index rather than
+# re-asking for the whole list (PROTOCOL.md, "Snapshots"). Paced, because
+# the worker coalesces commands by address and a burst of these would
+# collapse into one - see MixerWorker._drain_commands.
+SNAPSHOT_NAME_QUERY = ("/Snapshots/name/?", None, "i")
+SNAPSHOT_NAME_GAP = 0.15
 
 RECALL_CONFIRM_SECONDS = 3.0
 
@@ -274,7 +316,7 @@ class Collector:
     names, banks).
     """
 
-    MULTI = {"/Snapshots/name", "/Layout/Layout/Banks"}
+    MULTI = {"/Snapshots/name", "/Layout/Layout/Banks", "/Macros/name"}
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -282,6 +324,10 @@ class Collector:
         self.activity = {}
         self.singles = {}
         self.multi = {}
+        # address -> when it last arrived, for the one-shot announcements
+        # that carry no state worth keeping but say something happened -
+        # RECALL_END. Kept apart from singles, which clear_session wipes.
+        self.events = {}
 
     def feed(self, address, args, tags):
         tags = tags.lstrip(",") if tags and tags != "?" else ""
@@ -306,6 +352,7 @@ class Collector:
             else:
                 self.singles[address] = list(args)
 
+            self.events[address] = now
             self.activity["session"] = now
 
         return False
@@ -322,6 +369,11 @@ class Collector:
     def last_activity(self, key, default):
         with self._lock:
             return self.activity.get(key, default)
+
+    def seen_since(self, address, when):
+        """Whether `address` has arrived since monotonic time `when`."""
+        with self._lock:
+            return self.events.get(address, 0.0) > when
 
     def clear_session(self):
         with self._lock:
@@ -378,6 +430,9 @@ class ShowBackupJob(threading.Thread):
         # None until the first recall shows whether the desk takes
         # RECALL_COMMAND; then True or False for the rest of the job.
         self.auto_recall = None
+        # The same, for whether the desk announces the end of a recall -
+        # so a desk that does not is waited for once, not once a snapshot.
+        self.recall_end = None
 
     # --- window-facing
 
@@ -527,6 +582,22 @@ class ShowBackupJob(threading.Thread):
                 }
         return snapshots
 
+    def _ask_missing_names(self, expected, snapshots):
+        """Ask for each snapshot name still missing, one at a time.
+
+        Snapshot indices are 0-based and run to count - 1 (PROTOCOL.md,
+        "Snapshots"). An index that is not really there simply goes
+        unanswered, so guessing the range costs nothing.
+        """
+        address, _args, tags = SNAPSHOT_NAME_QUERY
+
+        missing = [index for index in range(expected) if index not in snapshots]
+        for index in missing:
+            self.send((address, [index], tags))
+            self.sleep(SNAPSHOT_NAME_GAP)
+
+        self._ask_and_wait([])
+
     def read_session(self):
         """Who the console is, its shape, and its snapshot list."""
         self.status = "Reading the session..."
@@ -550,6 +621,13 @@ class ShowBackupJob(threading.Thread):
             self._ask_and_wait(["/Snapshots/names/?"])
             snapshots = self._snapshot_names()
 
+        # Whatever is still missing, ask for by index. Cheaper than
+        # another whole list and, more to the point, a different question
+        # - one reply to lose instead of all of them.
+        if expected is not None and len(snapshots) < expected:
+            self._ask_missing_names(expected, snapshots)
+            snapshots = self._snapshot_names()
+
         if expected is not None and len(snapshots) < expected:
             self.note(f"The console reports {expected} snapshots but only "
                       f"{len(snapshots)} names arrived.")
@@ -570,6 +648,16 @@ class ShowBackupJob(threading.Thread):
             if args:
                 banks[str(args[0])] = args
 
+        # Console-wide, not per-snapshot, and there is no known way to
+        # write one back - kept so a rebuilt session can have its macros
+        # typed in again from the backup rather than from memory.
+        macros = {}
+        for args in multi.get("/Macros/name", []):
+            if args:
+                macros[int(args[0])] = str(args[-1])
+
+        surface = singles.get("/Snapshots/Surface_Snapshot")
+
         return {
             "session": (singles.get("/Console/Session/Filename") or [""])[0],
             "console_name": (singles.get("/Console/Name") or [""])[0],
@@ -580,8 +668,10 @@ class ShowBackupJob(threading.Thread):
                 if f"/Console/{key}/modes" in singles
             },
             "banks": list(banks.values()),
+            "macros": [{"index": i, "name": macros[i]} for i in sorted(macros)],
             "snapshots": [snapshots[i] for i in sorted(snapshots)],
             "current": self.current_snapshot(),
+            "surface": int(surface[0]) if surface else None,
         }
 
     @staticmethod
@@ -637,11 +727,45 @@ class ShowBackupJob(threading.Thread):
             if not pending:
                 break
 
+        self._fill_dump_gaps(results)
+
         return results
 
-    def _dump_pass(self, pending, results, on_strip_done):
+    def _fill_dump_gaps(self, results):
+        """Ask by name for the parameters the dump does not volunteer.
+
+        See DUMP_GAP_LEAVES. Only strips whose dump showed a gate are
+        asked, since that is what these belong to, and a strip that
+        already reported one of them is not asked for it again.
+        """
+        wanted = {}
+
+        for prefix, params in results.items():
+            if prefix + DUMP_GAP_TRIGGER not in params:
+                continue
+
+            missing = [prefix + leaf + "/?" for leaf in DUMP_GAP_LEAVES
+                       if prefix + leaf not in params]
+            if missing:
+                wanted[prefix] = missing
+
+        if not wanted:
+            return
+
+        self._dump_pass(deque(wanted), results, None,
+                        queries=lambda prefix: wanted[prefix])
+
+    def _dump_pass(self, pending, results, on_strip_done, queries=None):
         """Ask every strip in pending once, keeping STRIPS_IN_FLIGHT going,
-        and merge what comes back into results."""
+        and merge what comes back into results.
+
+        `queries` chooses what to ask each strip; the default is the
+        whole-strip dump.
+        """
+        if queries is None:
+            def queries(prefix):
+                return [f"{prefix}/?"]
+
         in_flight = {}
 
         while pending or in_flight:
@@ -651,7 +775,8 @@ class ShowBackupJob(threading.Thread):
             while pending and len(in_flight) < STRIPS_IN_FLIGHT:
                 prefix = pending.popleft()
                 self.collector.open(prefix)
-                self.send(f"{prefix}/?")
+                for query in queries(prefix):
+                    self.send(query)
                 in_flight[prefix] = now
 
             for prefix, sent_at in list(in_flight.items()):
@@ -674,10 +799,12 @@ class ShowBackupJob(threading.Thread):
             return True
 
         label = f"{index} “{name}”"
+        started = time.monotonic()
 
         if self.auto_recall is not False:
             self.status = f"Recalling snapshot {label}..."
-            self.send(RECALL_COMMAND.format(index=index))
+            address, args, tags = RECALL_COMMAND
+            self.send((address.format(index=index), args, tags))
 
             deadline = time.monotonic() + RECALL_CONFIRM_SECONDS
             while time.monotonic() < deadline:
@@ -685,6 +812,7 @@ class ShowBackupJob(threading.Thread):
                 self.send("/Snapshots/Current_Snapshot/?")
                 if self.current_snapshot() == index:
                     self.auto_recall = True
+                    self._wait_for_recall_end(started)
                     return True
 
             if self.auto_recall is None:
@@ -700,7 +828,40 @@ class ShowBackupJob(threading.Thread):
             wait_for=lambda: self.current_snapshot() == index,
             poll=lambda: self.send("/Snapshots/Current_Snapshot/?"),
         )
+
+        if answer == AUTO:
+            self._wait_for_recall_end(started)
+
         return answer == AUTO
+
+    def _wait_for_recall_end(self, started):
+        """Block until the desk says the recall is over, or gives up on it.
+
+        Current_Snapshot lands mid-recall, so returning on it alone hands
+        the caller a desk that is still changing. RECALL_END is the
+        console's own "done" and arrives milliseconds later on a small
+        snapshot; the timeout is only there so a desk that never sends it
+        costs one wait rather than the whole job.
+        """
+        if self.recall_end is False:
+            return False
+
+        self.status = "Waiting for the recall to finish..."
+        deadline = time.monotonic() + RECALL_END_MAX_WAIT
+
+        while time.monotonic() < deadline:
+            if self.collector.seen_since(RECALL_END, started):
+                self.recall_end = True
+                return True
+            self.sleep(POLL_SECONDS)
+
+        if self.recall_end is None:
+            self.note("The console does not announce the end of a recall, "
+                      "so each snapshot is read after a fixed settle "
+                      "instead.")
+        self.recall_end = False
+
+        return False
 
 
 class BackupJob(ShowBackupJob):
@@ -738,7 +899,9 @@ class BackupJob(ShowBackupJob):
             "topology": info["topology"],
             "modes": info["modes"],
             "banks": info["banks"],
+            "macros": info["macros"],
             "snapshot_at_backup": original,
+            "surface_snapshot_at_backup": info["surface"],
             "snapshots": [],
         }
         self._save_manifest()
