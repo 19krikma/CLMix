@@ -407,6 +407,46 @@ One practical trap if you do write it: **every bank goes to the same address**, 
 
 Input channel strips (mic/line inputs). 72 on this console.
 
+#### Head-amp ranges, and the console clamping them
+
+The console never states a parameter's limits over OSC - there is no
+min/max address - so the only way to learn them is to push a value past
+the end and see what comes back. The official app does exactly that: it
+sends raw dial positions without clamping them itself, and the desk pins
+them.
+
+| Parameter | Range | Default | How it was established |
+|---|---|---|---|
+| `Channel_Input/analog_gain` | **-20 dB to +60 dB** | `0` | Operator-stated, and confirmed on the wire: across 185 replies the console never reported outside it, while the app sent it values from -40 to +60 |
+| `Channel_Input/trim` | **-40 dB to +40 dB** | - | Clamp observed at `+40`; `-40` was reported by the console, so the floor is at least that and may be lower |
+
+The clamp caught in the act, gain first:
+
+```
+APP->MIXER  /Input_Channels/44/.../analog_gain ,f [-25.396825790405273]
+MIXER->APP  /Input_Channels/44/.../analog_gain ,f [-20.0]          <- pinned
+```
+
+and trim:
+
+```
+APP->MIXER  /Input_Channels/44/.../trim ,f [41.78010559082031]
+MIXER->APP  /Input_Channels/44/.../trim ,f [40.0]                  <- pinned
+```
+
+**Never assume a SET was stored as sent.** The console accepts the
+datagram either way and reports what it actually kept, so the echo is
+the value - which is another reason to read back rather than trust a
+write (see [Transport / wire protocol](#transport--wire-protocol)).
+
+> **A caveat to the "no echo when unchanged" rule.** Held at the gain
+> floor, the app sent `-40.0` thirteen more times and the console said
+> nothing at all - the stored value was already `-20.0` and unchanged, as
+> that rule predicts. But held at the trim ceiling it echoed `40.0` to
+> *every* repeat of `60.0`. So the rule holds for numbers the console
+> stores as sent and cannot be relied on for ones it clamps. Anything
+> waiting on an echo needs a timeout either way.
+
 #### Input patching (`Channel_Input/input_type`)
 
 `input_type` says whether the strip has a route patched to its **main**
@@ -490,7 +530,7 @@ there is nothing to tell it *which* socket to patch - see
 | `/Input_Channels/{n}/Channel_Input/alt_analog_gain` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/alt_analog_gain` |
 | `/Input_Channels/{n}/Channel_Input/alt_input_pad` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/alt_input_pad` |
 | `/Input_Channels/{n}/Channel_Input/alt_phantom` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/alt_phantom` |
-| `/Input_Channels/{n}/Channel_Input/analog_gain` | 1 | float | `[20.0]` | `/Input_Channels/1/Channel_Input/analog_gain` |
+| `/Input_Channels/{n}/Channel_Input/analog_gain` | 1 | float (dB, -20..+60, default 0) | `[20.0]` | `/Input_Channels/1/Channel_Input/analog_gain` |
 | `/Input_Channels/{n}/Channel_Input/input_pad` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/input_pad` |
 | `/Input_Channels/{n}/Channel_Input/input_type` | 1 | float (enum, see below) | `[2.0]` | `/Input_Channels/1/Channel_Input/input_type` |
 | `/Input_Channels/{n}/Channel_Input/main/alt_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/main/alt_in` |
@@ -502,7 +542,7 @@ there is nothing to tell it *which* socket to patch - see
 | `/Input_Channels/{n}/Channel_Input/pre_meter/left` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Channel_Input/pre_meter/left` |
 | `/Input_Channels/{n}/Channel_Input/pre_meter/right` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Channel_Input/pre_meter/right` |
 | `/Input_Channels/{n}/Channel_Input/stereo_mode` | 1 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/Channel_Input/stereo_mode` |
-| `/Input_Channels/{n}/Channel_Input/trim` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/trim` |
+| `/Input_Channels/{n}/Channel_Input/trim` | 1 | float (dB, -40..+40) | `[0.0]` | `/Input_Channels/1/Channel_Input/trim` |
 | `/Input_Channels/{n}/Dynamics/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Input_Channels/1/Dynamics/GR_meter_1` |
 | `/Input_Channels/{n}/Dynamics/comp-multiband-desser` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/comp-multiband-desser` |
 | `/Input_Channels/{n}/Dynamics/comp_HP_crossover` | 1 | float | `[1000.0]` | `/Input_Channels/1/Dynamics/comp_HP_crossover` |

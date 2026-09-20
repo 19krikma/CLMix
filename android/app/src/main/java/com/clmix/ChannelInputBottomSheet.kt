@@ -349,14 +349,19 @@ class ChannelInputBottomSheet(
     }
 
     companion object {
-        // Ranges the dials sweep. The console reports a plain dB float
-        // and never states its own limits over OSC, so these are the
-        // usual head-amp and trim spans - worth checking against the desk
-        // before anyone mixes on them.
-        private const val GAIN_MIN = 0.0
+        // Ranges the dials sweep. The console never states its own
+        // limits over OSC, so these were read off the desk instead: the
+        // official app sends unclamped dial positions and the console
+        // pins them, so the values it reports back are the range. See
+        // docs/mixer_protocol/PROTOCOL.md, "Head-amp ranges".
+        //
+        // Gain was 0..60 here, which silently cost the bottom 20 dB of
+        // the desk's range - a channel the console had at -12 dB could
+        // not be dialled back to where it was.
+        private const val GAIN_MIN = -20.0
         private const val GAIN_MAX = 60.0
-        private const val TRIM_MIN = -20.0
-        private const val TRIM_MAX = 20.0
+        private const val TRIM_MIN = -40.0
+        private const val TRIM_MAX = 40.0
 
         // How long after a turn to keep ignoring pushes for that dial.
         private const val SETTLE_MS = 700L

@@ -195,6 +195,17 @@ MACRO_NAMES = ["Snapshots Panel", "Talkback panel", "AutoTune PANIC",
 # (category, index) pair per fader, an empty fader being ("", 0). The
 # real desk reports 12 faders per bank and both sides of each bank
 # carrying the same strips - see PROTOCOL.md, "Layout".
+# Limits the real console pins values to, by address suffix. It states
+# none of these over OSC - they were read off the desk by sending values
+# past the end and seeing what came back (PROTOCOL.md, "Head-amp
+# ranges"). Reproduced here so a client's dials can be tested against the
+# range the desk actually has rather than the one it was given.
+CLAMPED_SUFFIXES = {
+    "/Channel_Input/analog_gain": (-20.0, 60.0),
+    "/Channel_Input/alt_analog_gain": (-20.0, 60.0),
+    "/Channel_Input/trim": (-40.0, 40.0),
+}
+
 LAYOUT_KEY_ARGS = 4
 LAYOUT_SIDES = ("L", "R")
 LAYOUT_FADERS = 12
@@ -329,6 +340,28 @@ class MicCapture:
             return None
 
         return self.levels[channel]
+
+
+def clamp_parameter(address, value):
+    """What the console would store for this address - see CLAMPED_SUFFIXES."""
+    if not isinstance(value, float):
+        return value
+
+    for suffix, (low, high) in CLAMPED_SUFFIXES.items():
+        if address.endswith(suffix):
+            return min(high, max(low, value))
+
+    return value
+
+
+def same_as_stored(current, value):
+    if not current:
+        return False
+
+    if isinstance(value, float) and isinstance(current[0], float):
+        return abs(current[0] - value) < 1e-6
+
+    return current[0] == value
 
 
 def build_layout(banks):
@@ -900,6 +933,14 @@ class MockMixer:
         # an int - whatever a client sends.
         kind = type(current[0])
         value = str(args[0]) if kind is str else kind(args[0])
+        value = clamp_parameter(address, value)
+
+        if same_as_stored(current, value):
+            # The console only echoes a value that actually changed, so
+            # holding a dial past the end of its range goes quiet rather
+            # than repeating the pinned value.
+            return
+
         self.params[address] = [value]
 
         # Real consoles echo every parameter change back to remote
