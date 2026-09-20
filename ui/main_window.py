@@ -18,13 +18,19 @@ from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.parsing import osc_types
 
-from services import updater
+from services import osc_text, updater
 from services.backup_store import BackupStore
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log
 from services.network_info import get_ethernet_ip, list_ipv4_interfaces
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
+
+# Before anything parses a datagram: the console does not always send
+# UTF-8, and python-osc's UnicodeDecodeError is not a ParseError, so
+# without this one badly-encoded channel name ends the worker thread and
+# the connection with it. See services/osc_text.py.
+osc_text.install()
 from services.update_checker import check_for_update
 from services.user_store import UserStore
 from ui.app_icon import ICON_PNG_BASE64
@@ -444,12 +450,17 @@ class MixerWorker(threading.Thread):
 
         try:
             message = OscMessage(data)
-        except ParseError:
+        except (ParseError, UnicodeDecodeError):
             # A truncated datagram, or traffic from something else that
             # found this port. Dropping these silently (which is what
             # this used to do) made "the console is sending nothing" and
             # "the console is sending something we cannot read" look
             # identical in the log, so they get reported as bytes.
+            #
+            # UnicodeDecodeError should now be unreachable - osc_text
+            # makes string parsing tolerant - but it is caught here as
+            # well because the cost of missing one is the whole console
+            # connection, not one datagram.
             self._log_unparsed(data, sender, depth)
             return
 
