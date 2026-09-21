@@ -2,6 +2,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 import ipaddress
+import errno
 import threading
 import queue
 import re
@@ -188,6 +189,37 @@ class MixerWorker(threading.Thread):
     # still better than the default, and failing to set it is harmless.
     RECV_BUFFER_BYTES = 4 * 1024 * 1024
 
+    # Send buffer, for the same reason as the receive one and with the
+    # same caveats. A restore writes thousands of small datagrams, and
+    # where Linux would block until there was room, Windows fails the
+    # sendto() outright with WSAENOBUFS.
+    SEND_BUFFER_BYTES = 1024 * 1024
+
+    # Socket errors that mean "no room for this datagram right now"
+    # rather than anything being wrong with it, so the send is worth
+    # retrying. Windows puts the raw WSA codes in errno (10055 =
+    # WSAENOBUFS, 10035 = WSAEWOULDBLOCK), which are not the errno
+    # module's POSIX values, so both spellings are listed.
+    SEND_RETRY_ERRNOS = frozenset({
+        errno.ENOBUFS, errno.EWOULDBLOCK, errno.EAGAIN, 10055, 10035,
+    })
+
+    # What to wait before each retry. The OS send queue drains in
+    # microseconds, so the first wait almost always covers it; the
+    # later ones only matter to an adapter that is genuinely wedged.
+    SEND_RETRY_WAITS = (0.005, 0.02, 0.05, 0.1)
+
+    # How many datagrams may go out back to back before the loop pauses
+    # for SEND_BURST_GAP. A restore hands over its writes in paced
+    # batches, but _drain_commands collects everything that piled up
+    # during one pass of the loop and would otherwise fire the lot at
+    # line rate - undoing that pacing, and filling the OS send queue
+    # (WSAENOBUFS) as well as risking the console's receive buffer.
+    # Ordinary traffic never reaches this in one pass, so it costs
+    # nothing outside a restore.
+    SEND_BURST = 64
+    SEND_BURST_GAP = 0.002
+
     def __init__(self, mixer_ip, send_port, recv_port,
                  command_queue, message_queue, bind_ip=None):
         super().__init__(daemon=True)
@@ -325,6 +357,12 @@ class MixerWorker(threading.Thread):
             self.message_queue.put(("status", "Connecting"))
 
             self.send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                self.send_sock.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_SNDBUF, self.SEND_BUFFER_BYTES
+                )
+            except OSError as ex:
+                log("warning", f"Could not enlarge the send buffer: {ex}")
 
             if self.bind_ip:
                 # Port 0 - the source port does not matter, only which
@@ -1052,11 +1090,38 @@ class MixerWorker(threading.Thread):
                 builder.add_arg(arg)
 
         dgram = builder.build().dgram
-        self.send_sock.sendto(dgram, (self.mixer_ip, self.send_port))
+
+        if not self._sendto(dgram, address):
+            return
 
         bridge = self.bridge
         if bridge is not None:
             bridge.from_clmix(dgram)
+
+    def _sendto(self, dgram, address):
+        """Put one datagram on the wire. False if it did not go.
+
+        A failed send used to come out of run()'s try, which ended the
+        worker thread and the connection with it - so one datagram the
+        OS had no room for (Windows: WSAENOBUFS, seen part-way through
+        a restore, which writes thousands of them) took the console
+        down rather than costing a packet. UDP is allowed to lose this
+        one anyway: a restore reads back what it wrote and writes the
+        difference again, and anything else here is re-sent by the next
+        move of the control that sent it.
+        """
+        for wait in self.SEND_RETRY_WAITS + (None,):
+            try:
+                self.send_sock.sendto(dgram, (self.mixer_ip, self.send_port))
+                return True
+            except OSError as ex:
+                if wait is None or ex.errno not in self.SEND_RETRY_ERRNOS:
+                    log("warning", f"Dropped {address}: {ex}")
+                    return False
+
+                time.sleep(wait)
+
+        return False
 
     def _drain_commands(self):
         # Pulling only one queued command per loop iteration (the old
@@ -1087,11 +1152,17 @@ class MixerWorker(threading.Thread):
 
             pending[key] = command
 
+        sent = 0
+
         for key in order:
             if self.bridge_only and key[0] not in self.BRIDGE_ONLY_ALLOWED:
                 continue
 
+            if sent and not sent % self.SEND_BURST:
+                time.sleep(self.SEND_BURST_GAP)
+
             self.send_command(pending[key])
+            sent += 1
 
     @staticmethod
     def command_address(command):
