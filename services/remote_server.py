@@ -36,6 +36,11 @@ METER_PUSH_INTERVAL_SECONDS = 0.05
 # them, so they shouldn't stay valid indefinitely the way they did before.
 SESSION_TTL_SECONDS = 12 * 60 * 60
 
+# What a phone is told when the operator kicks it from the Phone List.
+# Phrased as something a person did, not as a fault: the phone shows this
+# verbatim, and "connection lost" would send its user chasing the Wi-Fi.
+KICK_MESSAGE = "Disconnected by the sound engineer"
+
 # Advertised over mDNS/DNS-SD so phone apps can find this server on the
 # local network instead of the user typing in an IP - Android's NsdManager
 # and iOS's NWBrowser both browse for this exact service type.
@@ -115,13 +120,14 @@ class RemoteServer:
         self._aiozc = None
         self._service_info = None
 
-        # Sockets open right now, as opposed to _sessions, which is
-        # redeemable tokens - a phone that has been put in a pocket still
-        # has a session but no connection. Only ever added to and removed
-        # from on the event loop's own thread; read from the Tkinter
-        # thread, which is fine for something only used to say "3 phones
-        # are connected" before an action that would cut them off.
-        self._clients = set()
+        # Sockets open right now mapped to their per-connection state, as
+        # opposed to _sessions, which is redeemable tokens - a phone that
+        # has been put in a pocket still has a session but no connection.
+        # Only ever added to and removed from on the event loop's own
+        # thread; read from the Tkinter thread by client_count() and
+        # client_list(), which is fine for a dict whose entries are only
+        # ever swapped whole.
+        self._clients = {}
 
         # Channels currently hard-muted from a phone, and what each aux
         # send was carrying when that happened, so unmuting can put them
@@ -141,6 +147,100 @@ class RemoteServer:
     def client_count(self):
         """How many phones are connected to this server right now."""
         return len(self._clients)
+
+    def client_list(self):
+        """One row per connected phone, for the Phone List window.
+
+        Deliberately built only from what a connection already had to tell
+        us to work at all: the address it dialled in from, the account it
+        logged in as, what that account is allowed to touch, and what it
+        is mixing right now. Nothing is asked of the phone for this
+        window's sake - there is no device name, model or OS here because
+        the protocol never collects one.
+
+        Called from the Tkinter thread. The dict is copied first so an
+        event-loop connect or disconnect mid-iteration cannot fault it,
+        and every value is read out into a plain snapshot rather than
+        handing the live state dicts over.
+        """
+        worker = self.get_worker()
+        now = time.monotonic()
+        rows = []
+
+        for websocket, state in list(self._clients.items()):
+            address = getattr(websocket, "remote_address", None)
+            entry = state.get("permission") or {}
+
+            rows.append({
+                "id": state.get("client_id"),
+                "address": address[0] if address else "unknown",
+                "user": state.get("user"),
+                "mode": state.get("mode"),
+                "aux": state.get("aux"),
+                "aux_name": self._aux_name(worker, state["aux"])
+                            if worker is not None and state.get("aux") is not None
+                            else None,
+                "snapshot": entry.get("snapshot"),
+                "mixer_control": bool(entry.get("mixer_control", False)),
+                "connected_seconds": max(0.0, now - state.get("connected_at", now)),
+            })
+
+        # Longest-connected first, so the list does not reshuffle under
+        # the operator every time a phone drops and reconnects.
+        rows.sort(key=lambda row: row["connected_seconds"], reverse=True)
+        return rows
+
+    def kick_client(self, client_id, reason=KICK_MESSAGE):
+        """Drops one phone, by the "id" client_list() gave for it.
+
+        Called from the Tkinter thread, so the close itself is handed to
+        the event loop rather than attempted here. Returns whether a live
+        connection matched - False means it had already gone, which is
+        not worth treating as a failure.
+
+        The account's session token is revoked with it. Without that the
+        phone's own reconnect would redeem the token within seconds and
+        the operator would have achieved nothing; with it, getting back
+        in needs the password again.
+        """
+        if self._loop is None or not self._loop.is_running():
+            return False
+
+        for websocket, state in list(self._clients.items()):
+            if state.get("client_id") != client_id:
+                continue
+
+            token = state.get("token")
+
+            if token is not None:
+                # Popped here on the Tkinter thread rather than inside the
+                # coroutine: the point is that the token is dead the
+                # moment the operator asks, not whenever the loop gets
+                # round to the close.
+                self._sessions.pop(token, None)
+
+            log("info", f"Kicking {state.get('user') or 'unauthenticated client'} "
+                f"at {getattr(websocket, 'remote_address', ('unknown',))[0]}")
+
+            asyncio.run_coroutine_threadsafe(
+                self._close_client(websocket, reason), self._loop
+            )
+            return True
+
+        return False
+
+    async def _close_client(self, websocket, reason):
+        """Tells a phone why it is going, then closes the socket.
+
+        _handle_client's own finally block does the cleanup - releasing
+        meters and dropping the _clients entry - so there is nothing to
+        undo here.
+        """
+        try:
+            await self._send(websocket, {"type": "error", "message": reason})
+            await websocket.close()
+        except websockets.ConnectionClosed:
+            pass
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -230,9 +330,8 @@ class RemoteServer:
 
     # Every adapter's non-loopback, non-link-local IPv4 address - deliberately
     # not restricted to Ethernet (unlike services/network_info.py's
-    # get_ethernet_ip, used for the "your computer's IP" display) since phones
-    # discovering this server are just as likely to be on the same Wi-Fi
-    # network as the desktop.
+    # get_ethernet_ip) since phones discovering this server are just as
+    # likely to be on the same Wi-Fi network as the desktop.
     @staticmethod
     def _local_ipv4_addresses():
         addresses = []
@@ -253,7 +352,7 @@ class RemoteServer:
 
     async def _handle_client(self, websocket):
         log("info", f"Client connected: {websocket.remote_address}")
-        self._clients.add(websocket)
+        client_id = f"client:{id(websocket):x}"
         state = {
             # "aux" (this client rides one bus's sends) or "mixer" (it
             # rides the console's own channel faders). Never both - the
@@ -265,10 +364,22 @@ class RemoteServer:
             # for. None until it picks an aux, since there is nothing to
             # prime before that.
             "snapshot_epoch": None,
-            # Identifies this client's claim on the console's shared
-            # meter slots - see _claim_meters.
-            "meter_source": f"client:{id(websocket):x}",
+            # Identifies this connection for as long as it lives: its
+            # claim on the console's shared meter slots (see
+            # _claim_meters), and the handle the Phone List window kicks
+            # by. Two names for one token because the two uses are
+            # unrelated - a meter claim is not a person.
+            "client_id": client_id,
+            "meter_source": client_id,
+            # Monotonic, not wall clock: this is only ever read as "how
+            # long has this phone been on", which a clock change should
+            # not rewrite.
+            "connected_at": time.monotonic(),
         }
+
+        # Registered once the state exists, so client_list() can never see
+        # a socket without one.
+        self._clients[websocket] = state
 
         push_task = asyncio.create_task(self._push_loop(websocket, state))
         meter_task = asyncio.create_task(self._meter_loop(websocket, state))
@@ -289,7 +400,7 @@ class RemoteServer:
             if worker is not None:
                 worker.release_meters(state["meter_source"])
 
-            self._clients.discard(websocket)
+            self._clients.pop(websocket, None)
             log("info", f"Client disconnected: {websocket.remote_address}")
 
     async def _handle_message(self, websocket, state, raw):

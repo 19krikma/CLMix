@@ -19,11 +19,11 @@ from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.parsing import osc_types
 
-from services import osc_text, updater
+from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log
-from services.network_info import get_ethernet_ip, list_ipv4_interfaces
+from services.network_info import list_ipv4_interfaces
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
 
@@ -40,6 +40,7 @@ from ui.access_window import AccessPanel
 from ui.aux_window import AuxPanel
 from ui.backup_window import BackupWindow
 from ui.logs_window import LogsWindow, open_folder
+from ui.phones_window import PhonesWindow
 from ui.presets_window import PresetsWindow
 from ui.show_backup_window import ShowBackupWindow
 from version import VERSION
@@ -59,6 +60,13 @@ WINDOW_HEIGHT = 500
 # the way of connecting to the mixer, which is what the operator actually
 # opened the app to do.
 STARTUP_UPDATE_CHECK_MS = 5000
+
+# How long after launch "Connect on Launch" fires. Long enough for the
+# window to be up and drawn first, so the connection's own status line is
+# on screen before it starts changing - and short enough that a machine
+# booted into this app is talking to the console by the time anyone walks
+# up to it.
+CONNECT_ON_LAUNCH_MS = 700
 
 
 # Addresses worth keeping in the in-memory cache, mirroring the
@@ -3065,6 +3073,7 @@ class MainWindow:
         self.show_backup_window = None
         self.logs_window = None
         self.presets_window = None
+        self.phones_window = None
         self.remote_server = None
 
         # DiGiCo App Capture - see services/digico_bridge.py. Runs only
@@ -3121,6 +3130,7 @@ class MainWindow:
 
         self.root.after(100, self.process_messages)
         self.root.after(self.STATUS_TICK_MS, self._tick_status)
+        self.root.after(CONNECT_ON_LAUNCH_MS, self._connect_on_launch)
         self.root.after(STARTUP_UPDATE_CHECK_MS, self._start_update_check)
 
     def build_menu_bar(self):
@@ -3176,6 +3186,12 @@ class MainWindow:
             top_bar,
             text="Presets",
             command=self.open_presets_window
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Button(
+            top_bar,
+            text="Phone List",
+            command=self.open_phones_window
         ).pack(side="left", padx=(8, 0))
 
         ttk.Separator(top_bar, orient="vertical").pack(
@@ -3703,6 +3719,12 @@ class MainWindow:
             "digico_capture_control": False,
             # None means services.show_backup.DEFAULT_ROOT.
             "show_backup_dir": None,
+            # Connect to the mixer by itself once the window is up - see
+            # _connect_on_launch. Its sibling switch, Launch on Startup,
+            # has no entry here on purpose: that one lives in the
+            # desktop's own login list, which services/autostart.py reads
+            # back directly rather than mirroring here.
+            "connect_on_launch": False,
         }
 
         try:
@@ -4037,6 +4059,37 @@ class MainWindow:
 
         self.presets_window = PresetsWindow(self.root, self.preset_store)
 
+    def open_phones_window(self):
+
+        if self.phones_window and self.phones_window.window.winfo_exists():
+            self.phones_window.window.lift()
+            return
+
+        self.phones_window = PhonesWindow(
+            self.root, self.connected_phones,
+            is_running=lambda: self.remote_server is not None,
+            on_kick=self.kick_phone,
+        )
+
+    def connected_phones(self):
+        """Rows for the Phone List window, or nothing if no server is up.
+
+        Guarded here rather than in the window: the remote server only
+        exists between connect() and disconnect(), and the window outlives
+        both.
+        """
+        if self.remote_server is None:
+            return []
+
+        return self.remote_server.client_list()
+
+    def kick_phone(self, client_id):
+        """Drops one connected phone, named by its client_list() id."""
+        if self.remote_server is None:
+            return False
+
+        return self.remote_server.kick_client(client_id)
+
     def open_logs_window(self):
 
         if self.logs_window and self.logs_window.window.winfo_exists():
@@ -4056,6 +4109,8 @@ class MainWindow:
             self.root, self.server_details,
             initial_result=self.latest_update,
             on_result=self._apply_update_result,
+            get_startup_options=self.startup_options,
+            set_startup_option=self.set_startup_option,
         )
 
     def _start_update_check(self):
@@ -4087,22 +4142,74 @@ class MainWindow:
             self.about_window.set_result(result)
 
     def server_details(self):
-        """Live server/mixer facts for the About window's support block.
+        """Live server facts for the About window.
 
         Handed over as a bound method (not a snapshot dict) so the window
-        can re-read it whenever it's reopened or refreshed - the mixer
-        connects, drops and reconnects while the app stays up.
+        can re-read it whenever it's reopened or refreshed - phones join
+        and drop while the app stays up.
+
+        "clients" is what the support block shows; "mixer_connected" is
+        not displayed at all, it is only what the update confirmation asks
+        before warning that installing will drop the console connection.
         """
         worker = self.worker
 
         return {
-            "remote_port": self.settings["remote_port"],
-            "remote_running": self.remote_server is not None,
             "clients": self.remote_server.client_count() if self.remote_server else 0,
-            "computer_ip": get_ethernet_ip(),
-            "mixer_ip": self.settings["mixer_ip"],
             "mixer_connected": worker is not None and worker.is_alive() and worker.loaded,
         }
+
+    def startup_options(self):
+        """State of the two startup switches, for the About window.
+
+        Launch on Startup is read back from the desktop's login list
+        rather than from our settings file: that list is where the setting
+        actually lives, and it can be changed from outside this app (by
+        the operator's own startup-apps screen, or by a reinstall). Connect
+        on Launch is ours alone, so it comes from the settings.
+        """
+        return {
+            "launch_on_startup": autostart.is_enabled(),
+            "connect_on_launch": bool(self.settings.get("connect_on_launch")),
+        }
+
+    def set_startup_option(self, key, value):
+        """Applies one startup switch. Returns an error string, or None.
+
+        The error is handed back rather than raised or shown here: the
+        About window is what has a place to put it, right under the switch
+        it belongs to.
+        """
+        if key == "launch_on_startup":
+            try:
+                autostart.set_enabled(value)
+            except autostart.AutostartError as ex:
+                verb = "add" if value else "remove"
+                return f"Could not {verb} the startup entry: {ex}"
+
+            return None
+
+        self.settings[key] = bool(value)
+        self.save_settings()
+        log("info", f"{key} set to {bool(value)}")
+        return None
+
+    def _connect_on_launch(self):
+        """The Connect on Launch switch, fired once a short while after
+        the window is up.
+
+        Checked again here rather than only at schedule time, and skipped
+        if anything is already running: the operator may well have hit
+        Connect themselves in the second it took to get here.
+        """
+        if not self.settings.get("connect_on_launch"):
+            return
+
+        if self.worker is not None:
+            return
+
+        log("info", "Connect on Launch - connecting to the mixer")
+        self.connect()
 
     def open_backup_window(self):
 
