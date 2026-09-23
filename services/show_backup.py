@@ -9,20 +9,24 @@ come back from here:
     <root>/<session name>/<date time>/
         session.json                 what the console was, the snapshot
                                      list, the macro names, the fader
-                                     layout and every strip and bus
-                                     name; the manifest
+                                     layout, and a copy of the first
+                                     snapshot's names; the manifest
         snapshots/
             001 - Show 1.json        every parameter the console
-            002 - Soundcheck.json    reported for every strip, read
-            ...                      with that snapshot recalled
+            002 - Soundcheck.json    reported for every strip, names
+            ...                      included, read with that snapshot
+                                     recalled
 
-Names and the fader layout sit in the manifest rather than in the
-snapshots because that is where the console keeps them - a recall changes
-neither (PROTOCOL.md, "Names are session state" and "Layout"). That split
-is what lets the two halves be put back independently: RestoreSessionJob
+The fader layout sits in the manifest because that is where the console
+keeps it - a recall does not change it (PROTOCOL.md, "Layout"). Names are
+not like that: they are recalled with everything else, so each snapshot's
+file holds its own and RestoreJob writes them back with it.
+
+The manifest's copy of the names is a shortcut, not the record. It is
+what lets the two halves be put back independently: RestoreSessionJob
 makes a rebuilt desk read and bank correctly in seconds without recalling
-anything, and RestoreJob puts the settings back on whichever snapshots
-are asked for, one, several or all of them.
+anything, and RestoreJob then puts the settings - and each snapshot's own
+names - back on whichever snapshots are asked for, one, several or all.
 
 Nothing here is a fixed list of parameters. A backup asks each strip for
 everything it has ("/Input_Channels/3/?" dumps the lot) and keeps
@@ -108,21 +112,25 @@ NOT_CATEGORIES = {"Name", "Channels", "Session"}
 # and the patch is rebuilt by hand.
 NEVER_RESTORE_SUFFIXES = ("/Channel_Input/input_type",)
 
-# Names belong to the session, not to a snapshot: the desk keeps them
-# across a recall, so every snapshot of one session reports the same
-# ones. Saving them per snapshot stored the same strings once per
-# snapshot and made a restore rewrite them each time round, which is why
-# they are lifted into the manifest instead and restored on their own.
+# Names belong to the snapshot, not to the session: this desk recalls
+# them with everything else, so two snapshots of one session can name the
+# same strip differently. Every snapshot's file therefore keeps its own
+# names and a restore writes them back with it.
+#
+# The manifest keeps a copy of the first snapshot's names as well. That
+# copy is not the record - it is what RestoreSessionJob writes in one
+# pass so a rebuilt desk reads correctly in seconds, long before anyone
+# has time to restore the snapshots themselves.
 #
 # Every naming address the console has ends in "/name" and nothing else
 # contains the word, so the suffix is the whole rule - it catches
 # Channel_Input/name, Buss_Trim/name and the bare /name on Control_Groups,
-# Graphic_EQ and Multis alike. See PROTOCOL.md, "Names are session state".
+# Graphic_EQ and Multis alike. See PROTOCOL.md, "Names are snapshot state".
 NAME_SUFFIX = "/name"
 
-# The fader layout, and session state for the same reason names are: one
-# reply per bank per side, saying which strip sits on each of the 12
-# faders. Args are [name, side, layer, bank] then 12 (category, index)
+# The fader layout, which is session state - it survives a recall the way
+# names were once thought to: one reply per bank per side, saying which
+# strip sits on each of the 12 faders. Args are [name, side, layer, bank] then 12 (category, index)
 # pairs, an empty slot being ("", 0) - see PROTOCOL.md, "Layout".
 #
 # Those first four identify a bank between them, and all four are needed:
@@ -293,11 +301,12 @@ def split_names(results):
 
 
 def backup_names(backup_dir, manifest, store):
-    """A backup's session-level names, {address: (tags, args)}.
+    """The names RestoreSessionJob writes in its one pass.
 
-    Backups written before names moved to the manifest keep them inside
-    each snapshot instead, all snapshots holding the same ones, so the
-    first snapshot that has any answers just as well.
+    The manifest's copy when there is one; otherwise the first snapshot
+    that carries any, which is what a backup written before the manifest
+    held names looks like. Either way this is a starting point for a
+    rebuilt desk, not the record - each snapshot's own file holds that.
     """
     saved = manifest.get("names")
     if saved:
@@ -1087,7 +1096,9 @@ class BackupJob(ShowBackupJob):
             "macros": info["macros"],
             "snapshot_at_backup": original,
             "surface_snapshot_at_backup": info["surface"],
-            # Filled from the first snapshot read - see NAME_SUFFIX.
+            # A copy of the first snapshot's names, for RestoreSessionJob
+            # to write in one quick pass. Not the authoritative record -
+            # each snapshot's own file holds that. See NAME_SUFFIX.
             "names": {},
             "snapshots": [],
         }
@@ -1119,8 +1130,11 @@ class BackupJob(ShowBackupJob):
                 self.progress = (done, total)
 
             results = self.dump(strips, strip_done)
-            names, results = split_names(results)
-            odd = self._keep_names(names, results, label)
+            # Names stay where they were read: they are snapshot state on
+            # this desk, so every snapshot keeps its own. The manifest
+            # copy taken here is a convenience for RestoreSessionJob's
+            # fast pass, not the authoritative value.
+            odd = self._keep_names(split_names(results)[0], label)
             count = sum(len(params) for params in results.values())
 
             entry["file"] = f"{SNAPSHOTS_DIR}/{snapshot['index']:03d} - " \
@@ -1144,8 +1158,8 @@ class BackupJob(ShowBackupJob):
             self.manifest["snapshots"].append(entry)
             self._save_manifest()
             self.note(f"Saved snapshot {label}: {count} settings"
-                      + (f", and {odd} name(s) this snapshot does not share "
-                         "with the session" if odd else "") + ".")
+                      + (f", {odd} of them name(s) differing from the first "
+                         "snapshot's" if odd else "") + ".")
 
         self._return_to(original, info)
 
@@ -1157,17 +1171,20 @@ class BackupJob(ShowBackupJob):
         return (f"Backed up {len(saved)} of {len(targets)} snapshot(s) "
                 f"to {self.backup_dir}.")
 
-    def _keep_names(self, names, results, label):
-        """Put this snapshot's names in the manifest, and return how many
-        of them disagreed with what the session already recorded.
+    def _keep_names(self, names, label):
+        """Record the first snapshot's names in the manifest, and report
+        how many of this snapshot's names differ from those.
 
-        The first snapshot read sets the session's names. Every later one
-        is checked against it rather than trusted: names being session
-        state is what makes this safe (PROTOCOL.md, "Names are session
-        state"), so a snapshot that disagrees is either a desk that does
-        not work that way or a name changed mid-backup. Either way the
-        odd ones out stay in that snapshot's own file, so moving names
-        up a level can never lose one.
+        Nothing is moved out of the snapshot by this - names are snapshot
+        state (PROTOCOL.md, "Names are snapshot state"), so each
+        snapshot's file keeps its own and a restore puts them back with
+        it. The manifest copy exists only so RestoreSessionJob can get a
+        rebuilt desk reading correctly in one pass, before anyone has
+        time for the per-snapshot work.
+
+        The count returned is worth showing: on a desk where every
+        snapshot names its strips the same way it stays zero, and a
+        non-zero one tells the operator the names really do move.
         """
         session = self.manifest["names"]
 
@@ -1176,23 +1193,13 @@ class BackupJob(ShowBackupJob):
                             for address, value in sorted(names.items())})
             return 0
 
-        odd = 0
-
-        for address, (tags, args) in names.items():
-            known = session.get(address)
-
-            if known is not None and same_value(known[1], args):
-                continue
-
-            match = STRIP_ADDRESS.match(address)
-            if match:
-                results.setdefault(match.group(1), {})[address] = (tags, args)
-                odd += 1
+        odd = sum(1 for address, (_tags, args) in names.items()
+                  if address not in session
+                  or not same_value(session[address][1], args))
 
         if odd:
-            log("warning", f"Show Backup: snapshot {label} reported {odd} "
-                           "name(s) differing from the session's - kept with "
-                           "the snapshot")
+            log("info", f"Show Backup: snapshot {label} names {odd} strip(s) "
+                        "differently from the first snapshot")
 
         return odd
 
@@ -1238,11 +1245,11 @@ class RestoreJob(ShowBackupJob):
     restore_order.
 
     `only_files` restricts it to the snapshot files named - one of them,
-    a handful, or None for every snapshot in the backup. Strip and bus
-    names are not written here at all; they belong to the session and go
-    back through RestoreSessionJob (see NAME_SUFFIX). The exception is a
-    name a backup recorded as differing from its session's, which stays
-    with its snapshot and is restored with it.
+    a handful, or None for every snapshot in the backup. Names go back
+    here, with the snapshot they were read from: they are snapshot state
+    on this desk (see NAME_SUFFIX). RestoreSessionJob also writes a copy
+    of them, but only as a fast first pass over a rebuilt desk - this is
+    what makes each snapshot's own names right.
     """
 
     def __init__(self, get_worker, command_queue, store, backup_dir,
@@ -1274,14 +1281,12 @@ class RestoreJob(ShowBackupJob):
 
         original = info["current"]
 
-        # A backup taken before names moved up a level has the session's
-        # names copied into every snapshot file. Writing those here would
-        # rename the desk once per snapshot for no gain, so they are left
-        # to RestoreSessionJob, which reads them out of the same files. In
-        # a backup that does carry manifest names, anything still named
-        # inside a snapshot is there because it disagreed with the
-        # session - which is exactly what should be restored with it.
-        keep_names = bool(manifest.get("names"))
+        # Names are restored with their snapshot, whatever vintage the
+        # backup is. A current one holds every name in every snapshot; one
+        # written while names were treated as session state holds only the
+        # few that disagreed, and those are exactly the ones that have to
+        # go back with it. Either way, writing what the file says is
+        # right - there is nothing here to filter out any more.
 
         loaded = {}
         unreadable = []
@@ -1302,8 +1307,7 @@ class RestoreJob(ShowBackupJob):
                 continue
 
             flat = {address: value for address, value in flatten(data).items()
-                    if not address.endswith(NEVER_RESTORE_SUFFIXES)
-                    and (keep_names or not is_name(address))}
+                    if not address.endswith(NEVER_RESTORE_SUFFIXES)}
             loaded[entry["file"]] = flat
             total += len({STRIP_ADDRESS.match(a).group(1) for a in flat})
 
@@ -1466,15 +1470,19 @@ class RestoreJob(ShowBackupJob):
 
 
 class RestoreSessionJob(ShowBackupJob):
-    """Writes back what belongs to the session rather than a snapshot:
-    strip and bus names, and the fader layout.
+    """Writes the fader layout, and one pass of names, without recalling
+    anything.
 
-    Both are session state - the desk keeps them across a recall
-    (PROTOCOL.md, "Names are session state" and "Layout") - so putting
-    them back needs no snapshot recalled, no Update pressed and no
-    waiting on the operator at all. That makes this the cheap half of a
-    rebuild: the desk reads and banks correctly within seconds, and the
-    hours of per-snapshot settings can follow whenever there is time.
+    The layout is session state - the desk keeps it across a recall
+    (PROTOCOL.md, "Layout"). Names are not: they belong to each snapshot,
+    and RestoreJob is what puts each snapshot's own back. What this job
+    writes is the manifest's copy, taken from the first snapshot of the
+    backup, so a rebuilt desk reads correctly within seconds instead of
+    waiting on the hours of per-snapshot work. Any snapshot that names a
+    strip differently corrects it when that snapshot is restored.
+
+    That makes this the cheap half of a rebuild, and nothing here needs a
+    snapshot recalled, an Update pressed, or the operator waited on.
 
     Works on backups written before names moved into the manifest too -
     see backup_names().

@@ -78,9 +78,10 @@ class ShowBackupWindow:
             state="disabled"
         )
         self.restore_button.pack(side="right", padx=(0, 8))
-        # Its own button because it is its own job: names and the fader
-        # layout belong to the session, so putting them back needs no
-        # snapshot recalled and no Update pressed - see RestoreSessionJob.
+        # Its own button because it is its own job: the fader layout
+        # belongs to the session, and the names it writes alongside are a
+        # first pass over a rebuilt desk - neither needs a snapshot
+        # recalled or an Update pressed. See RestoreSessionJob.
         self.restore_session_button = ttk.Button(
             actions, text="Restore Session", command=self.start_restore_session,
             state="disabled"
@@ -337,9 +338,10 @@ class ShowBackupWindow:
             "desk after each one. Only do this when the console is not "
             "live.\n\n"
             "The session must be rebuilt first: the same channel and bus "
-            "counts, and snapshots named as they were. Patching is not "
-            "restored, and neither are strip names or the fader layout - "
-            "those belong to the session, so use Restore Session for them.\n\n"
+            "counts, and snapshots named as they were. Strip names come "
+            "back with their snapshot. Patching is not restored, and "
+            "neither is the fader layout - that belongs to the session, "
+            "so use Restore Session for it.\n\n"
             "Input channels go back first, and anything that fails or is "
             "missing is left until the end rather than stopping the run - "
             "whatever is still wrong is listed when it finishes.",
@@ -358,14 +360,15 @@ class ShowBackupWindow:
 
         if not messagebox.askokcancel(
             "Restore Session",
-            "This writes the backup's session-level settings to the "
-            "console: channel, bus, DCA and graphic EQ names, and the "
-            "fader banks and layout.\n\n"
-            "These belong to the session rather than to any one snapshot, "
-            "so nothing is recalled and there is no need to press Update - "
-            "the desk reads and banks correctly straight away, whichever "
-            "snapshot it is on. The channel and bus counts still have to "
-            "match the backup.\n\n"
+            "This writes the fader banks and layout to the console, plus "
+            "one pass of channel, bus, DCA and graphic EQ names taken "
+            "from the backup's first snapshot.\n\n"
+            "Nothing is recalled and there is no need to press Update, so "
+            "a rebuilt desk reads and banks correctly straight away. The "
+            "layout belongs to the session; the names do not - they are "
+            "restored properly, per snapshot, by Restore to Console, and "
+            "this pass is only to make the desk usable before that. The "
+            "channel and bus counts still have to match the backup.\n\n"
             "The names are known to write back. The fader layout is not: "
             "no console has been seen accepting one, so CLMix writes it, "
             "reads it back and tells you whether it took - if it did not, "

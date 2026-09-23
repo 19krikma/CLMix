@@ -253,20 +253,22 @@ Show Backup (`services/show_backup.py`) speaks these on top, all of them added f
 
 Newly discovered below (channel EQ, dynamics, gate, delay, input gain/phantom/pad, routing to groups/matrix, aux/group/matrix bus processing, DCAs, graphic EQs, multitrack returns) is **not yet wired into the app** - it's everything else the console exposes.
 
-## Names are session state
+## Names are snapshot state
 
-Every naming address on this console - `Channel_Input/name`, `Buss_Trim/name`, and the bare `/name` on `Control_Groups`, `Graphic_EQ` and `Multis` - belongs to the **session**, not to a snapshot. The desk keeps a strip's name across a recall, which is why the channel you renamed stays renamed whatever scene you jump to.
+Every naming address on this console - `Channel_Input/name`, `Buss_Trim/name`, and the bare `/name` on `Control_Groups`, `Graphic_EQ` and `Multis` - belongs to the **snapshot**. A recall brings the names with it, so two snapshots of one session can name the same strip differently.
 
-Evidence from the 2026-09-20 capture, which is corroboration rather than proof:
+**This reverses what this section said before**, and the correction came from the desk rather than from a capture. The earlier reading was that names were session state, on two pieces of evidence from the 2026-09-20 capture:
 
 - The recall at 08:06:09 broadcast **no** name messages at all, while broadcasting other changed parameters in the same burst.
 - Across 45 distinct input channels, read repeatedly over eight minutes and across that recall, **no channel name ever reported two different values**.
 
-The caveat is that the one recall observed was to the snapshot already loaded, so it changed very little - this is consistent with names being session state rather than demonstrating it outright.
+Both are explained by the caveat that was recorded alongside them at the time: the one recall observed was *to the snapshot already loaded*, so almost nothing changed, and every reading came from a session whose snapshots happened to share their names. Absence of name traffic on a recall that changed nothing is not evidence that a recall never carries names. The lesson worth keeping is the general one - a capture of a desk doing nothing interesting corroborates whatever you already believed.
 
-**What this means for a backup.** Saving names inside every snapshot stores the same strings once per snapshot and makes a restore rename the whole desk once per snapshot, for no gain. `services/show_backup.py` therefore lifts them into the manifest once and restores them as their own job (`RestoreNamesJob`), which needs no snapshot recalled and no Update pressed - so a rebuilt desk can be made to *read* correctly in seconds, long before anyone has time for the per-snapshot settings.
+**What this means for a backup.** Every snapshot's file keeps its own names, and a restore writes them back with that snapshot, exactly like any other parameter.
 
-Because the claim above is corroborated rather than proved, the backup checks it instead of trusting it: every snapshot's names are compared against the session's, and any that disagree are kept with that snapshot and reported. If this console turns out to be per-snapshot after all, a backup will say so rather than quietly losing a name.
+`services/show_backup.py` also keeps a copy of the first snapshot's names in the manifest, and `RestoreSessionJob` writes that copy in one pass with nothing recalled and no Update pressed. That is a convenience, not the record: it gets a rebuilt desk *reading* correctly in seconds, long before anyone has time for the per-snapshot work, and any snapshot that names a strip differently corrects it when that snapshot is restored.
+
+A backup reports, per snapshot, how many names differ from the first snapshot's. On a session that names its strips the same way throughout that count stays zero - which is the state that made the old reading look right.
 
 There is one genuinely notable asymmetry to remember when writing names back: a **string SET is echoed even when the value has not changed**, unlike a numeric one - see [Transport / wire protocol](#transport--wire-protocol).
 
