@@ -339,7 +339,10 @@ class ShowBackupWindow:
             "The session must be rebuilt first: the same channel and bus "
             "counts, and snapshots named as they were. Patching is not "
             "restored, and neither are strip names or the fader layout - "
-            "those belong to the session, so use Restore Session for them.",
+            "those belong to the session, so use Restore Session for them.\n\n"
+            "Input channels go back first, and anything that fails or is "
+            "missing is left until the end rather than stopping the run - "
+            "whatever is still wrong is listed when it finishes.",
             icon="warning", parent=self.window
         ):
             return

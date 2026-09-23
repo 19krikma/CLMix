@@ -209,6 +209,22 @@ POLL_SECONDS = 0.05
 
 STRIP_ADDRESS = re.compile(r"^(/[A-Za-z_]+/\d+)/")
 
+# Input channels go back before anything else. A restore can be cut short
+# - cancelled, the console stops taking writes, the show starts - and
+# what it managed to finish should be the part a show cannot run without.
+# The outboard categories (matrices, graphic EQs, control groups) are both
+# fewer and quicker to rebuild by hand, so they go last.
+RESTORE_FIRST_CATEGORY = "/Input_Channels/"
+
+
+def restore_order(address):
+    """Sort key putting input channels first, then everything else.
+
+    Within each half the order is the address's own, so a run is still
+    reproducible and the progress bar still climbs strip by strip.
+    """
+    return (0 if address.startswith(RESTORE_FIRST_CATEGORY) else 1, address)
+
 # What wait_for() returns when the condition it was watching came true,
 # rather than the operator pressing a button.
 AUTO = "__auto__"
@@ -1209,6 +1225,18 @@ class RestoreJob(ShowBackupJob):
     what it holds now, write only what differs, read it back to check,
     and have the operator press Update to store it.
 
+    Nothing short of a cancel stops the run. A snapshot file that will
+    not read is reported and left out; a snapshot the desk will not go to
+    is put aside and tried once more after the others; settings that do
+    not take are rewritten at the end of their own snapshot. Whatever is
+    still wrong at the end is named in the notes rather than being left
+    to look like a success.
+
+    Input channels go first at every level - which strips are read, which
+    settings are written, which failures are retried - so that a run that
+    is cut short has finished the part a show cannot run without. See
+    restore_order.
+
     `only_files` restricts it to the snapshot files named - one of them,
     a handful, or None for every snapshot in the backup. Strip and bus
     names are not written here at all; they belong to the session and go
@@ -1222,6 +1250,12 @@ class RestoreJob(ShowBackupJob):
         super().__init__(get_worker, command_queue, store)
         self.backup_dir = Path(backup_dir)
         self.only_files = set(only_files) if only_files else None
+
+        # Strips finished and strips expected, kept on the job rather than
+        # in execute()'s locals: _restore_snapshot advances them, and the
+        # retry pass adds to the total as it goes.
+        self._done = 0
+        self._total = 0
 
     def execute(self):
         manifest = self.store.load_manifest(self.backup_dir)
@@ -1250,75 +1284,161 @@ class RestoreJob(ShowBackupJob):
         keep_names = bool(manifest.get("names"))
 
         loaded = {}
+        unreadable = []
         total = 0
-        for entry, _target in plan:
-            data = self.store.load_snapshot(self.backup_dir, entry)
+
+        for entry, target in plan:
+            try:
+                data = self.store.load_snapshot(self.backup_dir, entry)
+            except (OSError, ValueError, KeyError) as ex:
+                # One unreadable file is not a reason to abandon the
+                # snapshots that do read. Not deferred either - a second
+                # attempt would read the same bad file - so it is reported
+                # once here and left out of the run.
+                log("error", f"Show Backup: could not read "
+                    f"{entry.get('file')!r}: {ex!r}")
+                unreadable.append(
+                    f"{target['index']} \u201c{target['name']}\u201d ({ex})")
+                continue
+
             flat = {address: value for address, value in flatten(data).items()
                     if not address.endswith(NEVER_RESTORE_SUFFIXES)
                     and (keep_names or not is_name(address))}
             loaded[entry["file"]] = flat
             total += len({STRIP_ADDRESS.match(a).group(1) for a in flat})
 
-        done = 0
+        if unreadable:
+            self.note(f"{len(unreadable)} snapshot(s) could not be read and "
+                      f"were left out: {'; '.join(unreadable)}.")
+
+        runnable = [pair for pair in plan if pair[0]["file"] in loaded]
+
+        if not runnable:
+            raise JobAborted("None of the backup's snapshot files could be read.")
+
+        self._done = 0
+        self._total = total
         self.progress = (0, total)
+
         restored = 0
+        deferred = []
 
-        for number, (entry, target) in enumerate(plan, start=1):
-            label = f"{target['index']} “{target['name']}”"
-            saved = loaded[entry["file"]]
-            strips = sorted({STRIP_ADDRESS.match(a).group(1) for a in saved})
-
-            if not self.ensure_snapshot(target["index"], target["name"]):
-                self.note(f"Skipped snapshot {label}.")
-                done += len(strips)
-                self.progress = (done, total)
-                continue
-
-            self.sleep(SETTLE_SECONDS)
-            self.status = f"Reading snapshot {label} as it is now " \
-                          f"({number} of {len(plan)})..."
-
-            def strip_done(_prefix):
-                nonlocal done
-                done += 1
-                self.progress = (done, total)
-
-            now = self._flat(self.dump(strips, strip_done))
-
-            unknown = [a for a in saved if a not in now]
-            writes = [a for a in saved if a in now
-                      and not same_value(now[a][1], saved[a][1])]
-
-            self.status = f"Writing {len(writes)} settings to snapshot {label}..."
-            self._write(writes, saved)
-
-            wrong = self._verify(writes, saved)
-            if wrong:
-                self._write(wrong, saved)
-                wrong = self._verify(wrong, saved)
-
-            summary = f"Snapshot {label}: {len(writes)} settings written"
-            if wrong:
-                summary += f", {len(wrong)} did not take (e.g. " \
-                           f"{', '.join(wrong[:3])})"
-            if unknown:
-                summary += f", {len(unknown)} not on this console (not written)"
-            self.note(summary + ".")
-
-            self.status = f"Store snapshot {label} on the console."
-            self.ask(
-                f"Snapshot {label} is restored on the desk. Press Update on "
-                f"the console to store it, then click Continue.",
-                ["Continue"],
+        for number, (entry, target) in enumerate(runnable, start=1):
+            outcome = self._restore_snapshot(
+                entry, target, loaded[entry["file"]], number, len(runnable)
             )
-            restored += 1
+
+            if outcome:
+                restored += 1
+            else:
+                # The desk never got onto this snapshot. Kept for a second
+                # attempt once the rest are done rather than dropped: a
+                # recall that did not take is usually the desk being busy
+                # with the one before it.
+                deferred.append((entry, target))
+
+        if deferred:
+            self.note(f"{len(deferred)} snapshot(s) were not reached on the "
+                      "first pass - trying those again now.")
+
+            # The retry is a second pass over the same strips, so the bar
+            # is given that much more to climb rather than sitting full.
+            for entry, _target in deferred:
+                self._total += len({STRIP_ADDRESS.match(a).group(1)
+                                    for a in loaded[entry["file"]]})
+            self.progress = (self._done, self._total)
+
+            for number, (entry, target) in enumerate(deferred, start=1):
+                if self._restore_snapshot(entry, target,
+                                          loaded[entry["file"]],
+                                          number, len(deferred),
+                                          retry=True):
+                    restored += 1
+                else:
+                    self.note(f"Snapshot {target['index']} "
+                              f"\u201c{target['name']}\u201d could not be "
+                              "reached on either pass - it was left alone.")
 
         if original is not None and self.current_snapshot() != original:
             name = next((s["name"] for s in info["snapshots"]
                          if s["index"] == original), "")
             self.ensure_snapshot(original, name)
 
-        return f"Restored {restored} of {len(plan)} snapshot(s)."
+        outcome = f"Restored {restored} of {len(plan)} snapshot(s)."
+
+        if unreadable:
+            outcome += f" {len(unreadable)} could not be read."
+
+        return outcome
+
+    def _restore_snapshot(self, entry, target, saved, number, count,
+                          retry=False):
+        """Puts one snapshot back. False if the desk never got onto it.
+
+        Input channels are read, written and re-checked before any other
+        category - see restore_order. Everything that fails along the way
+        is noted and stepped over; the only thing that ends the run early
+        is a cancel.
+        """
+        label = f"{target['index']} \u201c{target['name']}\u201d"
+        strips = sorted({STRIP_ADDRESS.match(a).group(1) for a in saved},
+                        key=restore_order)
+
+        if not self.ensure_snapshot(target["index"], target["name"]):
+            if not retry:
+                self.note(f"Could not get the desk onto snapshot {label} - "
+                          "leaving it until the rest are done.")
+
+            self._done += len(strips)
+            self.progress = (self._done, self._total)
+            return False
+
+        self.sleep(SETTLE_SECONDS)
+        self.status = f"Reading snapshot {label} as it is now " \
+                      f"({number} of {count}{', second pass' if retry else ''})..."
+
+        def strip_done(_prefix):
+            self._done += 1
+            self.progress = (self._done, self._total)
+
+        now = self._flat(self.dump(strips, strip_done))
+
+        unknown = [a for a in saved if a not in now]
+        writes = sorted([a for a in saved if a in now
+                         and not same_value(now[a][1], saved[a][1])],
+                        key=restore_order)
+
+        self.status = f"Writing {len(writes)} settings to snapshot {label}..."
+        self._write(writes, saved)
+
+        # Whatever did not take is rewritten after the whole snapshot has
+        # had its first pass, not in the middle of one: a value that was
+        # refused because the desk was still settling usually takes on the
+        # way round again, and channels should not wait behind a matrix
+        # that is arguing.
+        wrong = sorted(self._verify(writes, saved), key=restore_order)
+
+        if wrong:
+            self.status = f"Retrying {len(wrong)} setting(s) on snapshot {label}..."
+            self._write(wrong, saved)
+            wrong = self._verify(wrong, saved)
+
+        summary = f"Snapshot {label}: {len(writes)} settings written"
+        if wrong:
+            summary += f", {len(wrong)} did not take (e.g. " \
+                       f"{', '.join(wrong[:3])})"
+        if unknown:
+            summary += f", {len(unknown)} not on this console (not written)"
+        self.note(summary + ".")
+
+        self.status = f"Store snapshot {label} on the console."
+        self.ask(
+            f"Snapshot {label} is restored on the desk. Press Update on "
+            f"the console to store it, then click Continue.",
+            ["Continue"],
+        )
+
+        return True
 
     def _match(self, entries, console_snapshots):
         """(backup entry, console snapshot) pairs, matched by name - the
@@ -1396,7 +1516,7 @@ class RestoreSessionJob(ShowBackupJob):
             return 0
 
         strips = sorted({STRIP_ADDRESS.match(a).group(1) for a in saved
-                         if STRIP_ADDRESS.match(a)})
+                         if STRIP_ADDRESS.match(a)}, key=restore_order)
         self.progress = (0, len(strips))
 
         done = 0
@@ -1410,8 +1530,9 @@ class RestoreSessionJob(ShowBackupJob):
         now = self._flat(self.dump(strips, strip_done))
 
         unknown = [a for a in saved if a not in now]
-        writes = [a for a in saved
-                  if a in now and not same_value(now[a][1], saved[a][1])]
+        writes = sorted([a for a in saved
+                         if a in now and not same_value(now[a][1], saved[a][1])],
+                        key=restore_order)
 
         self.status = f"Writing {len(writes)} name(s)..."
         self._write(writes, saved)
