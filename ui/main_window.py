@@ -42,6 +42,7 @@ from ui.backup_window import BackupWindow
 from ui.logs_window import LogsWindow, open_folder
 from ui.phones_window import PhonesWindow
 from ui.presets_window import PresetsWindow
+from ui.copy_to_window import CopyToWindow
 from ui.show_backup_window import ShowBackupWindow
 from version import VERSION
 
@@ -3071,6 +3072,7 @@ class MainWindow:
         self.aux_visibility_panel = None
         self.backup_window = None
         self.show_backup_window = None
+        self.copy_to_window = None
         self.logs_window = None
         self.presets_window = None
         self.phones_window = None
@@ -3154,12 +3156,18 @@ class MainWindow:
         )
         menu_bar.add_cascade(label="View", menu=self.view_menu)
 
+        self.mixer_menu = tk.Menu(menu_bar, tearoff=False)
+        self.mixer_menu.add_command(
+            label="Mixer Backup", command=self.open_show_backup_window
+        )
+        self.mixer_menu.add_command(
+            label="Copy To\u2026", command=self.open_copy_to_window
+        )
+        menu_bar.add_cascade(label="Mixer", menu=self.mixer_menu)
+
         self.help_menu = tk.Menu(menu_bar, tearoff=False)
         self.help_menu.add_command(label="Logs", command=self.open_logs_window)
         self.help_menu.add_command(label="CLMix Backup", command=self.open_backup_window)
-        self.help_menu.add_command(
-            label="Mixer Backup", command=self.open_show_backup_window
-        )
         self.help_menu.add_command(label="About", command=self.open_about_window)
         # Kept so the startup check can relabel this one entry - looking it
         # up by its current label would stop working the moment it changes.
@@ -4231,6 +4239,15 @@ class MainWindow:
         self.show_backup_window = ShowBackupWindow(
             self.root, self.settings, self.save_settings,
             lambda: self.worker, self.command_queue
+        )
+
+    def open_copy_to_window(self):
+        if self.copy_to_window and self.copy_to_window.window.winfo_exists():
+            self.copy_to_window.window.lift()
+            return
+
+        self.copy_to_window = CopyToWindow(
+            self.root, lambda: self.worker, self.command_queue
         )
 
     def on_backup_restored(self, keys):

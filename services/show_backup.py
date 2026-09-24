@@ -538,6 +538,10 @@ class ShowBackupJob(threading.Thread):
     through the worker's command_queue and comes back through Collector.
     """
 
+    # What this job calls itself in the log. Overridden by jobs built on
+    # this machinery that are neither a backup nor a restore.
+    LOG_LABEL = "Show Backup"
+
     def __init__(self, get_worker, command_queue, store):
         super().__init__(daemon=True)
         self.get_worker = get_worker
@@ -579,7 +583,7 @@ class ShowBackupJob(threading.Thread):
 
     def note(self, text):
         self.notes.append(text)
-        log("info", f"Show Backup: {text}")
+        log("info", f"{self.LOG_LABEL}: {text}")
 
     # --- lifecycle
 
@@ -608,7 +612,7 @@ class ShowBackupJob(threading.Thread):
             self._finish(str(ex), failed=True)
             return
         except Exception as ex:
-            log("error", f"Show Backup job crashed: {ex!r}")
+            log("error", f"{self.LOG_LABEL} job crashed: {ex!r}")
             self.on_stopped(f"failed: {ex!r}")
             self._finish(f"Stopped by an error: {ex}", failed=True)
             return
@@ -624,7 +628,7 @@ class ShowBackupJob(threading.Thread):
         self.prompt = None
         self.status = outcome
         self.finished = True
-        log("warning" if failed else "info", f"Show Backup: {outcome}")
+        log("warning" if failed else "info", f"{self.LOG_LABEL}: {outcome}")
 
     def execute(self):
         raise NotImplementedError
