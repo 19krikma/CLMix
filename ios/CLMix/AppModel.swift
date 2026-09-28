@@ -2,8 +2,14 @@ import Foundation
 
 enum AppScreen: Equatable {
     case connect
+    // The fork between mixing one aux send and mixing the console
+    // itself. Only accounts holding Full Mixer Control ever see it -
+    // everyone else goes from login straight on to the aux list, which
+    // is the only flow that existed before that permission.
+    case controlChoice
     case auxList
     case mixer(AuxBus)
+    case mixerControl
 }
 
 /// Coordinates navigation and mixer state - the Android app spreads this
@@ -46,6 +52,17 @@ final class AppModel: NSObject, ObservableObject {
     // setting, and an older server that never sends the field, both mean
     // "allowed".
     @Published var muteAllowed = true
+    // Whether this account may take the console's own channel faders,
+    // mutes and pans rather than one performer's sends. Gates the choice
+    // offered right after login; the server checks it again on every
+    // write regardless.
+    @Published var mixerControlAllowed = false
+    // Hard mute (the mixer-control menu): a muted channel is not only
+    // down in the room but out of every monitor mix too. Session-only,
+    // and off on every fresh entry to that screen - it reaches every
+    // wedge, so it should be something the operator turns on for a
+    // reason rather than something left on from last time.
+    @Published var hardMute = false
     @Published var presetNames: [String] = []
     @Published var discoveredServers: [DiscoveredServer] = []
     // True while the session is a local demo rather than a real console.
@@ -66,6 +83,13 @@ final class AppModel: NSObject, ObservableObject {
     private var pendingUsername = ""
     private var pendingPassword = ""
     private var pendingToken: String?
+
+    // Set while waiting for the aux list the control choice asked for, so
+    // the reply is only navigated on when something actually asked for
+    // it - the server pushes an aux list for other reasons too, and one
+    // arriving mid-session must not throw the mixer-control screen back
+    // to the picker.
+    private var awaitingAuxes = false
 
     private let mdnsDiscovery = MdnsDiscovery()
 
@@ -111,11 +135,30 @@ final class AppModel: NSObject, ObservableObject {
         return auxes.first { $0.index == aux.index } ?? aux
     }
 
+    /// True while the socket is riding the console's own faders rather
+    /// than one aux's sends.
+    var isMixerMode: Bool { screen == .mixerControl }
+
     /// A mono aux has no pan axis, so the Pan button comes off the strip
     /// entirely - the same thing the desktop does with its pan slider.
     /// An unknown aux (an older server, or before the list arrives) is
     /// treated as stereo, which is how it always behaved.
-    var panSupported: Bool { currentAux?.stereo ?? true }
+    ///
+    /// In mixer mode the panner belongs to the channel rather than to a
+    /// bus, so the control is always offered: a mono channel simply
+    /// reports no pan value and its button reads "Pan" with nothing to
+    /// move. Full Mixer Control is the single permission covering pan,
+    /// mute and level there, unlike the aux screen where mute is gated
+    /// separately and pan depends on the bus being stereo.
+    var panSupported: Bool {
+        if isMixerMode { return true }
+        return currentAux?.stereo ?? true
+    }
+
+    /// Mute and pan on the mixer-control strips are both the console's
+    /// own controls, covered by Full Mixer Control itself - the aux
+    /// screen's separate Mute permission does not apply there.
+    var muteOffered: Bool { isMixerMode || muteAllowed }
 
     override init() {
         super.init()
@@ -240,6 +283,35 @@ final class AppModel: NSObject, ObservableObject {
         discoveredServers = []
     }
 
+    /// "AUX Only" on the control choice: asks for the aux list and lets
+    /// the reply carry the screen forward, exactly as login does for an
+    /// account without Full Mixer Control.
+    func chooseAuxOnly() {
+        awaitingAuxes = true
+        backend.requestAuxes()
+    }
+
+    /// "Mixer Control": the console's own channel faders, pans and mutes.
+    /// Hard mute deliberately starts off on every entry - see hardMute.
+    func enterMixerControl() {
+        channels = []
+        hardMute = false
+        screen = .mixerControl
+        backend.selectMixerControl()
+        backend.requestBanks()
+    }
+
+    /// Back out of mixer control to the choice that led into it. The
+    /// session stays up; only the screen ends - and nothing is selected
+    /// again until the next choice is made.
+    func leaveMixerControl() {
+        channels = []
+        banks = []
+        selectedBank = nil
+        MeterCenter.shared.clear()
+        screen = .controlChoice
+    }
+
     func selectAux(_ aux: AuxBus) {
         channels = []
         screen = .mixer(aux)
@@ -283,7 +355,33 @@ final class AppModel: NSObject, ObservableObject {
         if let index = channels.firstIndex(where: { $0.channel == channel }) {
             channels[index].muted = muted
         }
-        backend.setMute(channel: channel, muted: muted)
+        // Hard mute only has meaning against the console's own channel
+        // mute, so it is never sent from an aux socket - the server
+        // refuses it there anyway.
+        backend.setMute(channel: channel, muted: muted, hard: isMixerMode && hardMute)
+    }
+
+    // The channel's input stage. Only ever reachable from the
+    // mixer-control strips: a head amp feeds every mix and the recording
+    // at once, and the server refuses these outright on an aux socket.
+    func setGain(channel: Int, gain: Double) {
+        backend.setGain(channel: channel, gain: gain)
+    }
+
+    func setTrim(channel: Int, trim: Double) {
+        backend.setTrim(channel: channel, trim: trim)
+    }
+
+    func setPhantom(channel: Int, phantom: Bool) {
+        backend.setPhantom(channel: channel, phantom: phantom)
+    }
+
+    func setPhase(channel: Int, phase: Bool) {
+        backend.setPhase(channel: channel, phase: phase)
+    }
+
+    func setName(channel: Int, name: String) {
+        backend.setName(channel: channel, name: name)
     }
 
     func requestPresets() {
@@ -328,6 +426,9 @@ final class AppModel: NSObject, ObservableObject {
         selectedBank = nil
         presetsAllowed = false
         muteAllowed = true
+        mixerControlAllowed = false
+        hardMute = false
+        awaitingAuxes = false
         presetNames = []
         isConnecting = false
         statusIsError = false
@@ -359,6 +460,7 @@ extension AppModel: MixerClientDelegate {
         MeterCenter.shared.clear()
 
         let wasMidSession = screen != .connect
+        awaitingAuxes = false
         isConnecting = false
         statusMessage = wasMidSession ? "Disconnected" : ""
         credentialsRejected = false
@@ -371,6 +473,11 @@ extension AppModel: MixerClientDelegate {
         // mirrors Android's ConnectActivity owning onConnectionFailed/
         // onError only until it navigates away.
         let stillConnecting = screen == .connect
+
+        // Whatever went wrong, the aux list this was waiting on is not
+        // coming - leaving the flag set would let some later push
+        // navigate a screen that never asked to be navigated.
+        awaitingAuxes = false
 
         if !backend.isConnected {
             if stillConnecting {
@@ -453,7 +560,17 @@ extension AppModel: MixerClientDelegate {
             statusMessage = "Connected"
             presetsAllowed = backend.presetsAllowed
             muteAllowed = backend.muteAllowed
-            backend.requestAuxes()
+            mixerControlAllowed = backend.mixerControlAllowed
+
+            // An account holding Full Mixer Control is asked which of the
+            // two it wants before anything is selected; everyone else
+            // goes straight on to the aux list.
+            if mixerControlAllowed {
+                screen = .controlChoice
+            } else {
+                awaitingAuxes = true
+                backend.requestAuxes()
+            }
             return
         }
 
@@ -482,6 +599,12 @@ extension AppModel: MixerClientDelegate {
 
     func mixerDidReceiveAuxes(_ auxes: [AuxBus]) {
         self.auxes = auxes
+
+        // The list is kept whenever it arrives, since the mixer screen's
+        // aux sheet reads it - but only a screen that asked for it is
+        // carried forward by it.
+        guard awaitingAuxes else { return }
+        awaitingAuxes = false
         screen = .auxList
     }
 
@@ -523,7 +646,18 @@ extension AppModel: MixerClientDelegate {
     }
 
     func mixerDidReceiveLevels(aux: Int, channels: [ChannelState]) {
-        guard case .mixer(let currentAux) = screen, currentAux.index == aux else { return }
+        switch screen {
+        case .mixerControl:
+            // Anything still arriving for a bus belongs to the aux
+            // screen - most likely a frame already in flight when the
+            // socket switched modes, which would otherwise paint send
+            // levels onto these console faders for one frame.
+            guard aux == MixerClient.mixerAux else { return }
+        case .mixer(let currentAux):
+            guard currentAux.index == aux else { return }
+        default:
+            return
+        }
 
         // A bank switch (or aux switch) can drop channels that still have
         // a tap awaiting confirmation - without pruning, a stale entry

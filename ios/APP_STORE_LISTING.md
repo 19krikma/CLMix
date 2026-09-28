@@ -61,9 +61,14 @@ THEIR MIX, NOT THE MIX
 The mute button is the console's per-send on/off, so muting a channel drops it out of that one wedge - never out of the room.
 
 
+FULL MIXER CONTROL
+
+An account can instead be trusted with the console's own channel faders, pans and mutes, and with each channel's input stage - gain, trim, 48V, polarity and the channel name. Off by default, and granted per account from the desktop app.
+
+
 SCOPED ACCOUNTS
 
-Each login is tied to one aux bus and one snapshot, or to all of either. Passwords never leave your own machine, where they are kept salted and hashed.
+Each login is tied to one aux bus and one snapshot, or to all of either, and either may take the console's own faders or only its own sends. Passwords never leave your own machine, where they are kept salted and hashed.
 
 
 SNAPSHOT AWARE
@@ -99,6 +104,32 @@ Both themes, for the pit and for the daylight load-in alike.
 YOUR NETWORK ONLY
 
 There is no CLMix account and no cloud service. The app connects only to the server you run yourself, on your own network, and nowhere else. Nothing is collected, and nothing is sent to the developer.
+```
+
+## What's New (1.1.0)
+
+Pasted into App Store Connect's "What's New in This Version" for the
+release. Like every other field above, it names no other mobile platform
+(2.3.10) and no third-party hardware brand or model (5.2.1) - see
+`ios/CHANGELOG.md`, which is written to the same rule and is where the
+longer version of these notes lives.
+
+```
+FULL MIXER CONTROL
+
+An account granted it is now asked, right after logging in, whether to mix one aux send as before or to take the console's own channel faders, pans and mutes. Everyone else goes straight to their own mix, exactly as they always have.
+
+THE CHANNEL INPUT STAGE
+
+Tap a channel's number to open its input stage: gain and trim on hold-and-turn dials, 48V, polarity, and the channel name. Dials rather than sliders, because a head amp is set in small deliberate steps and nothing should move it by accident - they turn only while held, and stop the moment you lift.
+
+HARD MUTE
+
+A mute that takes the channel out of every monitor mix as well as out of the room. It starts off every time, and a strip muted under it breathes so it is never in force unnoticed.
+
+NARROWER CHANNEL STRIPS
+
+Five full strips now fit where three and a half did, taken out of dead space rather than out of the controls. The dB scale beside each fader carries its signs, so -5 and +5 can no longer be mistaken for each other.
 ```
 
 ## Support and privacy URLs

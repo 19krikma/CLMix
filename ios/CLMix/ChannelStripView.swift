@@ -8,65 +8,58 @@ struct ChannelStripView: View {
     // separate columns instead of blurring together - mirrors Android's
     // ChannelAdapter tinting odd positions with R.color.surface_variant.
     var alternate: Bool = false
+    // Whether this strip names the channel's number on the console above
+    // its name, and lets that heading open the channel's input stage.
+    // Off for the aux screens, which have always shown the name alone and
+    // have no input stage to reach; on for Full Mixer Control, where the
+    // whole console is in reach and the number is how the desk itself
+    // refers to a strip.
+    var showChannelNumber: Bool = false
+    var onOpenInput: ((ChannelState) -> Void)? = nil
 
     @State private var showPanSheet = false
 
+    /// 76pt, down from the 118 this started at. Most of that came out of
+    /// dead space rather than out of the controls: the fader's touch band
+    /// is far wider than the track drawn down the middle of it, and the
+    /// strip used to be sized around the band. Five full strips now fit
+    /// on a phone that showed three and a half.
+    private static let width: CGFloat = 76
+
+    private var hardMuted: Bool { model.isMixerMode && model.hardMute && channel.muted }
+
     var body: some View {
-        VStack(spacing: 8) {
-            Text(channel.name)
-                .font(.system(size: 12, weight: .bold))
-                .multilineTextAlignment(.center)
-                .frame(height: 32)
+        VStack(spacing: 0) {
+            heading
 
-            // Flexible height, not a fixed one - mirrors Android's
-            // fader_row (layout_height="0dp", layout_weight="1"): the
-            // channel name and Pan/Mute buttons above/below take only
-            // what they need, and the fader stretches to fill whatever's
-            // left, all the way to the bottom of the column.
-            HStack(spacing: 0) {
-                LevelRulerView()
-                    .frame(width: 26)
+            faderRow
 
-                LevelFaderView(
-                    db: channel.level ?? AuxTaper.bottomDb,
-                    fineMode: fineMode,
-                    onChange: { db in model.setLevel(channel: channel.channel, db: db) }
-                )
-                .frame(maxWidth: .infinity)
-
-                // Beside the fader rather than against its ruler: this is
-                // the console's own 0..-60 dB scale, not the fader's
-                // -150..+10, and the two are not interchangeable.
-                ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
-                    .frame(width: 10)
-                    .padding(.leading, 4)
-            }
-            .frame(maxHeight: .infinity)
-
-            // Both of these mirror a server-side truth rather than
-            // deciding anything: the server rejects a pan write to a mono
-            // bus and a mute from an account without the permission
-            // regardless of what is drawn here. Hiding them just avoids
-            // offering an action that could only come back as an error -
-            // or worse, a pan control the console accepts and then does
-            // nothing with.
             if model.panSupported {
                 tonalButton(PanFormat.buttonLabel(channel.pan)) {
                     showPanSheet = true
                 }
+                .padding(.top, 4)
             }
 
-            if model.muteAllowed {
-                // A tap flips the button straight away rather than waiting
-                // for the console's echo (see AppModel.setMute) - the
-                // server stays the authority on what's actually muted.
-                tonalButton(channel.muted ? "Muted" : "Mute", active: channel.muted) {
+            if model.muteOffered {
+                // The label stays "MUTE" in both states - it names the
+                // button, it does not report the state. Colour carries
+                // that, which reads faster across a row of strips than
+                // four characters on each, and stops the label changing
+                // width as it toggles.
+                //
+                // A tap flips the button straight away rather than
+                // waiting for the console's echo (see AppModel.setMute) -
+                // the server stays the authority on what's actually
+                // muted.
+                tonalButton("MUTE", active: channel.muted, pulsed: hardMuted) {
                     model.setMute(channel: channel.channel, muted: !channel.muted)
                 }
+                .padding(.top, 6)
             }
         }
-        .padding(.horizontal, 6)
-        .frame(width: 118)
+        .padding(.horizontal, 4)
+        .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .background(alternate ? Color.clmixSurfaceVariant : Color.clear)
         .sheet(isPresented: $showPanSheet) {
@@ -85,15 +78,143 @@ struct ChannelStripView: View {
         }
     }
 
-    private func tonalButton(_ title: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+    /// The channel's number over its name. The two are one target
+    /// together, of a comfortable size at the top of the strip, rather
+    /// than two small digits on their own - and only a control at all
+    /// where there is an input stage behind it to open. Elsewhere it is
+    /// plain text that swallows nothing.
+    @ViewBuilder
+    private var heading: some View {
+        if showChannelNumber, let onOpenInput {
+            Button { onOpenInput(channel) } label: { headingLabel }
+                .buttonStyle(.plain)
+        } else {
+            headingLabel
+        }
+    }
+
+    private var headingLabel: some View {
+        VStack(spacing: 0) {
+            if showChannelNumber {
+                Text("\(channel.channel)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.clmixOnSurfaceVariant)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 5)
+            }
+
+            // Two lines always, not just when a name needs them: the
+            // fader below takes whatever height is left, so a strip whose
+            // name wraps would otherwise end up with a shorter fader than
+            // its neighbours and a Mute button sitting at a different
+            // height along the row.
+            Text(channel.name)
+                .font(.system(size: 12, weight: .bold))
+                .multilineTextAlignment(.center)
+                .lineLimit(2, reservesSpace: true)
+                .truncationMode(.tail)
+                .foregroundStyle(Color.clmixOnSurface)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 4)
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// The ruler, the fader and the meter, sharing whatever height the
+    /// name and the buttons leave - mirrors Android's fader_row taking
+    /// layout_weight="1", so a row of strips always has its Mute buttons
+    /// at the same height whatever the names above them did.
+    ///
+    /// The negative margins either side are the point of the layout: the
+    /// fader's touch band is far wider than the track drawn down the
+    /// middle of it, and both the tick lines and the meter were being
+    /// held out at arm's length by that dead width. Overlapping costs
+    /// nothing - the ruler's lines and the meter both draw over
+    /// transparent space, and the meter takes no touches, so the fader
+    /// underneath still gets them.
+    private var faderRow: some View {
+        HStack(spacing: 0) {
+            LevelRulerView()
+                .frame(width: 31)
+                .padding(.trailing, -5)
+
+            LevelFaderView(
+                db: channel.level ?? AuxTaper.bottomDb,
+                fineMode: fineMode,
+                onChange: { db in model.setLevel(channel: channel.channel, db: db) }
+            )
+            .frame(width: 30)
+
+            // Beside the fader rather than against its ruler: this is
+            // the console's own 0..-60 dB scale, not the fader's
+            // -150..+10, and the two are not interchangeable.
+            ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                .frame(width: 10)
+                .padding(.leading, -8)
+                .allowsHitTesting(false)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func tonalButton(
+        _ title: String, active: Bool = false, pulsed: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 11))
+                .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+                .frame(height: 34)
         }
         .foregroundStyle(active ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
-        .background(active ? Color.clmixMuteActive : Color.clmixMuteInactive)
+        .background { buttonFill(active: active, pulsed: pulsed) }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func buttonFill(active: Bool, pulsed: Bool) -> some View {
+        if pulsed {
+            HardMutePulse()
+        } else {
+            active ? Color.clmixMuteActive : Color.clmixMuteInactive
+        }
+    }
+}
+
+/// Breathes between the mute red and a dimmed version of the same red
+/// while a hard mute is in force.
+///
+/// A hard mute is not only down in the room but out of every monitor mix
+/// too - a far bigger thing to have done by accident than an ordinary
+/// mute, so a strip muted under it moves rather than sitting still.
+/// Deliberately a fade rather than a blink: it has to register in
+/// peripheral vision across a row of strips without becoming the thing
+/// the eye keeps snapping back to during a show. Fading towards the
+/// inactive grey instead would read as the mute releasing, so it fades
+/// towards the same hue at lower brightness.
+///
+/// A view of its own so the repeating animation starts from its own
+/// onAppear: driven off a flag on the strip, it would only ever run for
+/// strips that were already muted when the screen was built, and sit
+/// frozen on whichever end it started at for the rest.
+private struct HardMutePulse: View {
+    // One breath in or out; a full cycle is twice this.
+    private static let pulseSeconds = 0.75
+
+    @State private var dimmed = false
+
+    var body: some View {
+        // The dim is faded in over the full red rather than the two
+        // colours being swapped: an opacity change interpolates, where
+        // exchanging one Color view for another can simply cut.
+        Color.clmixMuteActive
+            .overlay(Color.clmixMuteActiveDim.opacity(dimmed ? 1 : 0))
+            .animation(
+                .easeInOut(duration: Self.pulseSeconds).repeatForever(autoreverses: true),
+                value: dimmed
+            )
+            .onAppear { dimmed = true }
     }
 }

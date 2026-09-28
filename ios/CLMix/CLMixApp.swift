@@ -12,10 +12,14 @@ struct CLMixApp: App {
                     switch model.screen {
                     case .connect:
                         ConnectView()
+                    case .controlChoice:
+                        ControlChoiceView()
                     case .auxList:
                         AuxListView()
                     case .mixer(let aux):
                         MixerView(aux: aux)
+                    case .mixerControl:
+                        MixerControlView()
                     }
                 }
             }
