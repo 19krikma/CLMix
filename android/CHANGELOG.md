@@ -3,6 +3,33 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.6.0
+
+Two corrections to the input stage, both from reading the console's own
+parameter table rather than guessing at it.
+
+### Polarity
+
+- **Polarity no longer flattens a stereo channel.** Polarity is not an
+  on/off switch on the console — a stereo channel has several inverted
+  states, one per leg — and the app had been treating it as one. Tapping
+  the button on such a channel wrote a different state than the one it was
+  showing, quietly moving which leg was inverted. It now carries the
+  console's own value, so switching polarity off and back on returns the
+  channel to exactly where it was.
+
+### Gain and Trim
+
+- **Each dial sweeps its own range.** Gain and Trim shared one span,
+  −40 to +60 dB, so that the two dials read alike. Gain does not go below
+  −20 on the console, which left the bottom quarter of that dial doing
+  nothing but snapping back; Trim stops at +40, which left the top doing
+  the same. Gain now sweeps −20…+60 and Trim −40…+40, and every part of
+  both dials reaches a value the console will keep.
+- **The ranges come from the desktop app.** They arrive when the phone
+  logs in rather than being built into this app, so a correction to them
+  ships with the desktop instead of waiting on a store release.
+
 ## 2.5.1
 
 Everything the console already knew but the phone did not: how loud each

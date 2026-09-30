@@ -1,0 +1,842 @@
+category,label,address,type,takes_index,index,min,max,unit,alt_unit,param_id,op_code,target,file_offset
+Input_Channels,trim,/Input_Channels/{n}/Channel_Input/trim,float,0,0,-40,60,dB,,257,,,54
+Input_Channels,phase,/Input_Channels/{n}/Channel_Input/phase,switch/enum,0,0,0,3,,,258,,,192
+Input_Channels,main/alt in,/Input_Channels/{n}/Channel_Input/main/alt_in,switch/enum,0,0,0,1,,,270,,,256
+Input_Channels,stereo mode,/Input_Channels/{n}/Channel_Input/stereo_mode,switch/enum,0,0,1,2,,,282,,,320
+Input_Channels,pre meter/left,/Input_Channels/{n}/Channel_Input/pre_meter/left,meter,0,0,,,,,288,,,384
+Input_Channels,pre meter/right,/Input_Channels/{n}/Channel_Input/pre_meter/right,meter,0,0,,,,,292,,,448
+Input_Channels,post meter/left,/Input_Channels/{n}/Channel_Input/post_meter/left,meter,0,0,,,,,304,,,512
+Input_Channels,post meter/right,/Input_Channels/{n}/Channel_Input/post_meter/right,meter,0,0,,,,,308,,,576
+Input_Channels,phantom,/Input_Channels/{n}/Channel_Input/phantom,switch/enum,0,0,0,1,,,387,,,640
+Input_Channels,alt phantom,/Input_Channels/{n}/Channel_Input/alt_phantom,switch/enum,0,1,0,1,,,387,,,704
+Input_Channels,analog gain,/Input_Channels/{n}/Channel_Input/analog_gain,float,0,0,-20,60,dB,,390,,,768
+Input_Channels,alt analog gain,/Input_Channels/{n}/Channel_Input/alt_analog_gain,float,0,1,-20,60,dB,,390,,,898
+Input_Channels,input pad,/Input_Channels/{n}/Channel_Input/input_pad,switch/enum,0,0,0,1,,,393,,,1028
+Input_Channels,alt input pad,/Input_Channels/{n}/Channel_Input/alt_input_pad,switch/enum,0,1,0,1,,,393,,,1092
+Input_Channels,input type,/Input_Channels/{n}/Channel_Input/input_type,switch/enum,0,0,0,2,,,480,,,1156
+Input_Channels,name,/Input_Channels/{n}/Channel_Input/name,string,0,0,,,,,511,,,1220
+Input_Channels,send level,/Input_Channels/{n}/Aux_Send/{i}/send_level,float,0,0,-150,10,dB,%,513,,,1284
+Input_Channels,send on,/Input_Channels/{n}/Aux_Send/{i}/send_on,switch/enum,0,0,0,1,,,514,,,1494
+Input_Channels,send pan,/Input_Channels/{n}/Aux_Send/{i}/send_pan,float,0,0,-1,1,%,,515,,,1558
+Input_Channels,group,/Input_Channels/{n}/Group_Send/{i}/group,switch/enum,0,0,0,1,,,777,,,1704
+Input_Channels,eq in,/Input_Channels/{n}/EQ/eq_in,switch/enum,0,0,0,1,,,1026,,,1768
+Input_Channels,eq on 1,/Input_Channels/{n}/EQ/eq_on_1,switch/enum,0,0,0,1,,,1027,,,1832
+Input_Channels,eq on 2,/Input_Channels/{n}/EQ/eq_on_2,switch/enum,0,1,0,1,,,1027,,,1896
+Input_Channels,eq on 3,/Input_Channels/{n}/EQ/eq_on_3,switch/enum,0,2,0,1,,,1027,,,1960
+Input_Channels,eq on 4,/Input_Channels/{n}/EQ/eq_on_4,switch/enum,0,3,0,1,,,1027,,,2024
+Input_Channels,eq curve 1,/Input_Channels/{n}/EQ/eq_curve_1,switch/enum,0,0,1,4,,,1028,,,2088
+Input_Channels,eq curve 2,/Input_Channels/{n}/EQ/eq_curve_2,switch/enum,0,1,1,4,,,1028,,,2152
+Input_Channels,eq curve 3,/Input_Channels/{n}/EQ/eq_curve_3,switch/enum,0,2,1,4,,,1028,,,2216
+Input_Channels,eq curve 4,/Input_Channels/{n}/EQ/eq_curve_4,switch/enum,0,3,1,4,,,1028,,,2280
+Input_Channels,eq freq 1,/Input_Channels/{n}/EQ/eq_freq_1,float,0,0,20,20000,kHz,Hz,1029,,,2344
+Input_Channels,eq freq 2,/Input_Channels/{n}/EQ/eq_freq_2,float,0,1,20,20000,kHz,Hz,1029,,,2458
+Input_Channels,eq freq 3,/Input_Channels/{n}/EQ/eq_freq_3,float,0,2,20,20000,kHz,Hz,1029,,,2572
+Input_Channels,eq freq 4,/Input_Channels/{n}/EQ/eq_freq_4,float,0,3,20,20000,kHz,Hz,1029,,,2686
+Input_Channels,eq Q 1,/Input_Channels/{n}/EQ/eq_Q_1,float,0,0,0.1,20,,,1030,,,2800
+Input_Channels,eq Q 2,/Input_Channels/{n}/EQ/eq_Q_2,float,0,1,0.1,20,,,1030,,,2914
+Input_Channels,eq Q 3,/Input_Channels/{n}/EQ/eq_Q_3,float,0,2,0.1,20,,,1030,,,3028
+Input_Channels,eq Q 4,/Input_Channels/{n}/EQ/eq_Q_4,float,0,3,0.1,20,,,1030,,,3142
+Input_Channels,eq gain 1,/Input_Channels/{n}/EQ/eq_gain_1,float,0,0,-18,18,dB,,1031,,,3256
+Input_Channels,eq gain 2,/Input_Channels/{n}/EQ/eq_gain_2,float,0,1,-18,18,dB,,1031,,,3386
+Input_Channels,eq gain 3,/Input_Channels/{n}/EQ/eq_gain_3,float,0,2,-18,18,dB,,1031,,,3516
+Input_Channels,eq gain 4,/Input_Channels/{n}/EQ/eq_gain_4,float,0,3,-18,18,dB,,1031,,,3646
+Input_Channels,eq over-under 1,/Input_Channels/{n}/EQ/eq_over-under_1,switch/enum,0,0,0,1,,,1035,,,3776
+Input_Channels,eq over-under 2,/Input_Channels/{n}/EQ/eq_over-under_2,switch/enum,0,1,0,1,,,1035,,,3840
+Input_Channels,eq over-under 3,/Input_Channels/{n}/EQ/eq_over-under_3,switch/enum,0,2,0,1,,,1035,,,3904
+Input_Channels,eq over-under 4,/Input_Channels/{n}/EQ/eq_over-under_4,switch/enum,0,3,0,1,,,1035,,,3968
+Input_Channels,GR meter 1,/Input_Channels/{n}/EQ/GR_meter_0,meter,0,0,,,,,1036,,,4032
+Input_Channels,GR meter 2,/Input_Channels/{n}/EQ/GR_meter_1,meter,0,1,,,,,1036,,,4096
+Input_Channels,GR meter 3,/Input_Channels/{n}/EQ/GR_meter_2,meter,0,2,,,,,1036,,,4160
+Input_Channels,GR meter 4,/Input_Channels/{n}/EQ/GR_meter_3,meter,0,3,,,,,1036,,,4224
+Input_Channels,eq thresh 1,/Input_Channels/{n}/EQ/eq_thresh_1,float,0,0,-60,0,dB,,1038,,,4288
+Input_Channels,eq thresh 2,/Input_Channels/{n}/EQ/eq_thresh_2,float,0,1,-60,0,dB,,1038,,,4402
+Input_Channels,eq thresh 3,/Input_Channels/{n}/EQ/eq_thresh_3,float,0,2,-60,0,dB,,1038,,,4516
+Input_Channels,eq thresh 4,/Input_Channels/{n}/EQ/eq_thresh_4,float,0,3,-60,0,dB,,1038,,,4630
+Input_Channels,eq ratio 1,/Input_Channels/{n}/EQ/eq_ratio_1,float,0,0,1,10,,,1040,,,4744
+Input_Channels,eq ratio 2,/Input_Channels/{n}/EQ/eq_ratio_2,float,0,1,1,10,,,1040,,,4858
+Input_Channels,eq ratio 3,/Input_Channels/{n}/EQ/eq_ratio_3,float,0,2,1,10,,,1040,,,4972
+Input_Channels,eq ratio 4,/Input_Channels/{n}/EQ/eq_ratio_4,float,0,3,1,10,,,1040,,,5086
+Input_Channels,eq attack 1,/Input_Channels/{n}/EQ/eq_attack_1,float,0,0,0.0005,0.1,,,1041,,,5200
+Input_Channels,eq attack 2,/Input_Channels/{n}/EQ/eq_attack_2,float,0,1,0.0005,0.1,,,1041,,,5314
+Input_Channels,eq attack 3,/Input_Channels/{n}/EQ/eq_attack_3,float,0,2,0.0005,0.1,,,1041,,,5428
+Input_Channels,eq attack 4,/Input_Channels/{n}/EQ/eq_attack_4,float,0,3,0.0005,0.1,,,1041,,,5542
+Input_Channels,eq release 1,/Input_Channels/{n}/EQ/eq_release_1,float,0,0,0.01,10,,,1042,,,5656
+Input_Channels,eq release 2,/Input_Channels/{n}/EQ/eq_release_2,float,0,1,0.01,10,,,1042,,,5770
+Input_Channels,eq release 3,/Input_Channels/{n}/EQ/eq_release_3,float,0,2,0.01,10,,,1042,,,5884
+Input_Channels,eq release 4,/Input_Channels/{n}/EQ/eq_release_4,float,0,3,0.01,10,,,1042,,,5998
+Input_Channels,eq symm Q 1,/Input_Channels/{n}/EQ/eq_symm_Q_1,switch/enum,0,0,0,1,,,1148,,,6112
+Input_Channels,eq symm Q 2,/Input_Channels/{n}/EQ/eq_symm_Q_2,switch/enum,0,1,0,1,,,1148,,,6176
+Input_Channels,eq symm Q 3,/Input_Channels/{n}/EQ/eq_symm_Q_3,switch/enum,0,2,0,1,,,1148,,,6240
+Input_Channels,eq symm Q 4,/Input_Channels/{n}/EQ/eq_symm_Q_4,switch/enum,0,3,0,1,,,1148,,,6304
+Input_Channels,dynamic eq on 1,/Input_Channels/{n}/EQ/dynamic_eq_on_1,switch/enum,0,0,0,1,,,1149,,,6368
+Input_Channels,dynamic eq on 2,/Input_Channels/{n}/EQ/dynamic_eq_on_2,switch/enum,0,1,0,1,,,1149,,,6432
+Input_Channels,dynamic eq on 3,/Input_Channels/{n}/EQ/dynamic_eq_on_3,switch/enum,0,2,0,1,,,1149,,,6496
+Input_Channels,dynamic eq on 4,/Input_Channels/{n}/EQ/dynamic_eq_on_4,switch/enum,0,3,0,1,,,1149,,,6560
+Input_Channels,comp in,/Input_Channels/{n}/Dynamics/comp_in,switch/enum,0,0,0,1,,,1282,,,6624
+Input_Channels,gate in,/Input_Channels/{n}/Dynamics/gate_in,switch/enum,0,3,0,1,,,1282,,,6688
+Input_Channels,comp band in 1,/Input_Channels/{n}/Dynamics/comp_band_in_1,switch/enum,0,0,0,1,,,1283,,,6752
+Input_Channels,comp band in 2,/Input_Channels/{n}/Dynamics/comp_band_in_2,switch/enum,0,1,0,1,,,1283,,,6816
+Input_Channels,comp band in 3,/Input_Channels/{n}/Dynamics/comp_band_in_3,switch/enum,0,2,0,1,,,1283,,,6880
+Input_Channels,comp LP crossover,/Input_Channels/{n}/Dynamics/comp_LP_crossover,float,0,0,20,20000,kHz,Hz,1285,,,6944
+Input_Channels,comp HP crossover,/Input_Channels/{n}/Dynamics/comp_HP_crossover,float,0,1,20,20000,kHz,Hz,1285,,,7058
+Input_Channels,comp gain 1,/Input_Channels/{n}/Dynamics/comp_gain_1,float,0,0,0,40,dB,,1289,,,7172
+Input_Channels,comp gain 2,/Input_Channels/{n}/Dynamics/comp_gain_2,float,0,1,0,40,dB,,1289,,,7286
+Input_Channels,comp gain 3,/Input_Channels/{n}/Dynamics/comp_gain_3,float,0,2,0,40,dB,,1289,,,7400
+Input_Channels,comp gain 4,/Input_Channels/{n}/Dynamics/comp_gain_4,float,0,3,0,40,dB,,1289,,,7514
+Input_Channels,gate range,/Input_Channels/{n}/Dynamics/gate_range,float,0,3,0,90,dB,,1290,,,7628
+Input_Channels,gate-duck-comp,/Input_Channels/{n}/Dynamics/gate-duck-comp,switch/enum,0,3,0,2,,,1291,,,7742
+Input_Channels,GR meter 1,/Input_Channels/{n}/Dynamics/GR_meter_1,meter,0,0,,,,,1292,,,7806
+Input_Channels,GR meter 3,/Input_Channels/{n}/Dynamics/GR_meter_3,meter,0,1,,,,,1292,,,7870
+Input_Channels,GR meter 2,/Input_Channels/{n}/Dynamics/GR_meter_2,meter,0,2,,,,,1292,,,7934
+Input_Channels,GR meter 4,/Input_Channels/{n}/Dynamics/GR_meter_4,meter,0,3,,,,,1292,,,7998
+Input_Channels,gate meter,/Input_Channels/{n}/Dynamics/gate_meter,meter,0,3,,,,,1293,,,8062
+Input_Channels,comp thresh 1,/Input_Channels/{n}/Dynamics/comp_thresh_1,float,0,0,-60,0,dB,,1294,,,8126
+Input_Channels,comp thresh 2,/Input_Channels/{n}/Dynamics/comp_thresh_2,float,0,1,-60,0,dB,,1294,,,8240
+Input_Channels,comp thresh 3,/Input_Channels/{n}/Dynamics/comp_thresh_3,float,0,2,-60,0,dB,,1294,,,8354
+Input_Channels,gate thresh,/Input_Channels/{n}/Dynamics/gate_thresh,float,0,3,-60,0,dB,,1294,,,8468
+Input_Channels,comp knee 1,/Input_Channels/{n}/Dynamics/comp_knee_1,switch/enum,0,0,0,2,,,1295,,,8582
+Input_Channels,comp knee 2,/Input_Channels/{n}/Dynamics/comp_knee_2,switch/enum,0,1,0,2,,,1295,,,8646
+Input_Channels,comp knee 3,/Input_Channels/{n}/Dynamics/comp_knee_3,switch/enum,0,2,0,2,,,1295,,,8710
+Input_Channels,comp knee 4,/Input_Channels/{n}/Dynamics/comp_knee_4,switch/enum,0,3,0,2,,,1295,,,8774
+Input_Channels,comp ratio 1,/Input_Channels/{n}/Dynamics/comp_ratio_1,float,0,0,1,50,,,1296,,,8838
+Input_Channels,comp ratio 2,/Input_Channels/{n}/Dynamics/comp_ratio_2,float,0,1,1,50,,,1296,,,8952
+Input_Channels,comp ratio 3,/Input_Channels/{n}/Dynamics/comp_ratio_3,float,0,2,1,50,,,1296,,,9066
+Input_Channels,comp ratio 4,/Input_Channels/{n}/Dynamics/comp_ratio_4,float,0,3,1,50,,,1296,,,9180
+Input_Channels,comp attack 1,/Input_Channels/{n}/Dynamics/comp_attack_1,float,0,0,2e-05,0.1,,,1297,,,9294
+Input_Channels,comp attack 2,/Input_Channels/{n}/Dynamics/comp_attack_2,float,0,1,2e-05,0.1,,,1297,,,9408
+Input_Channels,comp attack 3,/Input_Channels/{n}/Dynamics/comp_attack_3,float,0,2,2e-05,0.1,,,1297,,,9522
+Input_Channels,gate attack,/Input_Channels/{n}/Dynamics/gate_attack,float,0,3,5e-05,0.1,,,1297,,,9636
+Input_Channels,comp release 1,/Input_Channels/{n}/Dynamics/comp_release_1,float,0,0,0.001,10,,,1298,,,9750
+Input_Channels,comp release 2,/Input_Channels/{n}/Dynamics/comp_release_2,float,0,1,0.001,10,,,1298,,,9864
+Input_Channels,comp release 3,/Input_Channels/{n}/Dynamics/comp_release_3,float,0,2,0.001,10,,,1298,,,9978
+Input_Channels,gate release,/Input_Channels/{n}/Dynamics/gate_release,float,0,3,0.005,10,,,1298,,,10092
+Input_Channels,gate hold,/Input_Channels/{n}/Dynamics/gate_hold,float,0,3,0.002,2,,,1299,,,10206
+Input_Channels,key solo,/Input_Channels/{n}/Dynamics/key_solo,switch/enum,0,0,0,1,,,1303,,,10320
+Input_Channels,comp listen 1,/Input_Channels/{n}/Dynamics/comp_listen_1,switch/enum,0,0,0,1,,,1304,,,10384
+Input_Channels,comp listen 2,/Input_Channels/{n}/Dynamics/comp_listen_2,switch/enum,0,1,0,1,,,1304,,,10448
+Input_Channels,comp listen 3,/Input_Channels/{n}/Dynamics/comp_listen_3,switch/enum,0,2,0,1,,,1304,,,10512
+Input_Channels,input meter/left,/Input_Channels/{n}/Dynamics/input_meter/left,meter,0,0,,,,,1328,,,10576
+Input_Channels,input meter/right,/Input_Channels/{n}/Dynamics/input_meter/right,meter,0,0,,,,,1332,,,10640
+Input_Channels,comp all gain,/Input_Channels/{n}/Dynamics/comp_all_gain,float,0,0,0,40,dB,,1336,,,10704
+Input_Channels,comp all thresh,/Input_Channels/{n}/Dynamics/comp_all_thresh,float,0,0,-60,0,dB,,1337,,,10818
+Input_Channels,comp-multiband-desser,/Input_Channels/{n}/Dynamics/comp-multiband-desser,switch/enum,0,0,0,2,,,1338,,,10932
+Input_Channels,comp auto-gain 1,/Input_Channels/{n}/Dynamics/comp_auto-gain_1,switch/enum,0,0,0,1,,,1339,,,10996
+Input_Channels,comp auto-gain 2,/Input_Channels/{n}/Dynamics/comp_auto-gain_2,switch/enum,0,1,0,1,,,1339,,,11060
+Input_Channels,comp auto-gain 3,/Input_Channels/{n}/Dynamics/comp_auto-gain_3,switch/enum,0,2,0,1,,,1339,,,11124
+Input_Channels,comp auto-gain 4,/Input_Channels/{n}/Dynamics/comp_auto-gain_4,switch/enum,0,3,0,1,,,1339,,,11188
+Input_Channels,desser centre freq,/Input_Channels/{n}/Dynamics/desser_centre_freq,float,0,0,0,255,,,1406,,,11252
+Input_Channels,gate centre freq,/Input_Channels/{n}/Dynamics/gate_centre_freq,float,0,3,0,255,,,1406,,,11366
+Input_Channels,desser freq width,/Input_Channels/{n}/Dynamics/desser_freq_width,float,0,0,0,255,,,1407,,,11480
+Input_Channels,gate freq width,/Input_Channels/{n}/Dynamics/gate_freq_width,float,0,3,0,255,,,1407,,,11594
+Input_Channels,hi filter in,/Input_Channels/{n}/Filters/hi_filter_in,switch/enum,0,0,0,1,,,1795,,,11708
+Input_Channels,lo filter in,/Input_Channels/{n}/Filters/lo_filter_in,switch/enum,0,1,0,1,,,1795,,,11772
+Input_Channels,hi filter freq,/Input_Channels/{n}/Filters/hi_filter_freq,float,0,0,20,20000,kHz,Hz,1797,,,11836
+Input_Channels,lo filter freq,/Input_Channels/{n}/Filters/lo_filter_freq,float,0,1,20,20000,kHz,Hz,1797,,,11950
+Input_Channels,insert A in,/Input_Channels/{n}/Insert/insert_A_in,switch/enum,0,0,0,1,,,2050,,,12064
+Input_Channels,insert B in,/Input_Channels/{n}/Insert/insert_B_in,switch/enum,0,1,0,1,,,2050,,,12128
+Input_Channels,insert A phantom,/Input_Channels/{n}/Insert/insert_A_phantom,switch/enum,0,0,0,1,,,2179,,,12192
+Input_Channels,insert B phantom,/Input_Channels/{n}/Insert/insert_B_phantom,switch/enum,0,1,0,1,,,2179,,,12256
+Input_Channels,insert A analog gain,/Input_Channels/{n}/Insert/insert_A_analog_gain,float,0,0,-20,60,dB,,2182,,,12320
+Input_Channels,insert B analog gain,/Input_Channels/{n}/Insert/insert_B_analog_gain,float,0,1,-20,60,dB,,2182,,,12450
+Input_Channels,insert A input pad,/Input_Channels/{n}/Insert/insert_A_input_pad,switch/enum,0,0,0,1,,,2185,,,12580
+Input_Channels,insert B input pad,/Input_Channels/{n}/Insert/insert_B_input_pad,switch/enum,0,1,0,1,,,2185,,,12644
+Input_Channels,delay on,/Input_Channels/{n}/Channel_Delay/delay_on,switch/enum,0,0,0,1,,,2311,,,12708
+Input_Channels,delay,/Input_Channels/{n}/Channel_Delay/delay,float,0,0,0,1.3,,,2312,,,12772
+Input_Channels,fine delay,/Input_Channels/{n}/Channel_Delay/fine_delay,float,0,0,-127,127,samples,,2327,,,12886
+Input_Channels,CGs level,/Input_Channels/{n}/CGs_level,float,0,0,-150,10,dB,%,3073,,,13016
+Input_Channels,solo,/Input_Channels/{n}/solo,switch/enum,0,0,0,1,,,3075,,,13226
+Input_Channels,CGs mute,/Input_Channels/{n}/CGs_mute,switch/enum,0,0,0,1,,,3100,,,13290
+Input_Channels,fader,/Input_Channels/{n}/fader,float,0,0,-150,10,dB,%,3105,,,13354
+Input_Channels,mute,/Input_Channels/{n}/mute,switch/enum,0,0,0,1,,,3106,,,13564
+Input_Channels,fader meter/left,/Input_Channels/{n}/fader_meter/left,meter,0,0,,,,,3120,,,13628
+Input_Channels,fader meter/right,/Input_Channels/{n}/fader_meter/right,meter,0,0,,,,,3124,,,13692
+Input_Channels,f-b,/Input_Channels/{n}/Panner/f-b,float,0,0,0,1,%,,3350,,,13756
+Input_Channels,LFE level,/Input_Channels/{n}/Panner/LFE_level,float,0,0,-18,18,dB,,3351,,,13870
+Input_Channels,LFE off-only-all,/Input_Channels/{n}/Panner/LFE_off-only-all,switch/enum,0,0,0,1,,,3352,,,14000
+Input_Channels,pan,/Input_Channels/{n}/Panner/pan,float,0,0,-1,1,%,,3363,,,14064
+Input_Channels,meter/left,/Input_Channels/{n}/Output/meter/left,meter,0,0,,,,,3648,,,14210
+Input_Channels,meter2,/Input_Channels/{n}/Output/meter2,meter,0,0,,,,,3649,,,14274
+Input_Channels,meter/centre,/Input_Channels/{n}/Output/meter/centre,meter,0,0,,,,,3650,,,14338
+Input_Channels,meter4,/Input_Channels/{n}/Output/meter4,meter,0,0,,,,,3651,,,14402
+Input_Channels,meter/right,/Input_Channels/{n}/Output/meter/right,meter,0,0,,,,,3652,,,14466
+Input_Channels,meter/SL,/Input_Channels/{n}/Output/meter/SL,meter,0,0,,,,,3653,,,14530
+Input_Channels,meter/SR,/Input_Channels/{n}/Output/meter/SR,meter,0,0,,,,,3654,,,14594
+Input_Channels,meter/LFE,/Input_Channels/{n}/Output/meter/LFE,meter,0,0,,,,,3655,,,14658
+Aux_Outputs,eq in,/Aux_Outputs/{n}/EQ/eq_in,switch/enum,0,0,0,1,,,1026,,,14722
+Aux_Outputs,eq on 1,/Aux_Outputs/{n}/EQ/eq_on_1,switch/enum,0,0,0,1,,,1027,,,14786
+Aux_Outputs,eq on 2,/Aux_Outputs/{n}/EQ/eq_on_2,switch/enum,0,1,0,1,,,1027,,,14850
+Aux_Outputs,eq on 3,/Aux_Outputs/{n}/EQ/eq_on_3,switch/enum,0,2,0,1,,,1027,,,14914
+Aux_Outputs,eq on 4,/Aux_Outputs/{n}/EQ/eq_on_4,switch/enum,0,3,0,1,,,1027,,,14978
+Aux_Outputs,eq on 5,/Aux_Outputs/{n}/EQ/eq_on_5,switch/enum,0,4,0,1,,,1027,,,15042
+Aux_Outputs,eq on 6,/Aux_Outputs/{n}/EQ/eq_on_6,switch/enum,0,5,0,1,,,1027,,,15106
+Aux_Outputs,eq on 7,/Aux_Outputs/{n}/EQ/eq_on_7,switch/enum,0,6,0,1,,,1027,,,15170
+Aux_Outputs,eq on 8,/Aux_Outputs/{n}/EQ/eq_on_8,switch/enum,0,7,0,1,,,1027,,,15234
+Aux_Outputs,eq curve 1,/Aux_Outputs/{n}/EQ/eq_curve_1,switch/enum,0,0,1,4,,,1028,,,15298
+Aux_Outputs,eq curve 2,/Aux_Outputs/{n}/EQ/eq_curve_2,switch/enum,0,1,1,4,,,1028,,,15362
+Aux_Outputs,eq curve 3,/Aux_Outputs/{n}/EQ/eq_curve_3,switch/enum,0,2,1,4,,,1028,,,15426
+Aux_Outputs,eq curve 4,/Aux_Outputs/{n}/EQ/eq_curve_4,switch/enum,0,3,1,4,,,1028,,,15490
+Aux_Outputs,eq curve 5,/Aux_Outputs/{n}/EQ/eq_curve_5,switch/enum,0,4,1,4,,,1028,,,15554
+Aux_Outputs,eq curve 6,/Aux_Outputs/{n}/EQ/eq_curve_6,switch/enum,0,5,1,4,,,1028,,,15618
+Aux_Outputs,eq curve 7,/Aux_Outputs/{n}/EQ/eq_curve_7,switch/enum,0,6,1,4,,,1028,,,15682
+Aux_Outputs,eq curve 8,/Aux_Outputs/{n}/EQ/eq_curve_8,switch/enum,0,7,1,4,,,1028,,,15746
+Aux_Outputs,eq freq 1,/Aux_Outputs/{n}/EQ/eq_freq_1,float,0,0,20,20000,kHz,Hz,1029,,,15810
+Aux_Outputs,eq freq 2,/Aux_Outputs/{n}/EQ/eq_freq_2,float,0,1,20,20000,kHz,Hz,1029,,,15924
+Aux_Outputs,eq freq 3,/Aux_Outputs/{n}/EQ/eq_freq_3,float,0,2,20,20000,kHz,Hz,1029,,,16038
+Aux_Outputs,eq freq 4,/Aux_Outputs/{n}/EQ/eq_freq_4,float,0,3,20,20000,kHz,Hz,1029,,,16152
+Aux_Outputs,eq freq 5,/Aux_Outputs/{n}/EQ/eq_freq_5,float,0,4,20,20000,kHz,Hz,1029,,,16266
+Aux_Outputs,eq freq 6,/Aux_Outputs/{n}/EQ/eq_freq_6,float,0,5,20,20000,kHz,Hz,1029,,,16380
+Aux_Outputs,eq freq 7,/Aux_Outputs/{n}/EQ/eq_freq_7,float,0,6,20,20000,kHz,Hz,1029,,,16494
+Aux_Outputs,eq freq 8,/Aux_Outputs/{n}/EQ/eq_freq_8,float,0,7,20,20000,kHz,Hz,1029,,,16608
+Aux_Outputs,eq Q 1,/Aux_Outputs/{n}/EQ/eq_Q_1,float,0,0,0.1,20,,,1030,,,16722
+Aux_Outputs,eq Q 2,/Aux_Outputs/{n}/EQ/eq_Q_2,float,0,1,0.1,20,,,1030,,,16836
+Aux_Outputs,eq Q 3,/Aux_Outputs/{n}/EQ/eq_Q_3,float,0,2,0.1,20,,,1030,,,16950
+Aux_Outputs,eq Q 4,/Aux_Outputs/{n}/EQ/eq_Q_4,float,0,3,0.1,20,,,1030,,,17064
+Aux_Outputs,eq Q 5,/Aux_Outputs/{n}/EQ/eq_Q_5,float,0,4,0.1,20,,,1030,,,17178
+Aux_Outputs,eq Q 6,/Aux_Outputs/{n}/EQ/eq_Q_6,float,0,5,0.1,20,,,1030,,,17292
+Aux_Outputs,eq Q 7,/Aux_Outputs/{n}/EQ/eq_Q_7,float,0,6,0.1,20,,,1030,,,17406
+Aux_Outputs,eq Q 8,/Aux_Outputs/{n}/EQ/eq_Q_8,float,0,7,0.1,20,,,1030,,,17520
+Aux_Outputs,eq gain 1,/Aux_Outputs/{n}/EQ/eq_gain_1,float,0,0,-18,18,dB,,1031,,,17634
+Aux_Outputs,eq gain 2,/Aux_Outputs/{n}/EQ/eq_gain_2,float,0,1,-18,18,dB,,1031,,,17764
+Aux_Outputs,eq gain 3,/Aux_Outputs/{n}/EQ/eq_gain_3,float,0,2,-18,18,dB,,1031,,,17894
+Aux_Outputs,eq gain 4,/Aux_Outputs/{n}/EQ/eq_gain_4,float,0,3,-18,18,dB,,1031,,,18024
+Aux_Outputs,eq gain 5,/Aux_Outputs/{n}/EQ/eq_gain_5,float,0,4,-18,18,dB,,1031,,,18154
+Aux_Outputs,eq gain 6,/Aux_Outputs/{n}/EQ/eq_gain_6,float,0,5,-18,18,dB,,1031,,,18284
+Aux_Outputs,eq gain 7,/Aux_Outputs/{n}/EQ/eq_gain_7,float,0,6,-18,18,dB,,1031,,,18414
+Aux_Outputs,eq gain 8,/Aux_Outputs/{n}/EQ/eq_gain_8,float,0,7,-18,18,dB,,1031,,,18544
+Aux_Outputs,eq over-under 1,/Aux_Outputs/{n}/EQ/eq_over-under_1,switch/enum,0,0,0,1,,,1035,,,18674
+Aux_Outputs,eq over-under 2,/Aux_Outputs/{n}/EQ/eq_over-under_2,switch/enum,0,1,0,1,,,1035,,,18738
+Aux_Outputs,eq over-under 3,/Aux_Outputs/{n}/EQ/eq_over-under_3,switch/enum,0,2,0,1,,,1035,,,18802
+Aux_Outputs,eq over-under 4,/Aux_Outputs/{n}/EQ/eq_over-under_4,switch/enum,0,3,0,1,,,1035,,,18866
+Aux_Outputs,GR meter 1,/Aux_Outputs/{n}/EQ/GR_meter_0,meter,0,0,,,,,1036,,,18930
+Aux_Outputs,GR meter 2,/Aux_Outputs/{n}/EQ/GR_meter_1,meter,0,1,,,,,1036,,,18994
+Aux_Outputs,GR meter 3,/Aux_Outputs/{n}/EQ/GR_meter_2,meter,0,2,,,,,1036,,,19058
+Aux_Outputs,GR meter 4,/Aux_Outputs/{n}/EQ/GR_meter_3,meter,0,3,,,,,1036,,,19122
+Aux_Outputs,eq thresh 1,/Aux_Outputs/{n}/EQ/eq_thresh_1,float,0,0,-60,0,dB,,1038,,,19186
+Aux_Outputs,eq thresh 2,/Aux_Outputs/{n}/EQ/eq_thresh_2,float,0,1,-60,0,dB,,1038,,,19300
+Aux_Outputs,eq thresh 3,/Aux_Outputs/{n}/EQ/eq_thresh_3,float,0,2,-60,0,dB,,1038,,,19414
+Aux_Outputs,eq thresh 4,/Aux_Outputs/{n}/EQ/eq_thresh_4,float,0,3,-60,0,dB,,1038,,,19528
+Aux_Outputs,eq ratio 1,/Aux_Outputs/{n}/EQ/eq_ratio_1,float,0,0,1,10,,,1040,,,19642
+Aux_Outputs,eq ratio 2,/Aux_Outputs/{n}/EQ/eq_ratio_2,float,0,1,1,10,,,1040,,,19756
+Aux_Outputs,eq ratio 3,/Aux_Outputs/{n}/EQ/eq_ratio_3,float,0,2,1,10,,,1040,,,19870
+Aux_Outputs,eq ratio 4,/Aux_Outputs/{n}/EQ/eq_ratio_4,float,0,3,1,10,,,1040,,,19984
+Aux_Outputs,eq attack 1,/Aux_Outputs/{n}/EQ/eq_attack_1,float,0,0,0.0005,0.1,,,1041,,,20098
+Aux_Outputs,eq attack 2,/Aux_Outputs/{n}/EQ/eq_attack_2,float,0,1,0.0005,0.1,,,1041,,,20212
+Aux_Outputs,eq attack 3,/Aux_Outputs/{n}/EQ/eq_attack_3,float,0,2,0.0005,0.1,,,1041,,,20326
+Aux_Outputs,eq attack 4,/Aux_Outputs/{n}/EQ/eq_attack_4,float,0,3,0.0005,0.1,,,1041,,,20440
+Aux_Outputs,eq release 1,/Aux_Outputs/{n}/EQ/eq_release_1,float,0,0,0.01,10,,,1042,,,20554
+Aux_Outputs,eq release 2,/Aux_Outputs/{n}/EQ/eq_release_2,float,0,1,0.01,10,,,1042,,,20668
+Aux_Outputs,eq release 3,/Aux_Outputs/{n}/EQ/eq_release_3,float,0,2,0.01,10,,,1042,,,20782
+Aux_Outputs,eq release 4,/Aux_Outputs/{n}/EQ/eq_release_4,float,0,3,0.01,10,,,1042,,,20896
+Aux_Outputs,eq pre-ins,/Aux_Outputs/{n}/EQ/eq_pre-ins,switch/enum,0,0,0,1,,,1147,,,21010
+Aux_Outputs,eq symm Q 1,/Aux_Outputs/{n}/EQ/eq_symm_Q_1,switch/enum,0,0,0,1,,,1148,,,21074
+Aux_Outputs,eq symm Q 2,/Aux_Outputs/{n}/EQ/eq_symm_Q_2,switch/enum,0,1,0,1,,,1148,,,21138
+Aux_Outputs,eq symm Q 3,/Aux_Outputs/{n}/EQ/eq_symm_Q_3,switch/enum,0,2,0,1,,,1148,,,21202
+Aux_Outputs,eq symm Q 4,/Aux_Outputs/{n}/EQ/eq_symm_Q_4,switch/enum,0,3,0,1,,,1148,,,21266
+Aux_Outputs,eq symm Q 5,/Aux_Outputs/{n}/EQ/eq_symm_Q_5,switch/enum,0,4,0,1,,,1148,,,21330
+Aux_Outputs,eq symm Q 6,/Aux_Outputs/{n}/EQ/eq_symm_Q_6,switch/enum,0,5,0,1,,,1148,,,21394
+Aux_Outputs,eq symm Q 7,/Aux_Outputs/{n}/EQ/eq_symm_Q_7,switch/enum,0,6,0,1,,,1148,,,21458
+Aux_Outputs,eq symm Q 8,/Aux_Outputs/{n}/EQ/eq_symm_Q_8,switch/enum,0,7,0,1,,,1148,,,21522
+Aux_Outputs,dynamic eq on 1,/Aux_Outputs/{n}/EQ/dynamic_eq_on_1,switch/enum,0,0,0,1,,,1149,,,21586
+Aux_Outputs,dynamic eq on 2,/Aux_Outputs/{n}/EQ/dynamic_eq_on_2,switch/enum,0,1,0,1,,,1149,,,21650
+Aux_Outputs,dynamic eq on 3,/Aux_Outputs/{n}/EQ/dynamic_eq_on_3,switch/enum,0,2,0,1,,,1149,,,21714
+Aux_Outputs,dynamic eq on 4,/Aux_Outputs/{n}/EQ/dynamic_eq_on_4,switch/enum,0,3,0,1,,,1149,,,21778
+Aux_Outputs,comp in,/Aux_Outputs/{n}/Dynamics/comp_in,switch/enum,0,0,0,1,,,1282,,,21842
+Aux_Outputs,gate in,/Aux_Outputs/{n}/Dynamics/gate_in,switch/enum,0,3,0,1,,,1282,,,21906
+Aux_Outputs,comp band in 1,/Aux_Outputs/{n}/Dynamics/comp_band_in_1,switch/enum,0,0,0,1,,,1283,,,21970
+Aux_Outputs,comp band in 2,/Aux_Outputs/{n}/Dynamics/comp_band_in_2,switch/enum,0,1,0,1,,,1283,,,22034
+Aux_Outputs,comp band in 3,/Aux_Outputs/{n}/Dynamics/comp_band_in_3,switch/enum,0,2,0,1,,,1283,,,22098
+Aux_Outputs,comp LP crossover,/Aux_Outputs/{n}/Dynamics/comp_LP_crossover,float,0,0,20,20000,kHz,Hz,1285,,,22162
+Aux_Outputs,comp HP crossover,/Aux_Outputs/{n}/Dynamics/comp_HP_crossover,float,0,1,20,20000,kHz,Hz,1285,,,22276
+Aux_Outputs,comp gain 1,/Aux_Outputs/{n}/Dynamics/comp_gain_1,float,0,0,0,40,dB,,1289,,,22390
+Aux_Outputs,comp gain 2,/Aux_Outputs/{n}/Dynamics/comp_gain_2,float,0,1,0,40,dB,,1289,,,22504
+Aux_Outputs,comp gain 3,/Aux_Outputs/{n}/Dynamics/comp_gain_3,float,0,2,0,40,dB,,1289,,,22618
+Aux_Outputs,comp gain 4,/Aux_Outputs/{n}/Dynamics/comp_gain_4,float,0,3,0,40,dB,,1289,,,22732
+Aux_Outputs,gate range,/Aux_Outputs/{n}/Dynamics/gate_range,float,0,3,0,90,dB,,1290,,,22846
+Aux_Outputs,gate-duck-comp,/Aux_Outputs/{n}/Dynamics/gate-duck-comp,switch/enum,0,3,0,2,,,1291,,,22960
+Aux_Outputs,GR meter 1,/Aux_Outputs/{n}/Dynamics/GR_meter_1,meter,0,0,,,,,1292,,,23024
+Aux_Outputs,GR meter 3,/Aux_Outputs/{n}/Dynamics/GR_meter_3,meter,0,1,,,,,1292,,,23088
+Aux_Outputs,GR meter 2,/Aux_Outputs/{n}/Dynamics/GR_meter_2,meter,0,2,,,,,1292,,,23152
+Aux_Outputs,GR meter 4,/Aux_Outputs/{n}/Dynamics/GR_meter_4,meter,0,3,,,,,1292,,,23216
+Aux_Outputs,gate meter,/Aux_Outputs/{n}/Dynamics/gate_meter,meter,0,3,,,,,1293,,,23280
+Aux_Outputs,comp thresh 1,/Aux_Outputs/{n}/Dynamics/comp_thresh_1,float,0,0,-60,0,dB,,1294,,,23344
+Aux_Outputs,comp thresh 2,/Aux_Outputs/{n}/Dynamics/comp_thresh_2,float,0,1,-60,0,dB,,1294,,,23458
+Aux_Outputs,comp thresh 3,/Aux_Outputs/{n}/Dynamics/comp_thresh_3,float,0,2,-60,0,dB,,1294,,,23572
+Aux_Outputs,gate thresh,/Aux_Outputs/{n}/Dynamics/gate_thresh,float,0,3,-60,0,dB,,1294,,,23686
+Aux_Outputs,comp knee 1,/Aux_Outputs/{n}/Dynamics/comp_knee_1,switch/enum,0,0,0,2,,,1295,,,23800
+Aux_Outputs,comp knee 2,/Aux_Outputs/{n}/Dynamics/comp_knee_2,switch/enum,0,1,0,2,,,1295,,,23864
+Aux_Outputs,comp knee 3,/Aux_Outputs/{n}/Dynamics/comp_knee_3,switch/enum,0,2,0,2,,,1295,,,23928
+Aux_Outputs,comp knee 4,/Aux_Outputs/{n}/Dynamics/comp_knee_4,switch/enum,0,3,0,2,,,1295,,,23992
+Aux_Outputs,comp ratio 1,/Aux_Outputs/{n}/Dynamics/comp_ratio_1,float,0,0,1,50,,,1296,,,24056
+Aux_Outputs,comp ratio 2,/Aux_Outputs/{n}/Dynamics/comp_ratio_2,float,0,1,1,50,,,1296,,,24170
+Aux_Outputs,comp ratio 3,/Aux_Outputs/{n}/Dynamics/comp_ratio_3,float,0,2,1,50,,,1296,,,24284
+Aux_Outputs,comp ratio 4,/Aux_Outputs/{n}/Dynamics/comp_ratio_4,float,0,3,1,50,,,1296,,,24398
+Aux_Outputs,comp attack 1,/Aux_Outputs/{n}/Dynamics/comp_attack_1,float,0,0,2e-05,0.1,,,1297,,,24512
+Aux_Outputs,comp attack 2,/Aux_Outputs/{n}/Dynamics/comp_attack_2,float,0,1,2e-05,0.1,,,1297,,,24626
+Aux_Outputs,comp attack 3,/Aux_Outputs/{n}/Dynamics/comp_attack_3,float,0,2,2e-05,0.1,,,1297,,,24740
+Aux_Outputs,gate attack,/Aux_Outputs/{n}/Dynamics/gate_attack,float,0,3,5e-05,0.1,,,1297,,,24854
+Aux_Outputs,comp release 1,/Aux_Outputs/{n}/Dynamics/comp_release_1,float,0,0,0.001,10,,,1298,,,24968
+Aux_Outputs,comp release 2,/Aux_Outputs/{n}/Dynamics/comp_release_2,float,0,1,0.001,10,,,1298,,,25082
+Aux_Outputs,comp release 3,/Aux_Outputs/{n}/Dynamics/comp_release_3,float,0,2,0.001,10,,,1298,,,25196
+Aux_Outputs,gate release,/Aux_Outputs/{n}/Dynamics/gate_release,float,0,3,0.005,10,,,1298,,,25310
+Aux_Outputs,gate hold,/Aux_Outputs/{n}/Dynamics/gate_hold,float,0,3,0.002,2,,,1299,,,25424
+Aux_Outputs,key solo,/Aux_Outputs/{n}/Dynamics/key_solo,switch/enum,0,0,0,1,,,1303,,,25538
+Aux_Outputs,comp listen 1,/Aux_Outputs/{n}/Dynamics/comp_listen_1,switch/enum,0,0,0,1,,,1304,,,25602
+Aux_Outputs,comp listen 2,/Aux_Outputs/{n}/Dynamics/comp_listen_2,switch/enum,0,1,0,1,,,1304,,,25666
+Aux_Outputs,comp listen 3,/Aux_Outputs/{n}/Dynamics/comp_listen_3,switch/enum,0,2,0,1,,,1304,,,25730
+Aux_Outputs,input meter/left,/Aux_Outputs/{n}/Dynamics/input_meter/left,meter,0,0,,,,,1328,,,25794
+Aux_Outputs,input meter/right,/Aux_Outputs/{n}/Dynamics/input_meter/right,meter,0,0,,,,,1332,,,25858
+Aux_Outputs,comp all gain,/Aux_Outputs/{n}/Dynamics/comp_all_gain,float,0,0,0,40,dB,,1336,,,25922
+Aux_Outputs,comp all thresh,/Aux_Outputs/{n}/Dynamics/comp_all_thresh,float,0,0,-60,0,dB,,1337,,,26036
+Aux_Outputs,comp-multiband-desser,/Aux_Outputs/{n}/Dynamics/comp-multiband-desser,switch/enum,0,0,0,2,,,1338,,,26150
+Aux_Outputs,comp auto-gain 1,/Aux_Outputs/{n}/Dynamics/comp_auto-gain_1,switch/enum,0,0,0,1,,,1339,,,26214
+Aux_Outputs,comp auto-gain 2,/Aux_Outputs/{n}/Dynamics/comp_auto-gain_2,switch/enum,0,1,0,1,,,1339,,,26278
+Aux_Outputs,comp auto-gain 3,/Aux_Outputs/{n}/Dynamics/comp_auto-gain_3,switch/enum,0,2,0,1,,,1339,,,26342
+Aux_Outputs,comp auto-gain 4,/Aux_Outputs/{n}/Dynamics/comp_auto-gain_4,switch/enum,0,3,0,1,,,1339,,,26406
+Aux_Outputs,desser centre freq,/Aux_Outputs/{n}/Dynamics/desser_centre_freq,float,0,0,0,255,,,1406,,,26470
+Aux_Outputs,gate centre freq,/Aux_Outputs/{n}/Dynamics/gate_centre_freq,float,0,3,0,255,,,1406,,,26584
+Aux_Outputs,desser freq width,/Aux_Outputs/{n}/Dynamics/desser_freq_width,float,0,0,0,255,,,1407,,,26698
+Aux_Outputs,gate freq width,/Aux_Outputs/{n}/Dynamics/gate_freq_width,float,0,3,0,255,,,1407,,,26812
+Aux_Outputs,insert A in,/Aux_Outputs/{n}/Insert/insert_A_in,switch/enum,0,0,0,1,,,2050,,,26926
+Aux_Outputs,insert B in,/Aux_Outputs/{n}/Insert/insert_B_in,switch/enum,0,1,0,1,,,2050,,,26990
+Aux_Outputs,delay on,/Aux_Outputs/{n}/Channel_Delay/delay_on,switch/enum,0,0,0,1,,,2311,,,27054
+Aux_Outputs,delay,/Aux_Outputs/{n}/Channel_Delay/delay,float,0,0,0,1.3,,,2312,,,27118
+Aux_Outputs,fine delay,/Aux_Outputs/{n}/Channel_Delay/fine_delay,float,0,0,-127,127,samples,,2327,,,27232
+Aux_Outputs,trim,/Aux_Outputs/{n}/Buss_Trim/trim,float,0,0,-40,60,dB,,2817,,,27362
+Aux_Outputs,phase,/Aux_Outputs/{n}/Buss_Trim/phase,switch/enum,0,0,0,3,,,2818,,,27500
+Aux_Outputs,pre meter,/Aux_Outputs/{n}/Buss_Trim/pre_meter,meter,0,0,,,,,2848,,,27564
+Aux_Outputs,pre meter/right,/Aux_Outputs/{n}/Buss_Trim/pre_meter/right,meter,0,0,,,,,2852,,,27628
+Aux_Outputs,post meter,/Aux_Outputs/{n}/Buss_Trim/post_meter,meter,0,0,,,,,2864,,,27692
+Aux_Outputs,post meter/right,/Aux_Outputs/{n}/Buss_Trim/post_meter/right,meter,0,0,,,,,2868,,,27756
+Aux_Outputs,tube meter/left,/Aux_Outputs/{n}/Buss_Trim/tube_meter/left,meter,0,0,,,,,2904,,,27820
+Aux_Outputs,tube meter/right,/Aux_Outputs/{n}/Buss_Trim/tube_meter/right,meter,0,0,,,,,2908,,,27884
+Aux_Outputs,name,/Aux_Outputs/{n}/Buss_Trim/name,string,0,0,,,,,3071,,,27948
+Aux_Outputs,CGs level,/Aux_Outputs/{n}/CGs_level,float,0,0,-150,10,dB,%,3073,,,28012
+Aux_Outputs,hard mute,/Aux_Outputs/{n}/hard_mute,switch/enum,0,0,0,1,,,3074,,,28222
+Aux_Outputs,solo,/Aux_Outputs/{n}/solo,switch/enum,0,0,0,1,,,3075,,,28286
+Aux_Outputs,solo 1 or 2,/Aux_Outputs/{n}/solo_1_or_2,switch/enum,0,0,0,2,,,3083,,,28350
+Aux_Outputs,sends to rotaries,/Aux_Outputs/{n}/sends_to_rotaries,switch/enum,0,0,0,1,,,3085,,,28414
+Aux_Outputs,sends to faders,/Aux_Outputs/{n}/sends_to_faders,switch/enum,0,0,0,1,,,3088,,,28478
+Aux_Outputs,auto solo,/Aux_Outputs/{n}/auto_solo,switch/enum,0,0,0,3,,,3089,,,28542
+Aux_Outputs,CGs mute,/Aux_Outputs/{n}/CGs_mute,switch/enum,0,0,0,1,,,3100,,,28606
+Aux_Outputs,fader,/Aux_Outputs/{n}/fader,float,0,0,-150,10,dB,%,3105,,,28670
+Aux_Outputs,mute,/Aux_Outputs/{n}/mute,switch/enum,0,0,0,1,,,3106,,,28880
+Aux_Outputs,fader meter/left,/Aux_Outputs/{n}/fader_meter/left,meter,0,0,,,,,3120,,,28944
+Aux_Outputs,fader meter/right,/Aux_Outputs/{n}/fader_meter/right,meter,0,0,,,,,3124,,,29008
+Aux_Outputs,alternate solo,/Aux_Outputs/{n}/alternate_solo,switch/enum,0,0,0,1,,,3300,,,29072
+Aux_Outputs,dir meter/left,/Aux_Outputs/{n}/Output/dir_meter/left,meter,0,0,,,,,3624,,,29136
+Aux_Outputs,dir meter/right,/Aux_Outputs/{n}/Output/dir_meter/right,meter,0,0,,,,,3628,,,29200
+Aux_Outputs,meter/left,/Aux_Outputs/{n}/Output/meter/left,meter,0,0,,,,,3648,,,29264
+Aux_Outputs,meter2,/Aux_Outputs/{n}/Output/meter2,meter,0,0,,,,,3649,,,29328
+Aux_Outputs,meter/centre,/Aux_Outputs/{n}/Output/meter/centre,meter,0,0,,,,,3650,,,29392
+Aux_Outputs,meter4,/Aux_Outputs/{n}/Output/meter4,meter,0,0,,,,,3651,,,29456
+Aux_Outputs,meter/right,/Aux_Outputs/{n}/Output/meter/right,meter,0,0,,,,,3652,,,29520
+Aux_Outputs,meter/SL,/Aux_Outputs/{n}/Output/meter/SL,meter,0,0,,,,,3653,,,29584
+Aux_Outputs,meter/SR,/Aux_Outputs/{n}/Output/meter/SR,meter,0,0,,,,,3654,,,29648
+Aux_Outputs,meter/LFE,/Aux_Outputs/{n}/Output/meter/LFE,meter,0,0,,,,,3655,,,29712
+Group_Outputs,send level,/Group_Outputs/{n}/Aux_Send/{i}/send_level,float,0,0,-150,10,dB,%,513,,,29776
+Group_Outputs,send on,/Group_Outputs/{n}/Aux_Send/{i}/send_on,switch/enum,0,0,0,1,,,514,,,29986
+Group_Outputs,send pan,/Group_Outputs/{n}/Aux_Send/{i}/send_pan,float,0,0,-1,1,%,,515,,,30050
+Group_Outputs,send pre-post,/Group_Outputs/{n}/Aux_Send/{i}/send_pre-post,switch/enum,0,0,0,2,,,516,,,30196
+Group_Outputs,group,/Group_Outputs/{n}/Group_Send/{i}/group,switch/enum,0,0,0,1,,,777,,,30260
+Group_Outputs,eq in,/Group_Outputs/{n}/EQ/eq_in,switch/enum,0,0,0,1,,,1026,,,30324
+Group_Outputs,eq on 1,/Group_Outputs/{n}/EQ/eq_on_1,switch/enum,0,0,0,1,,,1027,,,30388
+Group_Outputs,eq on 2,/Group_Outputs/{n}/EQ/eq_on_2,switch/enum,0,1,0,1,,,1027,,,30452
+Group_Outputs,eq on 3,/Group_Outputs/{n}/EQ/eq_on_3,switch/enum,0,2,0,1,,,1027,,,30516
+Group_Outputs,eq on 4,/Group_Outputs/{n}/EQ/eq_on_4,switch/enum,0,3,0,1,,,1027,,,30580
+Group_Outputs,eq on 5,/Group_Outputs/{n}/EQ/eq_on_5,switch/enum,0,4,0,1,,,1027,,,30644
+Group_Outputs,eq on 6,/Group_Outputs/{n}/EQ/eq_on_6,switch/enum,0,5,0,1,,,1027,,,30708
+Group_Outputs,eq on 7,/Group_Outputs/{n}/EQ/eq_on_7,switch/enum,0,6,0,1,,,1027,,,30772
+Group_Outputs,eq on 8,/Group_Outputs/{n}/EQ/eq_on_8,switch/enum,0,7,0,1,,,1027,,,30836
+Group_Outputs,eq curve 1,/Group_Outputs/{n}/EQ/eq_curve_1,switch/enum,0,0,1,4,,,1028,,,30900
+Group_Outputs,eq curve 2,/Group_Outputs/{n}/EQ/eq_curve_2,switch/enum,0,1,1,4,,,1028,,,30964
+Group_Outputs,eq curve 3,/Group_Outputs/{n}/EQ/eq_curve_3,switch/enum,0,2,1,4,,,1028,,,31028
+Group_Outputs,eq curve 4,/Group_Outputs/{n}/EQ/eq_curve_4,switch/enum,0,3,1,4,,,1028,,,31092
+Group_Outputs,eq curve 5,/Group_Outputs/{n}/EQ/eq_curve_5,switch/enum,0,4,1,4,,,1028,,,31156
+Group_Outputs,eq curve 6,/Group_Outputs/{n}/EQ/eq_curve_6,switch/enum,0,5,1,4,,,1028,,,31220
+Group_Outputs,eq curve 7,/Group_Outputs/{n}/EQ/eq_curve_7,switch/enum,0,6,1,4,,,1028,,,31284
+Group_Outputs,eq curve 8,/Group_Outputs/{n}/EQ/eq_curve_8,switch/enum,0,7,1,4,,,1028,,,31348
+Group_Outputs,eq freq 1,/Group_Outputs/{n}/EQ/eq_freq_1,float,0,0,20,20000,kHz,Hz,1029,,,31412
+Group_Outputs,eq freq 2,/Group_Outputs/{n}/EQ/eq_freq_2,float,0,1,20,20000,kHz,Hz,1029,,,31526
+Group_Outputs,eq freq 3,/Group_Outputs/{n}/EQ/eq_freq_3,float,0,2,20,20000,kHz,Hz,1029,,,31640
+Group_Outputs,eq freq 4,/Group_Outputs/{n}/EQ/eq_freq_4,float,0,3,20,20000,kHz,Hz,1029,,,31754
+Group_Outputs,eq freq 5,/Group_Outputs/{n}/EQ/eq_freq_5,float,0,4,20,20000,kHz,Hz,1029,,,31868
+Group_Outputs,eq freq 6,/Group_Outputs/{n}/EQ/eq_freq_6,float,0,5,20,20000,kHz,Hz,1029,,,31982
+Group_Outputs,eq freq 7,/Group_Outputs/{n}/EQ/eq_freq_7,float,0,6,20,20000,kHz,Hz,1029,,,32096
+Group_Outputs,eq freq 8,/Group_Outputs/{n}/EQ/eq_freq_8,float,0,7,20,20000,kHz,Hz,1029,,,32210
+Group_Outputs,eq Q 1,/Group_Outputs/{n}/EQ/eq_Q_1,float,0,0,0.1,20,,,1030,,,32324
+Group_Outputs,eq Q 2,/Group_Outputs/{n}/EQ/eq_Q_2,float,0,1,0.1,20,,,1030,,,32438
+Group_Outputs,eq Q 3,/Group_Outputs/{n}/EQ/eq_Q_3,float,0,2,0.1,20,,,1030,,,32552
+Group_Outputs,eq Q 4,/Group_Outputs/{n}/EQ/eq_Q_4,float,0,3,0.1,20,,,1030,,,32666
+Group_Outputs,eq Q 5,/Group_Outputs/{n}/EQ/eq_Q_5,float,0,4,0.1,20,,,1030,,,32780
+Group_Outputs,eq Q 6,/Group_Outputs/{n}/EQ/eq_Q_6,float,0,5,0.1,20,,,1030,,,32894
+Group_Outputs,eq Q 7,/Group_Outputs/{n}/EQ/eq_Q_7,float,0,6,0.1,20,,,1030,,,33008
+Group_Outputs,eq Q 8,/Group_Outputs/{n}/EQ/eq_Q_8,float,0,7,0.1,20,,,1030,,,33122
+Group_Outputs,eq gain 1,/Group_Outputs/{n}/EQ/eq_gain_1,float,0,0,-18,18,dB,,1031,,,33236
+Group_Outputs,eq gain 2,/Group_Outputs/{n}/EQ/eq_gain_2,float,0,1,-18,18,dB,,1031,,,33366
+Group_Outputs,eq gain 3,/Group_Outputs/{n}/EQ/eq_gain_3,float,0,2,-18,18,dB,,1031,,,33496
+Group_Outputs,eq gain 4,/Group_Outputs/{n}/EQ/eq_gain_4,float,0,3,-18,18,dB,,1031,,,33626
+Group_Outputs,eq gain 5,/Group_Outputs/{n}/EQ/eq_gain_5,float,0,4,-18,18,dB,,1031,,,33756
+Group_Outputs,eq gain 6,/Group_Outputs/{n}/EQ/eq_gain_6,float,0,5,-18,18,dB,,1031,,,33886
+Group_Outputs,eq gain 7,/Group_Outputs/{n}/EQ/eq_gain_7,float,0,6,-18,18,dB,,1031,,,34016
+Group_Outputs,eq gain 8,/Group_Outputs/{n}/EQ/eq_gain_8,float,0,7,-18,18,dB,,1031,,,34146
+Group_Outputs,eq over-under 1,/Group_Outputs/{n}/EQ/eq_over-under_1,switch/enum,0,0,0,1,,,1035,,,34276
+Group_Outputs,eq over-under 2,/Group_Outputs/{n}/EQ/eq_over-under_2,switch/enum,0,1,0,1,,,1035,,,34340
+Group_Outputs,eq over-under 3,/Group_Outputs/{n}/EQ/eq_over-under_3,switch/enum,0,2,0,1,,,1035,,,34404
+Group_Outputs,eq over-under 4,/Group_Outputs/{n}/EQ/eq_over-under_4,switch/enum,0,3,0,1,,,1035,,,34468
+Group_Outputs,GR meter 1,/Group_Outputs/{n}/EQ/GR_meter_0,meter,0,0,,,,,1036,,,34532
+Group_Outputs,GR meter 2,/Group_Outputs/{n}/EQ/GR_meter_1,meter,0,1,,,,,1036,,,34596
+Group_Outputs,GR meter 3,/Group_Outputs/{n}/EQ/GR_meter_2,meter,0,2,,,,,1036,,,34660
+Group_Outputs,GR meter 4,/Group_Outputs/{n}/EQ/GR_meter_3,meter,0,3,,,,,1036,,,34724
+Group_Outputs,eq thresh 1,/Group_Outputs/{n}/EQ/eq_thresh_1,float,0,0,-60,0,dB,,1038,,,34788
+Group_Outputs,eq thresh 2,/Group_Outputs/{n}/EQ/eq_thresh_2,float,0,1,-60,0,dB,,1038,,,34902
+Group_Outputs,eq thresh 3,/Group_Outputs/{n}/EQ/eq_thresh_3,float,0,2,-60,0,dB,,1038,,,35016
+Group_Outputs,eq thresh 4,/Group_Outputs/{n}/EQ/eq_thresh_4,float,0,3,-60,0,dB,,1038,,,35130
+Group_Outputs,eq ratio 1,/Group_Outputs/{n}/EQ/eq_ratio_1,float,0,0,1,10,,,1040,,,35244
+Group_Outputs,eq ratio 2,/Group_Outputs/{n}/EQ/eq_ratio_2,float,0,1,1,10,,,1040,,,35358
+Group_Outputs,eq ratio 3,/Group_Outputs/{n}/EQ/eq_ratio_3,float,0,2,1,10,,,1040,,,35472
+Group_Outputs,eq ratio 4,/Group_Outputs/{n}/EQ/eq_ratio_4,float,0,3,1,10,,,1040,,,35586
+Group_Outputs,eq attack 1,/Group_Outputs/{n}/EQ/eq_attack_1,float,0,0,0.0005,0.1,,,1041,,,35700
+Group_Outputs,eq attack 2,/Group_Outputs/{n}/EQ/eq_attack_2,float,0,1,0.0005,0.1,,,1041,,,35814
+Group_Outputs,eq attack 3,/Group_Outputs/{n}/EQ/eq_attack_3,float,0,2,0.0005,0.1,,,1041,,,35928
+Group_Outputs,eq attack 4,/Group_Outputs/{n}/EQ/eq_attack_4,float,0,3,0.0005,0.1,,,1041,,,36042
+Group_Outputs,eq release 1,/Group_Outputs/{n}/EQ/eq_release_1,float,0,0,0.01,10,,,1042,,,36156
+Group_Outputs,eq release 2,/Group_Outputs/{n}/EQ/eq_release_2,float,0,1,0.01,10,,,1042,,,36270
+Group_Outputs,eq release 3,/Group_Outputs/{n}/EQ/eq_release_3,float,0,2,0.01,10,,,1042,,,36384
+Group_Outputs,eq release 4,/Group_Outputs/{n}/EQ/eq_release_4,float,0,3,0.01,10,,,1042,,,36498
+Group_Outputs,eq pre-ins,/Group_Outputs/{n}/EQ/eq_pre-ins,switch/enum,0,0,0,1,,,1147,,,36612
+Group_Outputs,eq symm Q 1,/Group_Outputs/{n}/EQ/eq_symm_Q_1,switch/enum,0,0,0,1,,,1148,,,36676
+Group_Outputs,eq symm Q 2,/Group_Outputs/{n}/EQ/eq_symm_Q_2,switch/enum,0,1,0,1,,,1148,,,36740
+Group_Outputs,eq symm Q 3,/Group_Outputs/{n}/EQ/eq_symm_Q_3,switch/enum,0,2,0,1,,,1148,,,36804
+Group_Outputs,eq symm Q 4,/Group_Outputs/{n}/EQ/eq_symm_Q_4,switch/enum,0,3,0,1,,,1148,,,36868
+Group_Outputs,eq symm Q 5,/Group_Outputs/{n}/EQ/eq_symm_Q_5,switch/enum,0,4,0,1,,,1148,,,36932
+Group_Outputs,eq symm Q 6,/Group_Outputs/{n}/EQ/eq_symm_Q_6,switch/enum,0,5,0,1,,,1148,,,36996
+Group_Outputs,eq symm Q 7,/Group_Outputs/{n}/EQ/eq_symm_Q_7,switch/enum,0,6,0,1,,,1148,,,37060
+Group_Outputs,eq symm Q 8,/Group_Outputs/{n}/EQ/eq_symm_Q_8,switch/enum,0,7,0,1,,,1148,,,37124
+Group_Outputs,dynamic eq on 1,/Group_Outputs/{n}/EQ/dynamic_eq_on_1,switch/enum,0,0,0,1,,,1149,,,37188
+Group_Outputs,dynamic eq on 2,/Group_Outputs/{n}/EQ/dynamic_eq_on_2,switch/enum,0,1,0,1,,,1149,,,37252
+Group_Outputs,dynamic eq on 3,/Group_Outputs/{n}/EQ/dynamic_eq_on_3,switch/enum,0,2,0,1,,,1149,,,37316
+Group_Outputs,dynamic eq on 4,/Group_Outputs/{n}/EQ/dynamic_eq_on_4,switch/enum,0,3,0,1,,,1149,,,37380
+Group_Outputs,comp in,/Group_Outputs/{n}/Dynamics/comp_in,switch/enum,0,0,0,1,,,1282,,,37444
+Group_Outputs,gate in,/Group_Outputs/{n}/Dynamics/gate_in,switch/enum,0,3,0,1,,,1282,,,37508
+Group_Outputs,comp band in 1,/Group_Outputs/{n}/Dynamics/comp_band_in_1,switch/enum,0,0,0,1,,,1283,,,37572
+Group_Outputs,comp band in 2,/Group_Outputs/{n}/Dynamics/comp_band_in_2,switch/enum,0,1,0,1,,,1283,,,37636
+Group_Outputs,comp band in 3,/Group_Outputs/{n}/Dynamics/comp_band_in_3,switch/enum,0,2,0,1,,,1283,,,37700
+Group_Outputs,comp LP crossover,/Group_Outputs/{n}/Dynamics/comp_LP_crossover,float,0,0,20,20000,kHz,Hz,1285,,,37764
+Group_Outputs,comp HP crossover,/Group_Outputs/{n}/Dynamics/comp_HP_crossover,float,0,1,20,20000,kHz,Hz,1285,,,37878
+Group_Outputs,comp gain 1,/Group_Outputs/{n}/Dynamics/comp_gain_1,float,0,0,0,40,dB,,1289,,,37992
+Group_Outputs,comp gain 2,/Group_Outputs/{n}/Dynamics/comp_gain_2,float,0,1,0,40,dB,,1289,,,38106
+Group_Outputs,comp gain 3,/Group_Outputs/{n}/Dynamics/comp_gain_3,float,0,2,0,40,dB,,1289,,,38220
+Group_Outputs,comp gain 4,/Group_Outputs/{n}/Dynamics/comp_gain_4,float,0,3,0,40,dB,,1289,,,38334
+Group_Outputs,gate range,/Group_Outputs/{n}/Dynamics/gate_range,float,0,3,0,90,dB,,1290,,,38448
+Group_Outputs,gate-duck-comp,/Group_Outputs/{n}/Dynamics/gate-duck-comp,switch/enum,0,3,0,2,,,1291,,,38562
+Group_Outputs,GR meter 1,/Group_Outputs/{n}/Dynamics/GR_meter_1,meter,0,0,,,,,1292,,,38626
+Group_Outputs,GR meter 3,/Group_Outputs/{n}/Dynamics/GR_meter_3,meter,0,1,,,,,1292,,,38690
+Group_Outputs,GR meter 2,/Group_Outputs/{n}/Dynamics/GR_meter_2,meter,0,2,,,,,1292,,,38754
+Group_Outputs,GR meter 4,/Group_Outputs/{n}/Dynamics/GR_meter_4,meter,0,3,,,,,1292,,,38818
+Group_Outputs,gate meter,/Group_Outputs/{n}/Dynamics/gate_meter,meter,0,3,,,,,1293,,,38882
+Group_Outputs,comp thresh 1,/Group_Outputs/{n}/Dynamics/comp_thresh_1,float,0,0,-60,0,dB,,1294,,,38946
+Group_Outputs,comp thresh 2,/Group_Outputs/{n}/Dynamics/comp_thresh_2,float,0,1,-60,0,dB,,1294,,,39060
+Group_Outputs,comp thresh 3,/Group_Outputs/{n}/Dynamics/comp_thresh_3,float,0,2,-60,0,dB,,1294,,,39174
+Group_Outputs,gate thresh,/Group_Outputs/{n}/Dynamics/gate_thresh,float,0,3,-60,0,dB,,1294,,,39288
+Group_Outputs,comp knee 1,/Group_Outputs/{n}/Dynamics/comp_knee_1,switch/enum,0,0,0,2,,,1295,,,39402
+Group_Outputs,comp knee 2,/Group_Outputs/{n}/Dynamics/comp_knee_2,switch/enum,0,1,0,2,,,1295,,,39466
+Group_Outputs,comp knee 3,/Group_Outputs/{n}/Dynamics/comp_knee_3,switch/enum,0,2,0,2,,,1295,,,39530
+Group_Outputs,comp knee 4,/Group_Outputs/{n}/Dynamics/comp_knee_4,switch/enum,0,3,0,2,,,1295,,,39594
+Group_Outputs,comp ratio 1,/Group_Outputs/{n}/Dynamics/comp_ratio_1,float,0,0,1,50,,,1296,,,39658
+Group_Outputs,comp ratio 2,/Group_Outputs/{n}/Dynamics/comp_ratio_2,float,0,1,1,50,,,1296,,,39772
+Group_Outputs,comp ratio 3,/Group_Outputs/{n}/Dynamics/comp_ratio_3,float,0,2,1,50,,,1296,,,39886
+Group_Outputs,comp ratio 4,/Group_Outputs/{n}/Dynamics/comp_ratio_4,float,0,3,1,50,,,1296,,,40000
+Group_Outputs,comp attack 1,/Group_Outputs/{n}/Dynamics/comp_attack_1,float,0,0,2e-05,0.1,,,1297,,,40114
+Group_Outputs,comp attack 2,/Group_Outputs/{n}/Dynamics/comp_attack_2,float,0,1,2e-05,0.1,,,1297,,,40228
+Group_Outputs,comp attack 3,/Group_Outputs/{n}/Dynamics/comp_attack_3,float,0,2,2e-05,0.1,,,1297,,,40342
+Group_Outputs,gate attack,/Group_Outputs/{n}/Dynamics/gate_attack,float,0,3,5e-05,0.1,,,1297,,,40456
+Group_Outputs,comp release 1,/Group_Outputs/{n}/Dynamics/comp_release_1,float,0,0,0.001,10,,,1298,,,40570
+Group_Outputs,comp release 2,/Group_Outputs/{n}/Dynamics/comp_release_2,float,0,1,0.001,10,,,1298,,,40684
+Group_Outputs,comp release 3,/Group_Outputs/{n}/Dynamics/comp_release_3,float,0,2,0.001,10,,,1298,,,40798
+Group_Outputs,gate release,/Group_Outputs/{n}/Dynamics/gate_release,float,0,3,0.005,10,,,1298,,,40912
+Group_Outputs,gate hold,/Group_Outputs/{n}/Dynamics/gate_hold,float,0,3,0.002,2,,,1299,,,41026
+Group_Outputs,key solo,/Group_Outputs/{n}/Dynamics/key_solo,switch/enum,0,0,0,1,,,1303,,,41140
+Group_Outputs,comp listen 1,/Group_Outputs/{n}/Dynamics/comp_listen_1,switch/enum,0,0,0,1,,,1304,,,41204
+Group_Outputs,comp listen 2,/Group_Outputs/{n}/Dynamics/comp_listen_2,switch/enum,0,1,0,1,,,1304,,,41268
+Group_Outputs,comp listen 3,/Group_Outputs/{n}/Dynamics/comp_listen_3,switch/enum,0,2,0,1,,,1304,,,41332
+Group_Outputs,input meter/left,/Group_Outputs/{n}/Dynamics/input_meter/left,meter,0,0,,,,,1328,,,41396
+Group_Outputs,input meter/right,/Group_Outputs/{n}/Dynamics/input_meter/right,meter,0,0,,,,,1332,,,41460
+Group_Outputs,comp all gain,/Group_Outputs/{n}/Dynamics/comp_all_gain,float,0,0,0,40,dB,,1336,,,41524
+Group_Outputs,comp all thresh,/Group_Outputs/{n}/Dynamics/comp_all_thresh,float,0,0,-60,0,dB,,1337,,,41638
+Group_Outputs,comp-multiband-desser,/Group_Outputs/{n}/Dynamics/comp-multiband-desser,switch/enum,0,0,0,2,,,1338,,,41752
+Group_Outputs,comp auto-gain 1,/Group_Outputs/{n}/Dynamics/comp_auto-gain_1,switch/enum,0,0,0,1,,,1339,,,41816
+Group_Outputs,comp auto-gain 2,/Group_Outputs/{n}/Dynamics/comp_auto-gain_2,switch/enum,0,1,0,1,,,1339,,,41880
+Group_Outputs,comp auto-gain 3,/Group_Outputs/{n}/Dynamics/comp_auto-gain_3,switch/enum,0,2,0,1,,,1339,,,41944
+Group_Outputs,comp auto-gain 4,/Group_Outputs/{n}/Dynamics/comp_auto-gain_4,switch/enum,0,3,0,1,,,1339,,,42008
+Group_Outputs,desser centre freq,/Group_Outputs/{n}/Dynamics/desser_centre_freq,float,0,0,0,255,,,1406,,,42072
+Group_Outputs,gate centre freq,/Group_Outputs/{n}/Dynamics/gate_centre_freq,float,0,3,0,255,,,1406,,,42186
+Group_Outputs,desser freq width,/Group_Outputs/{n}/Dynamics/desser_freq_width,float,0,0,0,255,,,1407,,,42300
+Group_Outputs,gate freq width,/Group_Outputs/{n}/Dynamics/gate_freq_width,float,0,3,0,255,,,1407,,,42414
+Group_Outputs,insert A in,/Group_Outputs/{n}/Insert/insert_A_in,switch/enum,0,0,0,1,,,2050,,,42528
+Group_Outputs,insert B in,/Group_Outputs/{n}/Insert/insert_B_in,switch/enum,0,1,0,1,,,2050,,,42592
+Group_Outputs,delay on,/Group_Outputs/{n}/Channel_Delay/delay_on,switch/enum,0,0,0,1,,,2311,,,42656
+Group_Outputs,delay,/Group_Outputs/{n}/Channel_Delay/delay,float,0,0,0,1.3,,,2312,,,42720
+Group_Outputs,fine delay,/Group_Outputs/{n}/Channel_Delay/fine_delay,float,0,0,-127,127,samples,,2327,,,42834
+Group_Outputs,trim,/Group_Outputs/{n}/Buss_Trim/trim,float,0,0,-40,60,dB,,2817,,,42964
+Group_Outputs,phase,/Group_Outputs/{n}/Buss_Trim/phase,switch/enum,0,0,0,3,,,2818,,,43102
+Group_Outputs,pre meter,/Group_Outputs/{n}/Buss_Trim/pre_meter,meter,0,0,,,,,2848,,,43166
+Group_Outputs,pre meter/right,/Group_Outputs/{n}/Buss_Trim/pre_meter/right,meter,0,0,,,,,2852,,,43230
+Group_Outputs,post meter,/Group_Outputs/{n}/Buss_Trim/post_meter,meter,0,0,,,,,2864,,,43294
+Group_Outputs,post meter/right,/Group_Outputs/{n}/Buss_Trim/post_meter/right,meter,0,0,,,,,2868,,,43358
+Group_Outputs,tube meter/left,/Group_Outputs/{n}/Buss_Trim/tube_meter/left,meter,0,0,,,,,2904,,,43422
+Group_Outputs,tube meter/right,/Group_Outputs/{n}/Buss_Trim/tube_meter/right,meter,0,0,,,,,2908,,,43486
+Group_Outputs,name,/Group_Outputs/{n}/Buss_Trim/name,string,0,0,,,,,3071,,,43550
+Group_Outputs,CGs level,/Group_Outputs/{n}/CGs_level,float,0,0,-150,10,dB,%,3073,,,43614
+Group_Outputs,hard mute,/Group_Outputs/{n}/hard_mute,switch/enum,0,0,0,1,,,3074,,,43824
+Group_Outputs,solo,/Group_Outputs/{n}/solo,switch/enum,0,0,0,1,,,3075,,,43888
+Group_Outputs,solo 1 or 2,/Group_Outputs/{n}/solo_1_or_2,switch/enum,0,0,0,2,,,3083,,,43952
+Group_Outputs,sends to rotaries,/Group_Outputs/{n}/sends_to_rotaries,switch/enum,0,0,0,1,,,3085,,,44016
+Group_Outputs,sends to faders,/Group_Outputs/{n}/sends_to_faders,switch/enum,0,0,0,1,,,3088,,,44080
+Group_Outputs,auto solo,/Group_Outputs/{n}/auto_solo,switch/enum,0,0,0,3,,,3089,,,44144
+Group_Outputs,CGs mute,/Group_Outputs/{n}/CGs_mute,switch/enum,0,0,0,1,,,3100,,,44208
+Group_Outputs,fader,/Group_Outputs/{n}/fader,float,0,0,-150,10,dB,%,3105,,,44272
+Group_Outputs,mute,/Group_Outputs/{n}/mute,switch/enum,0,0,0,1,,,3106,,,44482
+Group_Outputs,fader meter/left,/Group_Outputs/{n}/fader_meter/left,meter,0,0,,,,,3120,,,44546
+Group_Outputs,fader meter/right,/Group_Outputs/{n}/fader_meter/right,meter,0,0,,,,,3124,,,44610
+Group_Outputs,alternate solo,/Group_Outputs/{n}/alternate_solo,switch/enum,0,0,0,1,,,3300,,,44674
+Group_Outputs,dir meter/left,/Group_Outputs/{n}/Output/dir_meter/left,meter,0,0,,,,,3624,,,44738
+Group_Outputs,dir meter/right,/Group_Outputs/{n}/Output/dir_meter/right,meter,0,0,,,,,3628,,,44802
+Group_Outputs,meter/left,/Group_Outputs/{n}/Output/meter/left,meter,0,0,,,,,3648,,,44866
+Group_Outputs,meter2,/Group_Outputs/{n}/Output/meter2,meter,0,0,,,,,3649,,,44930
+Group_Outputs,meter/centre,/Group_Outputs/{n}/Output/meter/centre,meter,0,0,,,,,3650,,,44994
+Group_Outputs,meter4,/Group_Outputs/{n}/Output/meter4,meter,0,0,,,,,3651,,,45058
+Group_Outputs,meter/right,/Group_Outputs/{n}/Output/meter/right,meter,0,0,,,,,3652,,,45122
+Group_Outputs,meter/SL,/Group_Outputs/{n}/Output/meter/SL,meter,0,0,,,,,3653,,,45186
+Group_Outputs,meter/SR,/Group_Outputs/{n}/Output/meter/SR,meter,0,0,,,,,3654,,,45250
+Group_Outputs,meter/LFE,/Group_Outputs/{n}/Output/meter/LFE,meter,0,0,,,,,3655,,,45314
+Control_Groups,solo,/Control_Groups/{n}/solo,switch/enum,0,0,0,1,,,4099,,,45378
+Control_Groups,auto-mute,/Control_Groups/{n}/auto-mute,switch/enum,0,0,0,1,,,4118,,,45442
+Control_Groups,mode,/Control_Groups/{n}/mode,switch/enum,0,0,0,2,,,4121,,,45506
+Control_Groups,aux send,/Control_Groups/{n}/aux_send,float,0,0,-18,18,dB,,4126,,,45570
+Control_Groups,fader,/Control_Groups/{n}/fader,float,0,0,-150,10,dB,%,4129,,,45700
+Control_Groups,mute,/Control_Groups/{n}/mute,switch/enum,0,0,0,1,,,4130,,,45910
+Control_Groups,name,/Control_Groups/{n}/name,string,0,0,,,,,4351,,,45974
+Talkback_Outputs,name,,string,0,0,,,,,6143,,,46038
+Matrix_Inputs,name,/Matrix_Inputs/{n}/Channel_Input/name,string,0,0,,,,,511,,,46102
+Matrix_Inputs,name,/Matrix_Inputs/{n}/Channel_Input/name,string,0,0,,,,,511,,,46166
+Matrix_Inputs,send level,/Matrix_Inputs/{n}/Matrix_Send/{i}/send_level,float,0,0,-150,10,dB,%,1572,,,46230
+Matrix_Inputs,send on,/Matrix_Inputs/{n}/Matrix_Send/{i}/send_on,switch/enum,0,0,0,1,,,1573,,,46432
+Matrix_Outputs,eq in,/Matrix_Outputs/{n}/EQ/eq_in,switch/enum,0,0,0,1,,,1026,,,46496
+Matrix_Outputs,eq on 1,/Matrix_Outputs/{n}/EQ/eq_on_1,switch/enum,0,0,0,1,,,1027,,,46560
+Matrix_Outputs,eq on 2,/Matrix_Outputs/{n}/EQ/eq_on_2,switch/enum,0,1,0,1,,,1027,,,46624
+Matrix_Outputs,eq on 3,/Matrix_Outputs/{n}/EQ/eq_on_3,switch/enum,0,2,0,1,,,1027,,,46688
+Matrix_Outputs,eq on 4,/Matrix_Outputs/{n}/EQ/eq_on_4,switch/enum,0,3,0,1,,,1027,,,46752
+Matrix_Outputs,eq on 5,/Matrix_Outputs/{n}/EQ/eq_on_5,switch/enum,0,4,0,1,,,1027,,,46816
+Matrix_Outputs,eq on 6,/Matrix_Outputs/{n}/EQ/eq_on_6,switch/enum,0,5,0,1,,,1027,,,46880
+Matrix_Outputs,eq on 7,/Matrix_Outputs/{n}/EQ/eq_on_7,switch/enum,0,6,0,1,,,1027,,,46944
+Matrix_Outputs,eq on 8,/Matrix_Outputs/{n}/EQ/eq_on_8,switch/enum,0,7,0,1,,,1027,,,47008
+Matrix_Outputs,eq curve 1,/Matrix_Outputs/{n}/EQ/eq_curve_1,switch/enum,0,0,1,4,,,1028,,,47072
+Matrix_Outputs,eq curve 2,/Matrix_Outputs/{n}/EQ/eq_curve_2,switch/enum,0,1,1,4,,,1028,,,47136
+Matrix_Outputs,eq curve 3,/Matrix_Outputs/{n}/EQ/eq_curve_3,switch/enum,0,2,1,4,,,1028,,,47200
+Matrix_Outputs,eq curve 4,/Matrix_Outputs/{n}/EQ/eq_curve_4,switch/enum,0,3,1,4,,,1028,,,47264
+Matrix_Outputs,eq curve 5,/Matrix_Outputs/{n}/EQ/eq_curve_5,switch/enum,0,4,1,4,,,1028,,,47328
+Matrix_Outputs,eq curve 6,/Matrix_Outputs/{n}/EQ/eq_curve_6,switch/enum,0,5,1,4,,,1028,,,47392
+Matrix_Outputs,eq curve 7,/Matrix_Outputs/{n}/EQ/eq_curve_7,switch/enum,0,6,1,4,,,1028,,,47456
+Matrix_Outputs,eq curve 8,/Matrix_Outputs/{n}/EQ/eq_curve_8,switch/enum,0,7,1,4,,,1028,,,47520
+Matrix_Outputs,eq freq 1,/Matrix_Outputs/{n}/EQ/eq_freq_1,float,0,0,20,20000,kHz,Hz,1029,,,47584
+Matrix_Outputs,eq freq 2,/Matrix_Outputs/{n}/EQ/eq_freq_2,float,0,1,20,20000,kHz,Hz,1029,,,47698
+Matrix_Outputs,eq freq 3,/Matrix_Outputs/{n}/EQ/eq_freq_3,float,0,2,20,20000,kHz,Hz,1029,,,47812
+Matrix_Outputs,eq freq 4,/Matrix_Outputs/{n}/EQ/eq_freq_4,float,0,3,20,20000,kHz,Hz,1029,,,47926
+Matrix_Outputs,eq freq 5,/Matrix_Outputs/{n}/EQ/eq_freq_5,float,0,4,20,20000,kHz,Hz,1029,,,48040
+Matrix_Outputs,eq freq 6,/Matrix_Outputs/{n}/EQ/eq_freq_6,float,0,5,20,20000,kHz,Hz,1029,,,48154
+Matrix_Outputs,eq freq 7,/Matrix_Outputs/{n}/EQ/eq_freq_7,float,0,6,20,20000,kHz,Hz,1029,,,48268
+Matrix_Outputs,eq freq 8,/Matrix_Outputs/{n}/EQ/eq_freq_8,float,0,7,20,20000,kHz,Hz,1029,,,48382
+Matrix_Outputs,eq Q 1,/Matrix_Outputs/{n}/EQ/eq_Q_1,float,0,0,0.1,20,,,1030,,,48496
+Matrix_Outputs,eq Q 2,/Matrix_Outputs/{n}/EQ/eq_Q_2,float,0,1,0.1,20,,,1030,,,48610
+Matrix_Outputs,eq Q 3,/Matrix_Outputs/{n}/EQ/eq_Q_3,float,0,2,0.1,20,,,1030,,,48724
+Matrix_Outputs,eq Q 4,/Matrix_Outputs/{n}/EQ/eq_Q_4,float,0,3,0.1,20,,,1030,,,48838
+Matrix_Outputs,eq Q 5,/Matrix_Outputs/{n}/EQ/eq_Q_5,float,0,4,0.1,20,,,1030,,,48952
+Matrix_Outputs,eq Q 6,/Matrix_Outputs/{n}/EQ/eq_Q_6,float,0,5,0.1,20,,,1030,,,49066
+Matrix_Outputs,eq Q 7,/Matrix_Outputs/{n}/EQ/eq_Q_7,float,0,6,0.1,20,,,1030,,,49180
+Matrix_Outputs,eq Q 8,/Matrix_Outputs/{n}/EQ/eq_Q_8,float,0,7,0.1,20,,,1030,,,49294
+Matrix_Outputs,eq gain 1,/Matrix_Outputs/{n}/EQ/eq_gain_1,float,0,0,-18,18,dB,,1031,,,49408
+Matrix_Outputs,eq gain 2,/Matrix_Outputs/{n}/EQ/eq_gain_2,float,0,1,-18,18,dB,,1031,,,49538
+Matrix_Outputs,eq gain 3,/Matrix_Outputs/{n}/EQ/eq_gain_3,float,0,2,-18,18,dB,,1031,,,49668
+Matrix_Outputs,eq gain 4,/Matrix_Outputs/{n}/EQ/eq_gain_4,float,0,3,-18,18,dB,,1031,,,49798
+Matrix_Outputs,eq gain 5,/Matrix_Outputs/{n}/EQ/eq_gain_5,float,0,4,-18,18,dB,,1031,,,49928
+Matrix_Outputs,eq gain 6,/Matrix_Outputs/{n}/EQ/eq_gain_6,float,0,5,-18,18,dB,,1031,,,50058
+Matrix_Outputs,eq gain 7,/Matrix_Outputs/{n}/EQ/eq_gain_7,float,0,6,-18,18,dB,,1031,,,50188
+Matrix_Outputs,eq gain 8,/Matrix_Outputs/{n}/EQ/eq_gain_8,float,0,7,-18,18,dB,,1031,,,50318
+Matrix_Outputs,eq over-under 1,/Matrix_Outputs/{n}/EQ/eq_over-under_1,switch/enum,0,0,0,1,,,1035,,,50448
+Matrix_Outputs,eq over-under 2,/Matrix_Outputs/{n}/EQ/eq_over-under_2,switch/enum,0,1,0,1,,,1035,,,50512
+Matrix_Outputs,eq over-under 3,/Matrix_Outputs/{n}/EQ/eq_over-under_3,switch/enum,0,2,0,1,,,1035,,,50576
+Matrix_Outputs,eq over-under 4,/Matrix_Outputs/{n}/EQ/eq_over-under_4,switch/enum,0,3,0,1,,,1035,,,50640
+Matrix_Outputs,GR meter 1,/Matrix_Outputs/{n}/EQ/GR_meter_0,meter,0,0,,,,,1036,,,50704
+Matrix_Outputs,GR meter 2,/Matrix_Outputs/{n}/EQ/GR_meter_1,meter,0,1,,,,,1036,,,50768
+Matrix_Outputs,GR meter 3,/Matrix_Outputs/{n}/EQ/GR_meter_2,meter,0,2,,,,,1036,,,50832
+Matrix_Outputs,GR meter 4,/Matrix_Outputs/{n}/EQ/GR_meter_3,meter,0,3,,,,,1036,,,50896
+Matrix_Outputs,eq thresh 1,/Matrix_Outputs/{n}/EQ/eq_thresh_1,float,0,0,-60,0,dB,,1038,,,50960
+Matrix_Outputs,eq thresh 2,/Matrix_Outputs/{n}/EQ/eq_thresh_2,float,0,1,-60,0,dB,,1038,,,51074
+Matrix_Outputs,eq thresh 3,/Matrix_Outputs/{n}/EQ/eq_thresh_3,float,0,2,-60,0,dB,,1038,,,51188
+Matrix_Outputs,eq thresh 4,/Matrix_Outputs/{n}/EQ/eq_thresh_4,float,0,3,-60,0,dB,,1038,,,51302
+Matrix_Outputs,eq ratio 1,/Matrix_Outputs/{n}/EQ/eq_ratio_1,float,0,0,1,10,,,1040,,,51416
+Matrix_Outputs,eq ratio 2,/Matrix_Outputs/{n}/EQ/eq_ratio_2,float,0,1,1,10,,,1040,,,51530
+Matrix_Outputs,eq ratio 3,/Matrix_Outputs/{n}/EQ/eq_ratio_3,float,0,2,1,10,,,1040,,,51644
+Matrix_Outputs,eq ratio 4,/Matrix_Outputs/{n}/EQ/eq_ratio_4,float,0,3,1,10,,,1040,,,51758
+Matrix_Outputs,eq attack 1,/Matrix_Outputs/{n}/EQ/eq_attack_1,float,0,0,0.0005,0.1,,,1041,,,51872
+Matrix_Outputs,eq attack 2,/Matrix_Outputs/{n}/EQ/eq_attack_2,float,0,1,0.0005,0.1,,,1041,,,51986
+Matrix_Outputs,eq attack 3,/Matrix_Outputs/{n}/EQ/eq_attack_3,float,0,2,0.0005,0.1,,,1041,,,52100
+Matrix_Outputs,eq attack 4,/Matrix_Outputs/{n}/EQ/eq_attack_4,float,0,3,0.0005,0.1,,,1041,,,52214
+Matrix_Outputs,eq release 1,/Matrix_Outputs/{n}/EQ/eq_release_1,float,0,0,0.01,10,,,1042,,,52328
+Matrix_Outputs,eq release 2,/Matrix_Outputs/{n}/EQ/eq_release_2,float,0,1,0.01,10,,,1042,,,52442
+Matrix_Outputs,eq release 3,/Matrix_Outputs/{n}/EQ/eq_release_3,float,0,2,0.01,10,,,1042,,,52556
+Matrix_Outputs,eq release 4,/Matrix_Outputs/{n}/EQ/eq_release_4,float,0,3,0.01,10,,,1042,,,52670
+Matrix_Outputs,eq pre-ins,/Matrix_Outputs/{n}/EQ/eq_pre-ins,switch/enum,0,0,0,1,,,1147,,,52784
+Matrix_Outputs,eq symm Q 1,/Matrix_Outputs/{n}/EQ/eq_symm_Q_1,switch/enum,0,0,0,1,,,1148,,,52848
+Matrix_Outputs,eq symm Q 2,/Matrix_Outputs/{n}/EQ/eq_symm_Q_2,switch/enum,0,1,0,1,,,1148,,,52912
+Matrix_Outputs,eq symm Q 3,/Matrix_Outputs/{n}/EQ/eq_symm_Q_3,switch/enum,0,2,0,1,,,1148,,,52976
+Matrix_Outputs,eq symm Q 4,/Matrix_Outputs/{n}/EQ/eq_symm_Q_4,switch/enum,0,3,0,1,,,1148,,,53040
+Matrix_Outputs,eq symm Q 5,/Matrix_Outputs/{n}/EQ/eq_symm_Q_5,switch/enum,0,4,0,1,,,1148,,,53104
+Matrix_Outputs,eq symm Q 6,/Matrix_Outputs/{n}/EQ/eq_symm_Q_6,switch/enum,0,5,0,1,,,1148,,,53168
+Matrix_Outputs,eq symm Q 7,/Matrix_Outputs/{n}/EQ/eq_symm_Q_7,switch/enum,0,6,0,1,,,1148,,,53232
+Matrix_Outputs,eq symm Q 8,/Matrix_Outputs/{n}/EQ/eq_symm_Q_8,switch/enum,0,7,0,1,,,1148,,,53296
+Matrix_Outputs,dynamic eq on 1,/Matrix_Outputs/{n}/EQ/dynamic_eq_on_1,switch/enum,0,0,0,1,,,1149,,,53360
+Matrix_Outputs,dynamic eq on 2,/Matrix_Outputs/{n}/EQ/dynamic_eq_on_2,switch/enum,0,1,0,1,,,1149,,,53424
+Matrix_Outputs,dynamic eq on 3,/Matrix_Outputs/{n}/EQ/dynamic_eq_on_3,switch/enum,0,2,0,1,,,1149,,,53488
+Matrix_Outputs,dynamic eq on 4,/Matrix_Outputs/{n}/EQ/dynamic_eq_on_4,switch/enum,0,3,0,1,,,1149,,,53552
+Matrix_Outputs,comp in,/Matrix_Outputs/{n}/Dynamics/comp_in,switch/enum,0,0,0,1,,,1282,,,53616
+Matrix_Outputs,gate in,/Matrix_Outputs/{n}/Dynamics/gate_in,switch/enum,0,3,0,1,,,1282,,,53680
+Matrix_Outputs,comp band in 1,/Matrix_Outputs/{n}/Dynamics/comp_band_in_1,switch/enum,0,0,0,1,,,1283,,,53744
+Matrix_Outputs,comp band in 2,/Matrix_Outputs/{n}/Dynamics/comp_band_in_2,switch/enum,0,1,0,1,,,1283,,,53808
+Matrix_Outputs,comp band in 3,/Matrix_Outputs/{n}/Dynamics/comp_band_in_3,switch/enum,0,2,0,1,,,1283,,,53872
+Matrix_Outputs,comp LP crossover,/Matrix_Outputs/{n}/Dynamics/comp_LP_crossover,float,0,0,20,20000,kHz,Hz,1285,,,53936
+Matrix_Outputs,comp HP crossover,/Matrix_Outputs/{n}/Dynamics/comp_HP_crossover,float,0,1,20,20000,kHz,Hz,1285,,,54050
+Matrix_Outputs,comp gain 1,/Matrix_Outputs/{n}/Dynamics/comp_gain_1,float,0,0,0,40,dB,,1289,,,54164
+Matrix_Outputs,comp gain 2,/Matrix_Outputs/{n}/Dynamics/comp_gain_2,float,0,1,0,40,dB,,1289,,,54278
+Matrix_Outputs,comp gain 3,/Matrix_Outputs/{n}/Dynamics/comp_gain_3,float,0,2,0,40,dB,,1289,,,54392
+Matrix_Outputs,comp gain 4,/Matrix_Outputs/{n}/Dynamics/comp_gain_4,float,0,3,0,40,dB,,1289,,,54506
+Matrix_Outputs,gate range,/Matrix_Outputs/{n}/Dynamics/gate_range,float,0,3,0,90,dB,,1290,,,54620
+Matrix_Outputs,gate-duck-comp,/Matrix_Outputs/{n}/Dynamics/gate-duck-comp,switch/enum,0,3,0,2,,,1291,,,54734
+Matrix_Outputs,GR meter 1,/Matrix_Outputs/{n}/Dynamics/GR_meter_1,meter,0,0,,,,,1292,,,54798
+Matrix_Outputs,GR meter 3,/Matrix_Outputs/{n}/Dynamics/GR_meter_3,meter,0,1,,,,,1292,,,54862
+Matrix_Outputs,GR meter 2,/Matrix_Outputs/{n}/Dynamics/GR_meter_2,meter,0,2,,,,,1292,,,54926
+Matrix_Outputs,GR meter 4,/Matrix_Outputs/{n}/Dynamics/GR_meter_4,meter,0,3,,,,,1292,,,54990
+Matrix_Outputs,gate meter,/Matrix_Outputs/{n}/Dynamics/gate_meter,meter,0,3,,,,,1293,,,55054
+Matrix_Outputs,comp thresh 1,/Matrix_Outputs/{n}/Dynamics/comp_thresh_1,float,0,0,-60,0,dB,,1294,,,55118
+Matrix_Outputs,comp thresh 2,/Matrix_Outputs/{n}/Dynamics/comp_thresh_2,float,0,1,-60,0,dB,,1294,,,55232
+Matrix_Outputs,comp thresh 3,/Matrix_Outputs/{n}/Dynamics/comp_thresh_3,float,0,2,-60,0,dB,,1294,,,55346
+Matrix_Outputs,gate thresh,/Matrix_Outputs/{n}/Dynamics/gate_thresh,float,0,3,-60,0,dB,,1294,,,55460
+Matrix_Outputs,comp knee 1,/Matrix_Outputs/{n}/Dynamics/comp_knee_1,switch/enum,0,0,0,2,,,1295,,,55574
+Matrix_Outputs,comp knee 2,/Matrix_Outputs/{n}/Dynamics/comp_knee_2,switch/enum,0,1,0,2,,,1295,,,55638
+Matrix_Outputs,comp knee 3,/Matrix_Outputs/{n}/Dynamics/comp_knee_3,switch/enum,0,2,0,2,,,1295,,,55702
+Matrix_Outputs,comp knee 4,/Matrix_Outputs/{n}/Dynamics/comp_knee_4,switch/enum,0,3,0,2,,,1295,,,55766
+Matrix_Outputs,comp ratio 1,/Matrix_Outputs/{n}/Dynamics/comp_ratio_1,float,0,0,1,50,,,1296,,,55830
+Matrix_Outputs,comp ratio 2,/Matrix_Outputs/{n}/Dynamics/comp_ratio_2,float,0,1,1,50,,,1296,,,55944
+Matrix_Outputs,comp ratio 3,/Matrix_Outputs/{n}/Dynamics/comp_ratio_3,float,0,2,1,50,,,1296,,,56058
+Matrix_Outputs,comp ratio 4,/Matrix_Outputs/{n}/Dynamics/comp_ratio_4,float,0,3,1,50,,,1296,,,56172
+Matrix_Outputs,comp attack 1,/Matrix_Outputs/{n}/Dynamics/comp_attack_1,float,0,0,2e-05,0.1,,,1297,,,56286
+Matrix_Outputs,comp attack 2,/Matrix_Outputs/{n}/Dynamics/comp_attack_2,float,0,1,2e-05,0.1,,,1297,,,56400
+Matrix_Outputs,comp attack 3,/Matrix_Outputs/{n}/Dynamics/comp_attack_3,float,0,2,2e-05,0.1,,,1297,,,56514
+Matrix_Outputs,gate attack,/Matrix_Outputs/{n}/Dynamics/gate_attack,float,0,3,5e-05,0.1,,,1297,,,56628
+Matrix_Outputs,comp release 1,/Matrix_Outputs/{n}/Dynamics/comp_release_1,float,0,0,0.001,10,,,1298,,,56742
+Matrix_Outputs,comp release 2,/Matrix_Outputs/{n}/Dynamics/comp_release_2,float,0,1,0.001,10,,,1298,,,56856
+Matrix_Outputs,comp release 3,/Matrix_Outputs/{n}/Dynamics/comp_release_3,float,0,2,0.001,10,,,1298,,,56970
+Matrix_Outputs,gate release,/Matrix_Outputs/{n}/Dynamics/gate_release,float,0,3,0.005,10,,,1298,,,57084
+Matrix_Outputs,gate hold,/Matrix_Outputs/{n}/Dynamics/gate_hold,float,0,3,0.002,2,,,1299,,,57198
+Matrix_Outputs,key solo,/Matrix_Outputs/{n}/Dynamics/key_solo,switch/enum,0,0,0,1,,,1303,,,57312
+Matrix_Outputs,comp listen 1,/Matrix_Outputs/{n}/Dynamics/comp_listen_1,switch/enum,0,0,0,1,,,1304,,,57376
+Matrix_Outputs,comp listen 2,/Matrix_Outputs/{n}/Dynamics/comp_listen_2,switch/enum,0,1,0,1,,,1304,,,57440
+Matrix_Outputs,comp listen 3,/Matrix_Outputs/{n}/Dynamics/comp_listen_3,switch/enum,0,2,0,1,,,1304,,,57504
+Matrix_Outputs,input meter/left,/Matrix_Outputs/{n}/Dynamics/input_meter/left,meter,0,0,,,,,1328,,,57568
+Matrix_Outputs,input meter/right,/Matrix_Outputs/{n}/Dynamics/input_meter/right,meter,0,0,,,,,1332,,,57632
+Matrix_Outputs,comp all gain,/Matrix_Outputs/{n}/Dynamics/comp_all_gain,float,0,0,0,40,dB,,1336,,,57696
+Matrix_Outputs,comp all thresh,/Matrix_Outputs/{n}/Dynamics/comp_all_thresh,float,0,0,-60,0,dB,,1337,,,57810
+Matrix_Outputs,comp-multiband-desser,/Matrix_Outputs/{n}/Dynamics/comp-multiband-desser,switch/enum,0,0,0,2,,,1338,,,57924
+Matrix_Outputs,comp auto-gain 1,/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_1,switch/enum,0,0,0,1,,,1339,,,57988
+Matrix_Outputs,comp auto-gain 2,/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_2,switch/enum,0,1,0,1,,,1339,,,58052
+Matrix_Outputs,comp auto-gain 3,/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_3,switch/enum,0,2,0,1,,,1339,,,58116
+Matrix_Outputs,comp auto-gain 4,/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_4,switch/enum,0,3,0,1,,,1339,,,58180
+Matrix_Outputs,desser centre freq,/Matrix_Outputs/{n}/Dynamics/desser_centre_freq,float,0,0,0,255,,,1406,,,58244
+Matrix_Outputs,gate centre freq,/Matrix_Outputs/{n}/Dynamics/gate_centre_freq,float,0,3,0,255,,,1406,,,58358
+Matrix_Outputs,desser freq width,/Matrix_Outputs/{n}/Dynamics/desser_freq_width,float,0,0,0,255,,,1407,,,58472
+Matrix_Outputs,gate freq width,/Matrix_Outputs/{n}/Dynamics/gate_freq_width,float,0,3,0,255,,,1407,,,58586
+Matrix_Outputs,insert A in,/Matrix_Outputs/{n}/Insert/insert_A_in,switch/enum,0,0,0,1,,,2050,,,58700
+Matrix_Outputs,insert B in,/Matrix_Outputs/{n}/Insert/insert_B_in,switch/enum,0,1,0,1,,,2050,,,58764
+Matrix_Outputs,delay on,/Matrix_Outputs/{n}/Channel_Delay/delay_on,switch/enum,0,0,0,1,,,2311,,,58828
+Matrix_Outputs,delay,/Matrix_Outputs/{n}/Channel_Delay/delay,float,0,0,0,1.3,,,2312,,,58892
+Matrix_Outputs,fine delay,/Matrix_Outputs/{n}/Channel_Delay/fine_delay,float,0,0,-127,127,samples,,2327,,,59006
+Matrix_Outputs,trim,/Matrix_Outputs/{n}/Buss_Trim/trim,float,0,0,-40,60,dB,,2817,,,59136
+Matrix_Outputs,phase,/Matrix_Outputs/{n}/Buss_Trim/phase,switch/enum,0,0,0,3,,,2818,,,59274
+Matrix_Outputs,pre meter,/Matrix_Outputs/{n}/Buss_Trim/pre_meter,meter,0,0,,,,,2848,,,59338
+Matrix_Outputs,pre meter/right,/Matrix_Outputs/{n}/Buss_Trim/pre_meter/right,meter,0,0,,,,,2852,,,59402
+Matrix_Outputs,post meter,/Matrix_Outputs/{n}/Buss_Trim/post_meter,meter,0,0,,,,,2864,,,59466
+Matrix_Outputs,post meter/right,/Matrix_Outputs/{n}/Buss_Trim/post_meter/right,meter,0,0,,,,,2868,,,59530
+Matrix_Outputs,tube meter/left,/Matrix_Outputs/{n}/Buss_Trim/tube_meter/left,meter,0,0,,,,,2904,,,59594
+Matrix_Outputs,tube meter/right,/Matrix_Outputs/{n}/Buss_Trim/tube_meter/right,meter,0,0,,,,,2908,,,59658
+Matrix_Outputs,name,/Matrix_Outputs/{n}/Buss_Trim/name,string,0,0,,,,,3071,,,59722
+Matrix_Outputs,CGs level,/Matrix_Outputs/{n}/CGs_level,float,0,0,-150,10,dB,%,3073,,,59786
+Matrix_Outputs,hard mute,/Matrix_Outputs/{n}/hard_mute,switch/enum,0,0,0,1,,,3074,,,59996
+Matrix_Outputs,solo,/Matrix_Outputs/{n}/solo,switch/enum,0,0,0,1,,,3075,,,60060
+Matrix_Outputs,solo 1 or 2,/Matrix_Outputs/{n}/solo_1_or_2,switch/enum,0,0,0,2,,,3083,,,60124
+Matrix_Outputs,CGs mute,/Matrix_Outputs/{n}/CGs_mute,switch/enum,0,0,0,1,,,3100,,,60188
+Matrix_Outputs,fader,/Matrix_Outputs/{n}/fader,float,0,0,-150,10,dB,%,3105,,,60252
+Matrix_Outputs,mute,/Matrix_Outputs/{n}/mute,switch/enum,0,0,0,1,,,3106,,,60462
+Matrix_Outputs,fader meter/left,/Matrix_Outputs/{n}/fader_meter/left,meter,0,0,,,,,3120,,,60526
+Matrix_Outputs,fader meter/right,/Matrix_Outputs/{n}/fader_meter/right,meter,0,0,,,,,3124,,,60590
+Matrix_Outputs,alternate solo,/Matrix_Outputs/{n}/alternate_solo,switch/enum,0,0,0,1,,,3300,,,60654
+Matrix_Outputs,dir meter/left,/Matrix_Outputs/{n}/Output/dir_meter/left,meter,0,0,,,,,3624,,,60718
+Matrix_Outputs,dir meter/right,/Matrix_Outputs/{n}/Output/dir_meter/right,meter,0,0,,,,,3628,,,60782
+Matrix_Outputs,meter/left,/Matrix_Outputs/{n}/Output/meter/left,meter,0,0,,,,,3648,,,60846
+Matrix_Outputs,meter2,/Matrix_Outputs/{n}/Output/meter2,meter,0,0,,,,,3649,,,60910
+Matrix_Outputs,meter/centre,/Matrix_Outputs/{n}/Output/meter/centre,meter,0,0,,,,,3650,,,60974
+Matrix_Outputs,meter4,/Matrix_Outputs/{n}/Output/meter4,meter,0,0,,,,,3651,,,61038
+Matrix_Outputs,meter/right,/Matrix_Outputs/{n}/Output/meter/right,meter,0,0,,,,,3652,,,61102
+Matrix_Outputs,meter/SL,/Matrix_Outputs/{n}/Output/meter/SL,meter,0,0,,,,,3653,,,61166
+Matrix_Outputs,meter/SR,/Matrix_Outputs/{n}/Output/meter/SR,meter,0,0,,,,,3654,,,61230
+Matrix_Outputs,meter/LFE,/Matrix_Outputs/{n}/Output/meter/LFE,meter,0,0,,,,,3655,,,61294
+Graphic_EQ,geq in,/Graphic_EQ/{n}/geq_in,switch/enum,0,0,0,1,,,3842,,,61358
+Graphic_EQ,geq gain 1,/Graphic_EQ/{n}/geq_gain_1,float,0,0,-12,12,dB,,3847,,,61422
+Graphic_EQ,geq gain 2,/Graphic_EQ/{n}/geq_gain_2,float,0,1,-12,12,dB,,3847,,,61552
+Graphic_EQ,geq gain 3,/Graphic_EQ/{n}/geq_gain_3,float,0,2,-12,12,dB,,3847,,,61682
+Graphic_EQ,geq gain 4,/Graphic_EQ/{n}/geq_gain_4,float,0,3,-12,12,dB,,3847,,,61812
+Graphic_EQ,geq gain 5,/Graphic_EQ/{n}/geq_gain_5,float,0,4,-12,12,dB,,3847,,,61942
+Graphic_EQ,geq gain 6,/Graphic_EQ/{n}/geq_gain_6,float,0,5,-12,12,dB,,3847,,,62072
+Graphic_EQ,geq gain 7,/Graphic_EQ/{n}/geq_gain_7,float,0,6,-12,12,dB,,3847,,,62202
+Graphic_EQ,geq gain 8,/Graphic_EQ/{n}/geq_gain_8,float,0,7,-12,12,dB,,3847,,,62332
+Graphic_EQ,geq gain 9,/Graphic_EQ/{n}/geq_gain_9,float,0,8,-12,12,dB,,3847,,,62462
+Graphic_EQ,geq gain 10,/Graphic_EQ/{n}/geq_gain_10,float,0,9,-12,12,dB,,3847,,,62592
+Graphic_EQ,geq gain 11,/Graphic_EQ/{n}/geq_gain_11,float,0,10,-12,12,dB,,3847,,,62722
+Graphic_EQ,geq gain 12,/Graphic_EQ/{n}/geq_gain_12,float,0,11,-12,12,dB,,3847,,,62852
+Graphic_EQ,geq gain 13,/Graphic_EQ/{n}/geq_gain_13,float,0,12,-12,12,dB,,3847,,,62982
+Graphic_EQ,geq gain 14,/Graphic_EQ/{n}/geq_gain_14,float,0,13,-12,12,dB,,3847,,,63112
+Graphic_EQ,geq gain 15,/Graphic_EQ/{n}/geq_gain_15,float,0,14,-12,12,dB,,3847,,,63242
+Graphic_EQ,geq gain 16,/Graphic_EQ/{n}/geq_gain_16,float,0,15,-12,12,dB,,3847,,,63372
+Graphic_EQ,geq gain 17,/Graphic_EQ/{n}/geq_gain_17,float,0,16,-12,12,dB,,3847,,,63502
+Graphic_EQ,geq gain 18,/Graphic_EQ/{n}/geq_gain_18,float,0,17,-12,12,dB,,3847,,,63632
+Graphic_EQ,geq gain 19,/Graphic_EQ/{n}/geq_gain_19,float,0,18,-12,12,dB,,3847,,,63762
+Graphic_EQ,geq gain 20,/Graphic_EQ/{n}/geq_gain_20,float,0,19,-12,12,dB,,3847,,,63892
+Graphic_EQ,geq gain 21,/Graphic_EQ/{n}/geq_gain_21,float,0,20,-12,12,dB,,3847,,,64022
+Graphic_EQ,geq gain 22,/Graphic_EQ/{n}/geq_gain_22,float,0,21,-12,12,dB,,3847,,,64152
+Graphic_EQ,geq gain 23,/Graphic_EQ/{n}/geq_gain_23,float,0,22,-12,12,dB,,3847,,,64282
+Graphic_EQ,geq gain 24,/Graphic_EQ/{n}/geq_gain_24,float,0,23,-12,12,dB,,3847,,,64412
+Graphic_EQ,geq gain 25,/Graphic_EQ/{n}/geq_gain_25,float,0,24,-12,12,dB,,3847,,,64542
+Graphic_EQ,geq gain 26,/Graphic_EQ/{n}/geq_gain_26,float,0,25,-12,12,dB,,3847,,,64672
+Graphic_EQ,geq gain 27,/Graphic_EQ/{n}/geq_gain_27,float,0,26,-12,12,dB,,3847,,,64802
+Graphic_EQ,geq gain 28,/Graphic_EQ/{n}/geq_gain_28,float,0,27,-12,12,dB,,3847,,,64932
+Graphic_EQ,geq gain 29,/Graphic_EQ/{n}/geq_gain_29,float,0,28,-12,12,dB,,3847,,,65062
+Graphic_EQ,geq gain 30,/Graphic_EQ/{n}/geq_gain_30,float,0,29,-12,12,dB,,3847,,,65192
+Graphic_EQ,geq gain 31,/Graphic_EQ/{n}/geq_gain_31,float,0,30,-12,12,dB,,3847,,,65322
+Graphic_EQ,geq gain 32,/Graphic_EQ/{n}/geq_gain_32,float,0,31,-12,12,dB,,3847,,,65452
+Graphic_EQ,input meter,/Graphic_EQ/{n}/input_meter,meter,0,0,,,,,3888,,,65582
+Graphic_EQ,geq  trim,/Graphic_EQ/{n}/geq__trim,float,0,0,-18,18,dB,,3900,,,65646
+Graphic_EQ,output meter,/Graphic_EQ/{n}/output_meter,meter,0,0,,,,,3904,,,65776
+Graphic_EQ,name,/Graphic_EQ/{n}/name,string,0,0,,,,,4095,,,65840
+Multis,solo,/Multis/{n}/solo,switch/enum,0,0,0,1,,,4099,,,65904
+Multis,fader,/Multis/{n}/fader,float,0,0,-150,10,dB,%,4129,,,65968
+Multis,mute,/Multis/{n}/mute,switch/enum,0,0,0,1,,,4130,,,66178
+Multis,name,/Multis/{n}/name,string,0,0,,,,,4351,,,66242
+(console),Save Session,,switch/enum,0,,,,,,,0,0xa400,66306
+(console),Save current Session,,switch/enum,0,,,,,,,0,0xa600,66370
+(console),Layout/Banks,/Layout/Layout/Layout/Banks,switch/enum,0,,,,,,,1,0x1000,66434
+(console),Layout/Banks/?,/Layout/Layout/Layout/Banks/?,switch/enum,0,,,,,,,2,0x1000,66498
+(console),Layout/Banks/!,/Layout/Layout/Layout/Banks/!,switch/enum,0,,,,,,,3,0x1000,66562
+(console),Fader Banks,,switch/enum,0,,,,,,,0,0xa400,66626
+(console),Channel List,,switch/enum,0,,,,,,,0,0xae00,66690
+(console),Snapshot Notes view,,switch/enum,0,,,,,,,0,0xe000,66754
+(console),Session/Filename,/Console/Session/Filename,string,0,,,,,,,0,0x9000,66818
+(console),Session/Filename/?,/Console/Session/Filename/?,switch/enum,0,,,,,,,2,0x9000,66882
+(console),Session/Name,/Console/Session/Name,string,0,,,,,,,0,0x9100,66946
+(console),Session/Name/?,/Console/Session/Name/?,switch/enum,0,,,,,,,2,0x9100,67010
+(console),Channels/?,/Console/Channels/?,switch/enum,0,,,,,,,2,0x1800,67074
+(console),Input Channels,/Console/Input_Channels,switch/enum,0,,,,,,,1,0x1900,67138
+(console),Aux Outputs,/Console/Aux_Outputs,switch/enum,0,,,,,,,1,0x1d00,67202
+(console),Group Outputs,/Console/Group_Outputs,switch/enum,0,,,,,,,1,0x1e00,67266
+(console),Talkback Outputs,/Console/Talkback_Outputs,switch/enum,0,,,,,,,1,0x2100,67330
+(console),Control Groups,/Console/Control_Groups,switch/enum,0,,,,,,,1,0x2200,67394
+(console),Matrix Inputs,/Console/Matrix_Inputs,switch/enum,0,,,,,,,1,0x2700,67458
+(console),Matrix Outputs,/Console/Matrix_Outputs,switch/enum,0,,,,,,,1,0x2800,67522
+(console),Graphic EQ,/Console/Graphic_EQ,switch/enum,0,,,,,,,1,0x2900,67586
+(console),Multis,/Console/Multis,switch/enum,0,,,,,,,1,0x2a00,67650
+(console),Name,/Console/Name,string,0,,,,,,,1,0xe900,67714
+(console),Name/?,/Console/Name/?,switch/enum,0,,,,,,,2,0xe900,67778
+(console),Session/!,/Console/Session/!,switch/enum,0,,,,,,,3,0xeb00,67842
+(console),Tubes/limit,/Console/Tubes/limit,switch/enum,0,,,,,,,1,0xf300,67906
+(console),Tubes/limit/?,/Console/Tubes/limit/?,switch/enum,0,,,,,,,2,0xf300,67970
+(console),DynamicEQs/limit,/Console/DynamicEQs/limit,switch/enum,0,,,,,,,1,0xf400,68034
+(console),DynamicEQs/limit/?,/Console/DynamicEQs/limit/?,switch/enum,0,,,,,,,2,0xf400,68098
+(console),MultibandDynamics/limit,/Console/MultibandDynamics/limit,switch/enum,0,,,,,,,1,0xf500,68162
+(console),MultibandDynamics/limit/?,/Console/MultibandDynamics/limit/?,switch/enum,0,,,,,,,2,0xf500,68226
+(console),Input Channels/modes,/Console/Input_Channels/modes,switch/enum,0,,,,,,,1,0xfd00,68290
+(console),Input Channels/modes/?,/Console/Input_Channels/modes/?,switch/enum,0,,,,,,,2,0xfd00,68354
+(console),Aux Outputs/modes,/Console/Aux_Outputs/modes,switch/enum,0,,,,,,,1,0x0100,68418
+(console),Aux Outputs/modes/?,/Console/Aux_Outputs/modes/?,switch/enum,0,,,,,,,2,0x0100,68482
+(console),Group Outputs/modes,/Console/Group_Outputs/modes,switch/enum,0,,,,,,,1,0x0200,68546
+(console),Group Outputs/modes/?,/Console/Group_Outputs/modes/?,switch/enum,0,,,,,,,2,0x0200,68610
+(console),Monitoring/modes,/Console/Monitoring/modes,switch/enum,0,,,,,,,1,0x0400,68674
+(console),Monitoring/modes/?,/Console/Monitoring/modes/?,switch/enum,0,,,,,,,2,0x0400,68738
+(console),Solo/modes,/Console/Solo/modes,switch/enum,0,,,,,,,1,0x0700,68802
+(console),Solo/modes/?,/Console/Solo/modes/?,switch/enum,0,,,,,,,2,0x0700,68866
+(console),Input Channels/*/group_sends,/Console/Input_Channels/*/group_sends,switch/enum,1,,,,,,,1,0x2500,68930
+(console),Input Channels/*/group_sends/?,/Console/Input_Channels/*/group_sends/?,switch/enum,1,,,,,,,2,0x2500,68994
+(console),Group Outputs/*/group_sends,/Console/Group_Outputs/*/group_sends,switch/enum,1,,,,,,,1,0x2600,69058
+(console),Group Outputs/*/group_sends/?,/Console/Group_Outputs/*/group_sends/?,switch/enum,1,,,,,,,2,0x2600,69122
+(console),Matrix Inputs/*/send_levels,/Console/Matrix_Inputs/*/send_levels,switch/enum,1,,,,,,,1,0x2700,69186
+(console),Matrix Inputs/*/send_levels/?,/Console/Matrix_Inputs/*/send_levels/?,switch/enum,1,,,,,,,2,0x2700,69250
+(console),Matrix Inputs/*/send_ons,/Console/Matrix_Inputs/*/send_ons,switch/enum,1,,,,,,,1,0x2800,69314
+(console),Matrix Inputs/*/send_ons/?,/Console/Matrix_Inputs/*/send_ons/?,switch/enum,1,,,,,,,2,0x2800,69378
+(console),clear,/Meters/clear,switch/enum,0,,,,,,,0,0x1a00,69442
+(console),request,/Meters/request,string,1,,,,,,,0,0x1b00,69506
+(console),values,/Meters/values,switch/enum,0,,,,,,,0,0x1c00,69570
+(console),count,/Presets/count,switch/enum,0,,,,,,,11,0xd000,69634
+(console),count/?,/Presets/count/?,switch/enum,0,,,,,,,12,0xd000,69698
+(console),names/?,/Presets/names/?,switch/enum,0,,,,,,,15,0xd000,69762
+(console),name,/Presets/name,switch/enum,0,,,,,,,21,0xd000,69826
+(console),name/?,/Presets/name/?,switch/enum,0,,,,,,,22,0xd000,69890
+(console),Recall Preset,/Presets/Recall_Preset,string,1,,,,,,,200,0xd000,69954
+(console),New Preset,/Presets/New_Preset,string,0,,,,,,,201,0xd000,70018
+(console),Update Preset,/Presets/Update_Preset,string,1,,,,,,,204,0xd000,70082
+(console),Rename Preset,/Presets/Rename_Preset,string,1,,,,,,,206,0xd000,70146
+(console),Rename Preset Group,/Presets/Rename_Preset_Group,string,1,,,,,,,207,0xd000,70210
+(console),Delete Preset,/Presets/Delete_Preset,switch/enum,1,,,,,,,209,0xd000,70274
+(console),Lock Preset,/Presets/Lock_Preset,switch/enum,1,,,,,,,210,0xd000,70338
+(console),Recall Scope,/Presets/Recall_Scope,switch/enum,0,,,,,,,211,0xd000,70402
+(console),count,/Macros/count,switch/enum,0,,,,,,,11,0xfe00,70466
+(console),count/?,/Macros/count/?,switch/enum,0,,,,,,,12,0xfe00,70530
+(console),names/?,/Macros/names/?,switch/enum,0,,,,,,,15,0xfe00,70594
+(console),name,/Macros/name,switch/enum,0,,,,,,,21,0xfe00,70658
+(console),name/?,/Macros/name/?,switch/enum,0,,,,,,,22,0xfe00,70722
+(console),Recall Macro,/Macros/Recall_Macro,switch/enum,1,,,,,,,200,0xfe00,70786
+(console),Buttons/count,/Macros/Buttons/count,switch/enum,0,,,,,,,211,0xfe00,70850
+(console),Buttons/count/?,/Macros/Buttons/count/?,switch/enum,0,,,,,,,212,0xfe00,70914
+(console),Buttons/?,/Macros/Buttons/?,switch/enum,0,,,,,,,217,0xfe00,70978
+(console),Buttons/!,/Macros/Buttons/!,switch/enum,0,,,,,,,218,0xfe00,71042
+(console),Buttons/state,/Macros/Buttons/state,switch/enum,0,,,,,,,221,0xfe00,71106
+(console),Buttons/state/?,/Macros/Buttons/state/?,switch/enum,0,,,,,,,222,0xfe00,71170
+(console),Buttons/press,/Macros/Buttons/press,switch/enum,0,,,,,,,250,0xfe00,71234
+(console),Snapshots,/Snapshots/Snapshots,switch/enum,0,,,,,,,0,0x0800,71298
+(console),count,/Snapshots/count,switch/enum,0,,,,,,,11,0x0800,71362
+(console),count/?,/Snapshots/count/?,switch/enum,0,,,,,,,12,0x0800,71426
+(console),names/?,/Snapshots/names/?,switch/enum,0,,,,,,,15,0x0800,71490
+(console),name,/Snapshots/name,switch/enum,0,,,,,,,21,0x0800,71554
+(console),name/?,/Snapshots/name/?,switch/enum,0,,,,,,,22,0x0800,71618
+(console),notes,/Snapshots/notes,switch/enum,0,,,,,,,51,0x0800,71682
+(console),notes/?,/Snapshots/notes/?,switch/enum,0,,,,,,,52,0x0800,71746
+(console),Surface_Snapshot,/Snapshots/Surface_Snapshot,switch/enum,0,,,,,,,56,0x0800,71810
+(console),Surface_Snapshot/?,/Snapshots/Surface_Snapshot/?,switch/enum,0,,,,,,,57,0x0800,71874
+(console),Current_Snapshot,/Snapshots/Current_Snapshot,switch/enum,0,,,,,,,61,0x0800,71938
+(console),Current_Snapshot/?,/Snapshots/Current_Snapshot/?,switch/enum,0,,,,,,,62,0x0800,72002
+(console),Renumber Snapshot,/Snapshots/Renumber_Snapshot,switch/enum,1,,,,,,,151,0x0800,72066
+(console),Update Snapshot Group,/Snapshots/Update_Snapshot_Group,switch/enum,1,,,,,,,161,0x0800,72130
+(console),Change Surface Snapshot,/Snapshots/Change_Surface_Snapshot,switch/enum,1,,,,,,,187,0x0800,72194
+(console),Recall Snapshot,/Snapshots/Recall_Snapshot,switch/enum,1,,,,,,,200,0x0800,72258
+(console),New Snapshot,/Snapshots/New_Snapshot,switch/enum,1,,,,,,,201,0x0800,72322
+(console),Fire Snapshot number,/Snapshots/Fire_Snapshot_number,switch/enum,0,,,,,,,202,0x0800,72386
+(console),Update Current Snapshot,/Snapshots/Update_Current_Snapshot,switch/enum,0,,,,,,,203,0x0800,72450
+(console),Update Snapshot,/Snapshots/Update_Snapshot,switch/enum,1,,,,,,,204,0x0800,72514
+(console),Rename Snapshot,/Snapshots/Rename_Snapshot,string,1,,,,,,,205,0x0800,72578
+(console),Delete Snapshot,/Snapshots/Delete_Snapshot,switch/enum,1,,,,,,,206,0x0800,72642
+(console),Move Snapshot,/Snapshots/Move_Snapshot,switch/enum,1,,,,,,,207,0x0800,72706
+(console),Insert New Snapshot,/Snapshots/Insert_New_Snapshot,switch/enum,0,,,,,,,211,0x0800,72770
+(console),Update Waves only,/Snapshots/Update_Waves_only,switch/enum,1,,,,,,,212,0x0800,72834
+(console),Fire Selected Snapshot,/Snapshots/Fire_Selected_Snapshot,switch/enum,0,,,,,,,213,0x0800,72898
+(console),Fire Prev Snapshot,/Snapshots/Fire_Prev_Snapshot,switch/enum,0,,,,,,,232,0x0800,72962
+(console),Fire Next Snapshot,/Snapshots/Fire_Next_Snapshot,switch/enum,0,,,,,,,233,0x0800,73026
+(console),MIDI fires Snapshots,/Snapshots/MIDI_fires_Snapshots,switch/enum,0,,,,,,,234,0x0800,73090
+(console),Fire Snapshot sends MIDI,/Snapshots/Fire_Snapshot_sends_MIDI,switch/enum,0,,,,,,,235,0x0800,73154
+(console),Undo Snapshot,/Snapshots/Undo_Snapshot,switch/enum,0,,,,,,,251,0x0800,73218
+(console),End Recall Snapshot,/Snapshots/End_Recall_Snapshot,switch/enum,0,,,,,,,255,0x0800,73282

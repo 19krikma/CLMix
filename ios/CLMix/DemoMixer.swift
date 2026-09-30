@@ -33,6 +33,10 @@ final class DemoMixer: MixerBackend {
     // a demonstration mode to show.
     private(set) var mixerControlAllowed = false
 
+    // The demo console has the same head-amp ranges as a real one.
+    let gainRange = HeadAmpRange.gain
+    let trimRange = HeadAmpRange.trim
+
     private init() {}
 
     // MARK: - The fake console
@@ -133,7 +137,8 @@ final class DemoMixer: MixerBackend {
         var gain: Double?
         var trim: Double?
         var phantom: Bool
-        var phase: Bool
+        // The console's own enum, 0..3 - see ChannelState.phase.
+        var phase: Int
     }
 
     // [aux index: [channel number: send]]
@@ -211,7 +216,10 @@ final class DemoMixer: MixerBackend {
                 gain: reported ? Double(18 + (entry.channel * 7) % 34) : nil,
                 trim: reported ? Double((entry.channel * 3) % 9) - 4 : nil,
                 phantom: needsPhantom,
-                phase: entry.name == "Snare Bot"
+                // One inverted mono channel, and one stereo channel on a
+                // state a boolean could not have carried - which is the
+                // case the demo exists to show working.
+                phase: phaseForStagePicture(entry.name)
             )
         }
 
@@ -229,6 +237,20 @@ final class DemoMixer: MixerBackend {
         if name.hasSuffix(" L") { return -0.4 }
         if name.hasSuffix(" R") { return 0.4 }
         return 0
+    }
+
+    /// Polarity, as the console's own enum rather than a flag. "Snare Bot"
+    /// is the mono channel an engineer would really flip. "Keys" is a
+    /// stereo pair and is given state 2 so the demo carries at least one
+    /// value a boolean could not have represented - tapping polarity off
+    /// and on there has to come back to 2, which is the bug this enum
+    /// exists to prevent.
+    private func phaseForStagePicture(_ name: String) -> Int {
+        switch name {
+        case "Snare Bot": return PhaseState.inverted
+        case "Keys": return 2
+        default: return PhaseState.normal
+        }
     }
 
     // MARK: - MixerBackend
@@ -368,7 +390,7 @@ final class DemoMixer: MixerBackend {
         console[channel]?.phantom = phantom
     }
 
-    func setPhase(channel: Int, phase: Bool) {
+    func setPhase(channel: Int, phase: Int) {
         guard mixerMode else { return }
         console[channel]?.phase = phase
     }

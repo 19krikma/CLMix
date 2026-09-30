@@ -17,7 +17,11 @@ struct ChannelInputSheet: View {
     let onGainChanged: (Int, Double) -> Void
     let onTrimChanged: (Int, Double) -> Void
     let onPhantomChanged: (Int, Bool) -> Void
-    let onPhaseChanged: (Int, Bool) -> Void
+    let onPhaseChanged: (Int, Int) -> Void
+    /// What each dial sweeps, in dB - one range per parameter, as the
+    /// server states them at login (see MixerClient.gainRange).
+    let gainRange: ClosedRange<Double>
+    let trimRange: ClosedRange<Double>
     let onNameChanged: (Int, String) -> Void
 
     // What each dial is showing. Nil until the console has answered for
@@ -52,9 +56,18 @@ struct ChannelInputSheet: View {
     @State private var phantomExpected: Bool?
     @State private var phantomSentAt = Date.distantPast
 
-    @State private var phaseShown = false
-    @State private var phaseExpected: Bool?
+    // The polarity state being shown, as the console's own value rather
+    // than a flag: 0 normal, 1...3 inverted (see ChannelState.phase).
+    @State private var phaseShown = PhaseState.normal
+    @State private var phaseExpected: Int?
     @State private var phaseSentAt = Date.distantPast
+
+    // The inverted state to go back to when polarity is switched on again.
+    // A stereo channel has three of them and this app cannot tell them
+    // apart, so it remembers the one the desk reported instead of assuming
+    // PhaseState.inverted - otherwise tapping polarity off and on would
+    // quietly move which leg is inverted.
+    @State private var phaseLastInverted = PhaseState.inverted
 
     // A rename takes a moment to reach the console and come back. Until
     // it does, pushes still carry the old name, and writing that into the
@@ -90,6 +103,7 @@ struct ChannelInputSheet: View {
             dialRow(
                 label: "Gain",
                 value: gainShown,
+                range: gainRange,
                 onChanged: { value, force in
                     gainTouchedAt = Date()
                     if force || gainTouchedAt.timeIntervalSince(gainSentAt) >= Self.writeInterval {
@@ -104,6 +118,7 @@ struct ChannelInputSheet: View {
             dialRow(
                 label: "Trim",
                 value: trimShown,
+                range: trimRange,
                 onChanged: { value, force in
                     trimTouchedAt = Date()
                     if force || trimTouchedAt.timeIntervalSince(trimSentAt) >= Self.writeInterval {
@@ -157,12 +172,19 @@ struct ChannelInputSheet: View {
         }
     }
 
-    /// Polarity, which either is or is not inverted - so the button fills
-    /// with the app's accent when on rather than the warning red 48V
-    /// uses. Nothing here can damage a microphone; it just sounds wrong.
+    /// Polarity - the button fills with the app's accent when inverted
+    /// rather than the warning red 48V uses, since nothing here can damage
+    /// a microphone; it just sounds wrong.
+    ///
+    /// Any non-zero state is drawn the same way: a stereo channel's 1, 2
+    /// and 3 each invert something, and which is which has never been
+    /// established, so the button says "inverted" and the number is
+    /// remembered rather than interpreted.
     private var phaseButton: some View {
-        Button {
-            let target = !phaseShown
+        let inverted = phaseShown != PhaseState.normal
+
+        return Button {
+            let target = inverted ? PhaseState.normal : phaseLastInverted
             phaseExpected = target
             phaseSentAt = Date()
             phaseShown = target
@@ -170,15 +192,15 @@ struct ChannelInputSheet: View {
         } label: {
             PolaritySymbol()
                 .stroke(
-                    phaseShown ? Color.clmixOnPrimary : Color.clmixOnMuteInactive,
+                    inverted ? Color.clmixOnPrimary : Color.clmixOnMuteInactive,
                     style: StrokeStyle(lineWidth: 1.9, lineCap: .round)
                 )
                 .frame(width: 24, height: 24)
                 .frame(width: 56, height: 56)
         }
-        .background(phaseShown ? Color.clmixPrimary : Color.clmixMuteInactive)
+        .background(inverted ? Color.clmixPrimary : Color.clmixMuteInactive)
         .clipShape(Circle())
-        .accessibilityLabel(phaseShown ? "Polarity inverted" : "Polarity normal")
+        .accessibilityLabel(inverted ? "Polarity inverted" : "Polarity normal")
     }
 
     private func commitRename() {
@@ -244,6 +266,7 @@ struct ChannelInputSheet: View {
     private func dialRow(
         label: String,
         value: Double?,
+        range: ClosedRange<Double>,
         onChanged: @escaping (Double, Bool) -> Void,
         onShown: @escaping (Double) -> Void
     ) -> some View {
@@ -251,8 +274,8 @@ struct ChannelInputSheet: View {
             Spacer(minLength: 0)
 
             DialView(
-                value: value ?? Self.headAmpRange.lowerBound,
-                range: Self.headAmpRange,
+                value: value ?? range.lowerBound,
+                range: range,
                 hasValue: value != nil,
                 onValueChanged: { turned in
                     onShown(turned)
@@ -288,6 +311,7 @@ struct ChannelInputSheet: View {
         trimShown = channel.trim
         phantomShown = channel.phantom
         phaseShown = channel.phase
+        if channel.phase != PhaseState.normal { phaseLastInverted = channel.phase }
         nameShown = channel.name
     }
 
@@ -334,6 +358,8 @@ struct ChannelInputSheet: View {
         if phaseExpected == nil, state.phase != phaseShown {
             phaseShown = state.phase
         }
+
+        if state.phase != PhaseState.normal { phaseLastInverted = state.phase }
     }
 
     private func differs(_ shown: Double?, _ incoming: Double) -> Bool {
@@ -366,21 +392,12 @@ struct ChannelInputSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    // One span for both head-amp dials. The console never states its own
-    // limits, so these were read off the desk: the official control
-    // surface sends unclamped dial positions and the desk pins them,
-    // which makes whatever it reports back the range. Measured
-    // 2026-09-20 - gain -20..+60, trim -40..+40 (see
-    // docs/mixer_protocol/PROTOCOL.md, "Head-amp ranges").
-    //
-    // Deliberately the union of the two rather than a pair each, so gain
-    // and trim read alike and neither dial can be short of a value its
-    // parameter really holds. The cost is that each can be turned into a
-    // region the desk will clamp - gain below -20, trim above +40 - which
-    // is harmless here because a dial left alone snaps back to whatever
-    // the console reports (see the settle checks in fold), so it corrects
-    // itself within `settle` of letting go.
-    private static let headAmpRange = -40.0...60.0
+    // The dials' ranges are no longer constants here: each sweeps its own
+    // parameter's range, which the server states at login and
+    // HeadAmpRange defaults for. They used to share one span, the union
+    // -40...+60, which gave gain 20 dB of travel the desk only ever clamps
+    // away.
+
 
     // How long after a turn to keep ignoring pushes for that dial.
     private static let settle: TimeInterval = 0.7

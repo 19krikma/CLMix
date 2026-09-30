@@ -57,6 +57,11 @@ final class AppModel: NSObject, ObservableObject {
     // offered right after login; the server checks it again on every
     // write regardless.
     @Published var mixerControlAllowed = false
+    // What each head-amp dial sweeps, in dB. Stated by the server at
+    // login so a corrected range ships with the desktop rather than
+    // waiting on an App Store release; HeadAmpRange is the fallback.
+    @Published var gainRange = HeadAmpRange.gain
+    @Published var trimRange = HeadAmpRange.trim
     // Hard mute (the mixer-control menu): a muted channel is not only
     // down in the room but out of every monitor mix too. Session-only,
     // and off on every fresh entry to that screen - it reaches every
@@ -376,7 +381,7 @@ final class AppModel: NSObject, ObservableObject {
         backend.setPhantom(channel: channel, phantom: phantom)
     }
 
-    func setPhase(channel: Int, phase: Bool) {
+    func setPhase(channel: Int, phase: Int) {
         backend.setPhase(channel: channel, phase: phase)
     }
 
@@ -427,6 +432,8 @@ final class AppModel: NSObject, ObservableObject {
         presetsAllowed = false
         muteAllowed = true
         mixerControlAllowed = false
+        gainRange = HeadAmpRange.gain
+        trimRange = HeadAmpRange.trim
         hardMute = false
         awaitingAuxes = false
         presetNames = []
@@ -561,6 +568,8 @@ extension AppModel: MixerClientDelegate {
             presetsAllowed = backend.presetsAllowed
             muteAllowed = backend.muteAllowed
             mixerControlAllowed = backend.mixerControlAllowed
+            gainRange = backend.gainRange
+            trimRange = backend.trimRange
 
             // An account holding Full Mixer Control is asked which of the
             // two it wants before anything is selected; everyone else

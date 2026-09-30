@@ -21,6 +21,31 @@ PUSH_INTERVAL_SECONDS = 0.15
 # limit the console itself states.
 MAX_CHANNEL_NAME = 32
 
+# Channel_Input/phase is an enum over 0..3, not the 0/1 flag its sample
+# values suggested - see docs/mixer_protocol/PROTOCOL.md, "The iPad app's
+# parameter dictionary". Four states is what a stereo channel needs (none,
+# left, right, both, in some order), and which number means which has
+# never been observed: every value ever captured read 0.0.
+#
+# So nothing here maps a number to a meaning. All this code knows is that
+# 0 is normal, anything else is inverted somehow, and the exact value is
+# the console's to keep - which is enough to stop CLMix overwriting a
+# stereo channel's polarity with 1.0, as it used to.
+PHASE_NORMAL = 0
+PHASE_INVERTED = 1
+PHASE_MAX = 3
+
+# Head-amp dial ranges, per parameter rather than the union of the two
+# they used to share (PROTOCOL.md, "Head-amp ranges"). Gain is the range
+# the desk stores and the app's dictionary agree on; trim is the range the
+# desk stores, which is narrower at the top than the official app's dial.
+# Sent to phones so a dial is drawn from what the console actually has
+# rather than from a constant compiled into each app.
+HEAD_AMP_RANGES = {
+    "gain": (-20.0, 60.0),
+    "trim": (-40.0, 40.0),
+}
+
 # Meters get their own, faster loop. The console streams them at ~29Hz
 # and they are the one thing on the strip that has to look continuous -
 # at the 150ms of the levels push a meter reads as a row of steps rather
@@ -537,7 +562,8 @@ class RemoteServer:
             elif action == "set_phantom":
                 self._set_phantom(state, msg.get("channel"), msg.get("phantom"))
             elif action == "set_phase":
-                self._set_phase(state, msg.get("channel"), msg.get("phase"))
+                self._set_phase(state, worker, msg.get("channel"),
+                                msg.get("phase"))
             else:
                 self._set_name(state, msg.get("channel"), msg.get("name"))
 
@@ -663,6 +689,7 @@ class RemoteServer:
             "presets": entry.get("presets", False),
             "mute": entry.get("mute", True),
             "mixer_control": entry.get("mixer_control", False),
+            "head_amp": HEAD_AMP_RANGES,
             "token": new_token,
         })
 
@@ -716,6 +743,7 @@ class RemoteServer:
             "presets": entry.get("presets", False),
             "mute": entry.get("mute", True),
             "mixer_control": entry.get("mixer_control", False),
+            "head_amp": HEAD_AMP_RANGES,
             "token": token,
         })
 
@@ -1115,14 +1143,49 @@ class RemoteServer:
             f"{1.0 if phantom else 0.0}"
         )
 
-    def _set_phase(self, state, channel, phase):
+    # phase is an enum over 0..3, not a flag - see PHASE_MAX. Two client
+    # shapes are accepted, because the wire has carried both:
+    #
+    #   a number  the state the phone chose, written as asked. This is
+    #             what every current build sends, and it is how a stereo
+    #             channel's polarity survives a round trip: the phone hands
+    #             back the same value it was given.
+    #   a bool    what every build before this change sent, and the reason
+    #             it needed fixing. "On" no longer means 1.0 - if the desk
+    #             already holds 2 or 3 the channel is inverted, so that
+    #             value is written back rather than flattened to 1.0.
+    def _set_phase(self, state, worker, channel, phase):
         if channel is None or phase is None:
             return
 
+        if isinstance(phase, bool):
+            current = self._cached_phase(worker, channel)
+            wanted = (current or PHASE_INVERTED) if phase else PHASE_NORMAL
+        else:
+            try:
+                wanted = round(float(phase))
+            except (TypeError, ValueError):
+                return
+
+            wanted = min(PHASE_MAX, max(PHASE_NORMAL, wanted))
+
         self.command_queue.put(
-            f"/Input_Channels/{channel}/Channel_Input/phase "
-            f"{1.0 if phase else 0.0}"
+            f"/Input_Channels/{channel}/Channel_Input/phase {float(wanted)}"
         )
+
+    @staticmethod
+    def _cached_phase(worker, channel):
+        """What the console last reported for this channel's phase, or 0."""
+        key = f"/Input_Channels/{channel}/Channel_Input/phase"
+        args = worker.cache.get(key) if worker is not None else None
+
+        if not args:
+            return PHASE_NORMAL
+
+        try:
+            return min(PHASE_MAX, max(PHASE_NORMAL, round(float(args[0]))))
+        except (TypeError, ValueError):
+            return PHASE_NORMAL
 
     # The one write in the protocol carrying a string rather than a
     # float, and the one that can contain a space - so it goes to the
@@ -1431,9 +1494,13 @@ class RemoteServer:
             phantom = bool(worker.cache[phantom_key][0]) \
                 if phantom_key in worker.cache else False
 
-            phase_key = f"/Input_Channels/{channel}/Channel_Input/phase"
-            phase = bool(worker.cache[phase_key][0]) \
-                if phase_key in worker.cache else False
+            # Both shapes go out: "phase_state" is the console's own value
+            # (0..3, see PHASE_MAX) and is what a phone should read and
+            # hand back, while "phase" stays a bool so a build from before
+            # this change still lights its polarity button. A phone reading
+            # only the bool cannot tell 3 from 1, which is precisely why
+            # writes no longer trust it - see _set_phase.
+            phase_state = cls._cached_phase(worker, channel)
 
             states.append({
                 "channel": channel,
@@ -1444,7 +1511,8 @@ class RemoteServer:
                 "gain": gain,
                 "trim": trim,
                 "phantom": phantom,
-                "phase": phase,
+                "phase": phase_state != PHASE_NORMAL,
+                "phase_state": phase_state,
                 "stereo": worker.channel_is_stereo(channel),
             })
 

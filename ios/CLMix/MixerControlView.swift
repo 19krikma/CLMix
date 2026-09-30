@@ -103,6 +103,8 @@ struct MixerControlView: View {
                 onTrimChanged: { model.setTrim(channel: $0, trim: $1) },
                 onPhantomChanged: { model.setPhantom(channel: $0, phantom: $1) },
                 onPhaseChanged: { model.setPhase(channel: $0, phase: $1) },
+                gainRange: model.gainRange,
+                trimRange: model.trimRange,
                 onNameChanged: { model.setName(channel: $0, name: $1) }
             )
             .presentationDetents([.height(440)])

@@ -36,6 +36,8 @@ protocol MixerBackend: AnyObject {
     var presetsAllowed: Bool { get }
     var muteAllowed: Bool { get }
     var mixerControlAllowed: Bool { get }
+    var gainRange: ClosedRange<Double> { get }
+    var trimRange: ClosedRange<Double> { get }
 
     func connect(host: String, port: Int)
     func disconnect()
@@ -53,7 +55,7 @@ protocol MixerBackend: AnyObject {
     func setGain(channel: Int, gain: Double)
     func setTrim(channel: Int, trim: Double)
     func setPhantom(channel: Int, phantom: Bool)
-    func setPhase(channel: Int, phase: Bool)
+    func setPhase(channel: Int, phase: Int)
     func setName(channel: Int, name: String)
     func requestPresets()
     func savePreset(name: String)
@@ -97,6 +99,15 @@ final class MixerClient: NSObject, MixerBackend {
     // which is also what an older server that never sends the field
     // means.
     private(set) var mixerControlAllowed = false
+
+    // Set from login_result - the range each head-amp dial sweeps, in dB,
+    // as the desktop reads it off the console's own parameter table. Held
+    // here rather than baked into the sheet so a corrected range ships with
+    // the desktop instead of waiting on an App Store release; the defaults
+    // are the same values and are what an older server that never sends the
+    // field leaves in place.
+    private(set) var gainRange = HeadAmpRange.gain
+    private(set) var trimRange = HeadAmpRange.trim
 
     // Advances once per received meter frame. The server only sends a
     // frame when something actually changed, so a bar that stops being
@@ -155,6 +166,27 @@ final class MixerClient: NSObject, MixerBackend {
         presetsAllowed = false
         muteAllowed = true
         mixerControlAllowed = false
+        gainRange = HeadAmpRange.gain
+        trimRange = HeadAmpRange.trim
+    }
+
+    /// Folds in the head-amp ranges from login_result, if the server sent
+    /// any. A malformed or inverted pair is ignored rather than applied - a
+    /// dial whose lower bound exceeds its upper cannot be turned at all,
+    /// and the built-in defaults are correct for every console seen so far.
+    private func readHeadAmpRanges(_ headAmp: [String: Any]?) {
+        gainRange = Self.range(headAmp, "gain") ?? HeadAmpRange.gain
+        trimRange = Self.range(headAmp, "trim") ?? HeadAmpRange.trim
+    }
+
+    private static func range(
+        _ headAmp: [String: Any]?, _ key: String
+    ) -> ClosedRange<Double>? {
+        guard let pair = headAmp?[key] as? [Double], pair.count >= 2,
+              pair[0] < pair[1] else {
+            return nil
+        }
+        return pair[0]...pair[1]
     }
 
     func login(username: String, password: String) {
@@ -246,7 +278,11 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "set_phantom", "channel": channel, "phantom": phantom])
     }
 
-    func setPhase(channel: Int, phase: Bool) {
+    /// `phase` is the console's own enum, not a flag - 0 normal, 1...3 the
+    /// inverted states a stereo channel has (see ChannelState.phase). The
+    /// number is sent so a state the desk already holds is written back
+    /// unchanged rather than collapsed to 1.
+    func setPhase(channel: Int, phase: Int) {
         send(["action": "set_phase", "channel": channel, "phase": phase])
     }
 
@@ -322,6 +358,7 @@ final class MixerClient: NSObject, MixerBackend {
                 presetsAllowed = ok && (json["presets"] as? Bool ?? false)
                 muteAllowed = !ok || (json["mute"] as? Bool ?? true)
                 mixerControlAllowed = ok && (json["mixer_control"] as? Bool ?? false)
+                readHeadAmpRanges(json["head_amp"] as? [String: Any])
                 let token = (json["token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 delegate?.mixerDidReceiveLoginResult(
                     ok: ok, message: json["message"] as? String, token: token
@@ -364,7 +401,14 @@ final class MixerClient: NSObject, MixerBackend {
                         gain: entry["gain"] as? Double,
                         trim: entry["trim"] as? Double,
                         phantom: entry["phantom"] as? Bool ?? false,
-                        phase: entry["phase"] as? Bool ?? false
+                        // phase_state is the console's value, 0...3. An
+                        // older server sends only the "phase" bool, which
+                        // cannot tell 3 from 1 - falling back to it loses
+                        // which leg is inverted but still lights the
+                        // button, which is what that server could do too.
+                        phase: entry["phase_state"] as? Int
+                            ?? ((entry["phase"] as? Bool ?? false)
+                                ? PhaseState.inverted : PhaseState.normal)
                     )
                 }
                 delegate?.mixerDidReceiveLevels(aux: aux, channels: channels)

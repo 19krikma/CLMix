@@ -116,6 +116,18 @@ object MixerClient {
     var mixerControlAllowed: Boolean = false
         private set
 
+    // Set from login_result - the range each head-amp dial sweeps, in dB,
+    // as the desktop reads it off the console's own parameter table. Held
+    // here rather than compiled into the sheet so a corrected range ships
+    // with the desktop instead of waiting on a store release; the defaults
+    // are the same values and are what an older server that never sends
+    // the field leaves in place.
+    var gainRange: ClosedFloatingPointRange<Double> = HEAD_AMP_GAIN_RANGE
+        private set
+
+    var trimRange: ClosedFloatingPointRange<Double> = HEAD_AMP_TRIM_RANGE
+        private set
+
     // Advances once per received meter frame. The server only sends a
     // frame when something actually changed, so a bar that stops being
     // fed stops being pushed back up and releases away, exactly as on
@@ -221,7 +233,34 @@ object MixerClient {
         presetsAllowed = false
         muteAllowed = true
         mixerControlAllowed = false
+        gainRange = HEAD_AMP_GAIN_RANGE
+        trimRange = HEAD_AMP_TRIM_RANGE
         appContext?.let(MixerConnectionService::stop)
+    }
+
+    /**
+     * Folds in the head-amp ranges from login_result, if the server sent
+     * any. A malformed or inverted pair is ignored rather than applied -
+     * a dial whose min exceeds its max cannot be turned at all, and the
+     * built-in defaults are correct for every console seen so far.
+     */
+    private fun readHeadAmpRanges(headAmp: JSONObject?) {
+        gainRange = readRange(headAmp, "gain") ?: HEAD_AMP_GAIN_RANGE
+        trimRange = readRange(headAmp, "trim") ?: HEAD_AMP_TRIM_RANGE
+    }
+
+    private fun readRange(
+        headAmp: JSONObject?,
+        key: String
+    ): ClosedFloatingPointRange<Double>? {
+        val pair = headAmp?.optJSONArray(key) ?: return null
+
+        if (pair.length() < 2) return null
+
+        val low = pair.optDoubleOrNull(0) ?: return null
+        val high = pair.optDoubleOrNull(1) ?: return null
+
+        return if (low < high) low..high else null
     }
 
     fun login(username: String, password: String) = send(
@@ -320,7 +359,11 @@ object MixerClient {
             .put("phantom", phantom)
     )
 
-    fun setPhase(channel: Int, phase: Boolean) = send(
+    // phase is the console's own enum, not a flag - 0 normal, 1..3 the
+    // inverted states a stereo channel has (see ChannelState.phase). The
+    // number is sent so a state the desk already holds is written back
+    // unchanged rather than collapsed to 1.
+    fun setPhase(channel: Int, phase: Int) = send(
         JSONObject()
             .put("action", "set_phase")
             .put("channel", channel)
@@ -365,6 +408,7 @@ object MixerClient {
                 presetsAllowed = ok && json.optBoolean("presets", false)
                 muteAllowed = !ok || json.optBoolean("mute", true)
                 mixerControlAllowed = ok && json.optBoolean("mixer_control", false)
+                readHeadAmpRanges(json.optJSONObject("head_amp"))
                 onMain { listener?.onLoginResult(ok, message, token) }
             }
 
@@ -403,7 +447,18 @@ object MixerClient {
                         gain = if (o.isNull("gain")) null else o.optDouble("gain"),
                         trim = if (o.isNull("trim")) null else o.optDouble("trim"),
                         phantom = o.optBoolean("phantom", false),
-                        phase = o.optBoolean("phase", false)
+                        // phase_state is the console's value, 0..3. An
+                        // older server sends only the "phase" bool, which
+                        // cannot tell 3 from 1 - falling back to it loses
+                        // which leg is inverted but still lights the
+                        // button, which is what that server could do too.
+                        phase = if (o.has("phase_state")) {
+                            o.optInt("phase_state", PHASE_NORMAL)
+                        } else if (o.optBoolean("phase", false)) {
+                            PHASE_INVERTED
+                        } else {
+                            PHASE_NORMAL
+                        }
                     )
                 }
                 onMain { listener?.onLevels(aux, list) }
@@ -485,3 +540,15 @@ data class MeterLevels(
 
 private fun JSONArray.optDoubleOrNull(index: Int): Double? =
     if (isNull(index)) null else optDouble(index)
+
+// Head-amp dial ranges, in dB, used until a server states its own (see
+// MixerClient.gainRange). One range per parameter: the desk stores gain
+// over -20..+60 and trim over -40..+40, which the official app's own
+// parameter table confirms for gain and narrows for trim - see
+// docs/mixer_protocol/PROTOCOL.md, "Head-amp ranges".
+//
+// Both dials used to sweep the union of the two, -40..+60, so that they
+// read alike. That cost gain 20 dB of dead travel at the bottom, where
+// the desk clamps every value back to -20.
+val HEAD_AMP_GAIN_RANGE = -20.0..60.0
+val HEAD_AMP_TRIM_RANGE = -40.0..40.0
