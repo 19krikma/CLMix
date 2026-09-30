@@ -602,12 +602,18 @@ class MockMixer:
             put(f"{prefix}/Channel_Input/analog_gain", float(20 + (channel % 7) * 5))
             put(f"{prefix}/Channel_Input/trim", float((channel % 5) - 2))
             put(f"{prefix}/Channel_Input/phantom", float(channel % 3 == 0))
-            # Polarity is an enum over 0..3, not a flag: on a stereo
-            # channel the upper states pick which leg is inverted. Seeded
-            # with one of each so a client is tested against a value a
-            # boolean could not have carried - a channel this mock reports
-            # at 2.0 must still read 2.0 after polarity is switched off
-            # and on again.
+            # Polarity, which the app's parameter dictionary gives a range
+            # of 0..3 rather than the 0/1 a flag would have - the upper
+            # states presumably picking which leg of a stereo channel is
+            # inverted (PROTOCOL.md, "The iPad app's parameter dictionary").
+            #
+            # This is the one value in this mock no real desk has been seen
+            # to report: every capture read 0.0. It is seeded anyway,
+            # because a client that mishandles it corrupts a channel and
+            # there is no other way to exercise that - a channel this mock
+            # reports at 2.0 must still read 2.0 after polarity has been
+            # switched off and on again. If phase ever turns out to be a
+            # plain flag after all, this seed is the thing to drop.
             put(f"{prefix}/Channel_Input/phase", float(PHASE_SEED.get(channel, 0)))
 
             for aux in range(1, self.counts["Aux_Outputs"] + 1):

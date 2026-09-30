@@ -382,7 +382,11 @@ Beyond the already-documented `count`, `names/?`, `name`, `Current_Snapshot`, `S
 | `notes`, `notes/?` | index as argument | snapshot notes, new here |
 | `MIDI fires Snapshots`, `Fire Snapshot sends MIDI` | no | `0`/`1` settings |
 
-**`Update Snapshot` and `Update Current Snapshot` are the answer to "storing a snapshot"**, which the list at the end of this document calls the one gap that costs real time: a restore currently writes settings to the live desk and then asks the operator to press Update by hand. Worth trying **on a scratch session, not a show file** - an unintended Update overwrites a snapshot with whatever the desk currently holds, and there is no undo but `Undo Snapshot`, itself untested.
+`Update Snapshot` and `Update Current Snapshot` are **the first names worth trying** for "storing a snapshot", which the list at the end of this document calls the one gap that costs real time: a restore currently writes settings to the live desk and then asks the operator to press Update by hand.
+
+That is all they are. This is a dictionary: it says the app has a label for the operation, not that the console implements it, exposes it over OSC, or would accept it from a client rather than only from the surface. Every previous gap here was closed by watching the desk, and this one still is - the file has only replaced guessing at an address with knowing which address to guess at.
+
+So it is worth trying **on a scratch session, not a show file** - an unintended Update overwrites a snapshot with whatever the desk currently holds, and there is no undo but `Undo Snapshot`, itself untested.
 
 ### Macros (target `0xfe00`)
 
