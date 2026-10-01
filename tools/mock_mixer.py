@@ -204,6 +204,12 @@ CLAMPED_SUFFIXES = {
     "/Channel_Input/analog_gain": (-20.0, 60.0),
     "/Channel_Input/alt_analog_gain": (-20.0, 60.0),
     "/Channel_Input/trim": (-40.0, 40.0),
+    # Not observed being clamped - taken from the app's own parameter
+    # dictionary, which gives phase a range of 0..3 rather than the 0/1
+    # a flag would have (PROTOCOL.md, "The iPad app's parameter
+    # dictionary"). Included so a client that still thinks phase is a
+    # boolean cannot push it somewhere the real desk would not go.
+    "/Channel_Input/phase": (0.0, 3.0),
 }
 
 LAYOUT_KEY_ARGS = 4
@@ -212,6 +218,12 @@ LAYOUT_FADERS = 12
 LAYOUT_BANKS_PER_LAYER = 4
 
 STEREO_CHANCE = 0.25
+
+# Channels seeded with a non-zero Channel_Input/phase, by channel number.
+# Channel 2 gets the ordinary inverted state a mono channel would have;
+# channel 3 gets one only a stereo channel has, which is the case that
+# broke while phase was being treated as a flag.
+PHASE_SEED = {2: 1, 3: 2}
 
 # Meter simulation. The console quantises meters to 3 dB steps over a
 # 0..-60 dB scale and uses 126 as its no-signal sentinel - see
@@ -590,7 +602,19 @@ class MockMixer:
             put(f"{prefix}/Channel_Input/analog_gain", float(20 + (channel % 7) * 5))
             put(f"{prefix}/Channel_Input/trim", float((channel % 5) - 2))
             put(f"{prefix}/Channel_Input/phantom", float(channel % 3 == 0))
-            put(f"{prefix}/Channel_Input/phase", 0.0)
+            # Polarity, which the app's parameter dictionary gives a range
+            # of 0..3 rather than the 0/1 a flag would have - the upper
+            # states presumably picking which leg of a stereo channel is
+            # inverted (PROTOCOL.md, "The iPad app's parameter dictionary").
+            #
+            # This is the one value in this mock no real desk has been seen
+            # to report: every capture read 0.0. It is seeded anyway,
+            # because a client that mishandles it corrupts a channel and
+            # there is no other way to exercise that - a channel this mock
+            # reports at 2.0 must still read 2.0 after polarity has been
+            # switched off and on again. If phase ever turns out to be a
+            # plain flag after all, this seed is the thing to drop.
+            put(f"{prefix}/Channel_Input/phase", float(PHASE_SEED.get(channel, 0)))
 
             for aux in range(1, self.counts["Aux_Outputs"] + 1):
                 put(f"{prefix}/Aux_Send/{aux}/send_level", -10.0)

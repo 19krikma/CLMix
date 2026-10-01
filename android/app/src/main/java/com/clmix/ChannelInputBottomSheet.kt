@@ -32,11 +32,13 @@ class ChannelInputBottomSheet(
     gain: Double?,
     trim: Double?,
     phantom: Boolean,
-    phase: Boolean,
+    phase: Int,
+    private val gainRange: ClosedFloatingPointRange<Double>,
+    private val trimRange: ClosedFloatingPointRange<Double>,
     private val onGainChanged: (Int, Double) -> Unit,
     private val onTrimChanged: (Int, Double) -> Unit,
     private val onPhantomChanged: (Int, Boolean) -> Unit,
-    private val onPhaseChanged: (Int, Boolean) -> Unit,
+    private val onPhaseChanged: (Int, Int) -> Unit,
     private val onNameChanged: (Int, String) -> Unit,
     private val onInputClicked: (Int) -> Unit
 ) {
@@ -68,9 +70,19 @@ class ChannelInputBottomSheet(
     private var phantomExpected: Boolean? = null
     private var phantomSentAt = 0L
 
+    // The polarity state being shown, as the console's own value rather
+    // than a flag: 0 normal, 1..3 inverted (see ChannelState.phase).
     private var phaseShown = phase
-    private var phaseExpected: Boolean? = null
+    private var phaseExpected: Int? = null
     private var phaseSentAt = 0L
+
+    // The inverted state to go back to when polarity is switched on
+    // again. A stereo channel has three of them and this app cannot tell
+    // them apart, so it remembers the one the desk reported instead of
+    // assuming PHASE_INVERTED - otherwise tapping polarity off and on
+    // would quietly move which leg is inverted.
+    private var phaseLastInverted =
+        if (phase != PHASE_NORMAL) phase else PHASE_INVERTED
 
     // A rename takes a moment to reach the console and come back. Until
     // it does, pushes still carry the old name, and writing that into the
@@ -108,7 +120,11 @@ class ChannelInputBottomSheet(
         applyPhase(phaseShown)
 
         binding.phaseButton.setOnClickListener {
-            val target = !phaseShown
+            val target = if (phaseShown != PHASE_NORMAL) {
+                PHASE_NORMAL
+            } else {
+                phaseLastInverted
+            }
 
             phaseExpected = target
             phaseSentAt = SystemClock.uptimeMillis()
@@ -129,8 +145,8 @@ class ChannelInputBottomSheet(
 
         setUpDial(
             dial = binding.gainDial,
-            min = HEAD_AMP_MIN,
-            max = HEAD_AMP_MAX,
+            min = gainRange.start,
+            max = gainRange.endInclusive,
             initial = gain,
             format = { binding.gainValue.text = formatDb(it) },
             onChanged = { value, force ->
@@ -145,8 +161,8 @@ class ChannelInputBottomSheet(
 
         setUpDial(
             dial = binding.trimDial,
-            min = HEAD_AMP_MIN,
-            max = HEAD_AMP_MAX,
+            min = trimRange.start,
+            max = trimRange.endInclusive,
             initial = trim,
             format = { binding.trimValue.text = formatDb(it) },
             onChanged = { value, force ->
@@ -280,13 +296,22 @@ class ChannelInputBottomSheet(
     }
 
     /**
-     * Polarity, which either is or is not inverted - so the button fills
-     * with the app's accent when on rather than the warning red 48V uses.
-     * Nothing here can damage a microphone; it just sounds wrong.
+     * Polarity - the button fills with the app's accent when inverted
+     * rather than the warning red 48V uses, since nothing here can damage
+     * a microphone; it just sounds wrong.
+     *
+     * The state is the console's own number, and any non-zero value is
+     * drawn the same way: a stereo channel's 1, 2 and 3 each invert
+     * something, and which is which has never been established, so the
+     * button says "inverted" and the number is remembered rather than
+     * interpreted.
      */
-    private fun applyPhase(on: Boolean) {
-        phaseShown = on
+    private fun applyPhase(state: Int) {
+        phaseShown = state
 
+        if (state != PHASE_NORMAL) phaseLastInverted = state
+
+        val on = state != PHASE_NORMAL
         val context = binding.phaseButton.context
         val background = if (on) R.color.primary else R.color.mute_inactive
         val tint = if (on) R.color.on_primary else R.color.on_mute_inactive
@@ -349,27 +374,11 @@ class ChannelInputBottomSheet(
     }
 
     companion object {
-        // One span for both head-amp dials. The console never states its
-        // own limits over OSC, so these were read off the desk: the
-        // official app sends unclamped dial positions and the desk pins
-        // them, which makes whatever it reports back the range. Measured
-        // 2026-09-20 - gain -20..+60, trim -40..+40 (see
-        // docs/mixer_protocol/PROTOCOL.md, "Head-amp ranges").
-        //
-        // Deliberately the union of the two rather than a pair each, so
-        // gain and trim read alike and neither dial can be short of a
-        // value its parameter really holds. The cost is that each can be
-        // turned into a region the desk will clamp - gain below -20,
-        // trim above +40 - which is harmless here because a dial left
-        // alone snaps back to whatever the console reports (see the
-        // idle() checks in update()), so it corrects itself within
-        // SETTLE_MS of letting go.
-        //
-        // Gain was 0..60 before this, which silently cost the bottom
-        // 20 dB of the desk's range - a channel the console had at
-        // -12 dB could not be dialled back to where it was.
-        private const val HEAD_AMP_MIN = -40.0
-        private const val HEAD_AMP_MAX = 60.0
+        // The dials' ranges are no longer constants here: each sweeps its
+        // own parameter's range, which the server states at login and
+        // HEAD_AMP_GAIN_RANGE / HEAD_AMP_TRIM_RANGE in MixerClient default
+        // for. They used to share one span, the union -40..+60, which gave
+        // gain 20 dB of travel the desk only ever clamps away.
 
         // How long after a turn to keep ignoring pushes for that dial.
         private const val SETTLE_MS = 700L

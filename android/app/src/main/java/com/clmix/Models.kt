@@ -40,7 +40,23 @@ data class ChannelState(
     // the button is a toggle with no third state to show.
     val phantom: Boolean = false,
 
-    // Polarity invert on the channel input. False when the console has
-    // not reported it, the same reading as phantom above.
-    val phase: Boolean = false
-)
+    // Polarity on the channel input, as the console's own value: 0 is
+    // normal and 1..3 are inverted. It is not a flag - a stereo channel
+    // has four states, and which of 1/2/3 inverts which leg has never
+    // been observed, so nothing here interprets them (see
+    // docs/mixer_protocol/PROTOCOL.md, "The iPad app's parameter
+    // dictionary").
+    //
+    // The number is carried rather than a boolean so that turning
+    // polarity off and on again restores the state the desk had, instead
+    // of flattening a stereo channel to 1. 0 when the console has not
+    // reported it, the same reading as phantom above.
+    val phase: Int = PHASE_NORMAL
+) {
+    val phaseInverted: Boolean get() = phase != PHASE_NORMAL
+}
+
+// Polarity states. Only the two named ones are ever written by this app;
+// the rest are values the desk may already hold and this app preserves.
+const val PHASE_NORMAL = 0
+const val PHASE_INVERTED = 1

@@ -42,6 +42,16 @@ final class DemoMixer: MixerBackend {
     // be walked into fresh.
     private var personalNames: [Int: String] = [:]
 
+    // The demo account holds Full Mixer Control too, so the choice after
+    // login and the console's own faders behind it are both reachable -
+    // "all of the features and functionality" is what Guideline 2.1 asks
+    // a demonstration mode to show.
+    private(set) var mixerControlAllowed = false
+
+    // The demo console has the same head-amp ranges as a real one.
+    let gainRange = HeadAmpRange.gain
+    let trimRange = HeadAmpRange.trim
+
     private init() {}
 
     // MARK: - The fake console
@@ -131,11 +141,32 @@ final class DemoMixer: MixerBackend {
         var muted: Bool
     }
 
+    /// The console's own channel, as Full Mixer Control rides it - the
+    /// channel fader and panner rather than one bus's send, plus the
+    /// input stage behind them.
+    private struct Strip {
+        var name: String
+        var level: Double
+        var pan: Double?
+        var muted: Bool
+        var gain: Double?
+        var trim: Double?
+        var phantom: Bool
+        // The console's own enum, 0..3 - see ChannelState.phase.
+        var phase: Int
+    }
+
     // [aux index: [channel number: send]]
     private var sends: [Int: [Int: Send]] = [:]
     private var presets: [String: [Int: Send]] = [:]
+    // [channel number: the console's own strip]
+    private var console: [Int: Strip] = [:]
 
     private var selectedAux: Int?
+    // True while the socket is riding the console's own faders. Mutually
+    // exclusive with selectedAux, the same way the real server's two
+    // modes are.
+    private var mixerMode = false
     private var selectedBank: String?
     private var pushTimer: Timer?
     private var meterTimer: Timer?
@@ -176,6 +207,37 @@ final class DemoMixer: MixerBackend {
             sends[aux.index] = mix
         }
 
+        // The console's own strips, behind every aux send above. Seeded
+        // so the input stage has something to show the moment it is
+        // opened: a head amp set where that source would really sit, a
+        // trim near unity, and 48V only on what needs it. A couple of
+        // channels deliberately report no head amp at all, which is what
+        // a console that has not answered for them yet looks like - the
+        // dials grey out and read a dash rather than 0 dB.
+        console = [:]
+
+        for entry in Self.catalog {
+            let needsPhantom = entry.name.hasPrefix("OH") || entry.name.hasPrefix("BV")
+                || entry.name == "Acoustic" || entry.name == "Talkback"
+            let reported = entry.channel % 9 != 0
+
+            console[entry.channel] = Strip(
+                name: entry.name,
+                level: Double((entry.channel * 5) % 11) * -1.2 - 1.0,
+                // A mono channel has no pan axis on the main mix, exactly
+                // as a mono aux has none for its sends.
+                pan: entry.stereo ? 0 : panForStagePicture(entry.name),
+                muted: entry.name == "Talkback",
+                gain: reported ? Double(18 + (entry.channel * 7) % 34) : nil,
+                trim: reported ? Double((entry.channel * 3) % 9) - 4 : nil,
+                phantom: needsPhantom,
+                // One inverted mono channel, and one stereo channel on a
+                // state a boolean could not have carried - which is the
+                // case the demo exists to show working.
+                phase: phaseForStagePicture(entry.name)
+            )
+        }
+
         // Two presets to load straight away, so the Load sheet is not empty
         // the first time it is opened.
         presets = [
@@ -184,11 +246,34 @@ final class DemoMixer: MixerBackend {
         ]
     }
 
+    /// Anything named L/R sits off-center, everything else stays up the
+    /// middle - the same stage picture the aux sends are seeded with.
+    private func panForStagePicture(_ name: String) -> Double {
+        if name.hasSuffix(" L") { return -0.4 }
+        if name.hasSuffix(" R") { return 0.4 }
+        return 0
+    }
+
+    /// Polarity, as the console's own enum rather than a flag. "Snare Bot"
+    /// is the mono channel an engineer would really flip. "Keys" is a
+    /// stereo pair and is given state 2 so the demo carries at least one
+    /// value a boolean could not have represented - tapping polarity off
+    /// and on there has to come back to 2, which is the bug this enum
+    /// exists to prevent.
+    private func phaseForStagePicture(_ name: String) -> Int {
+        switch name {
+        case "Snare Bot": return PhaseState.inverted
+        case "Keys": return 2
+        default: return PhaseState.normal
+        }
+    }
+
     // MARK: - MixerBackend
 
     func connect(host: String, port: Int) {
         seed()
         selectedAux = nil
+        mixerMode = false
         selectedBank = nil
         isConnected = true
 
@@ -202,7 +287,9 @@ final class DemoMixer: MixerBackend {
         muteAllowed = true
         personalizationAllowed = false
         personalNames = [:]
+        mixerControlAllowed = false
         selectedAux = nil
+        mixerMode = false
         selectedBank = nil
     }
 
@@ -212,6 +299,7 @@ final class DemoMixer: MixerBackend {
         presetsAllowed = true
         muteAllowed = true
         personalizationAllowed = true
+        mixerControlAllowed = true
 
         // No token is handed back, so SessionStore stores nothing and a
         // relaunch returns to the connect screen rather than silently
@@ -241,11 +329,18 @@ final class DemoMixer: MixerBackend {
 
     func selectAux(_ aux: Int) {
         selectedAux = aux
+        mixerMode = false
         // The bank filter deliberately survives an aux change, matching
         // RemoteServer._handle (select_aux sets state["aux"] and leaves
         // state["bank"] alone). MixerView's own bank picker keeps its
         // selection across the switch too, so resetting here would leave the
         // picker reading "Drums" while every channel was actually showing.
+        startPushing()
+    }
+
+    func selectMixerControl() {
+        selectedAux = nil
+        mixerMode = true
         startPushing()
     }
 
@@ -255,24 +350,83 @@ final class DemoMixer: MixerBackend {
     }
 
     func setLevel(channel: Int, db: Double) {
+        if mixerMode {
+            console[channel]?.level = db
+            return
+        }
+
         guard let aux = selectedAux else { return }
         sends[aux]?[channel]?.level = db
     }
 
     func setPan(channel: Int, pan: Double) {
+        if mixerMode {
+            // A channel the console reports no pan axis for stays
+            // without one, the same as against real hardware.
+            if console[channel]?.pan != nil { console[channel]?.pan = pan }
+            return
+        }
+
         guard let aux = selectedAux else { return }
         sends[aux]?[channel]?.pan = pan
     }
 
-    func setMute(channel: Int, muted: Bool) {
+    func setMute(channel: Int, muted: Bool, hard: Bool) {
+        if mixerMode {
+            console[channel]?.muted = muted
+
+            // A hard mute is assembled rather than being one control:
+            // the channel mute plus every aux send dropped, so the
+            // channel leaves the monitors as well as the room.
+            if hard {
+                for aux in sends.keys {
+                    sends[aux]?[channel]?.muted = muted
+                }
+            }
+            return
+        }
+
         guard let aux = selectedAux else { return }
         sends[aux]?[channel]?.muted = muted
     }
 
+    // The account's own label for a strip - aux mode only, exactly as
+    // the real server has it: mixer mode shows the desk's own names, and
+    // setName below is what renames a channel there for real.
     func setPersonalName(channel: Int, name: String) {
+        guard !mixerMode else { return }
         // An empty name clears the label, the same way the server reads
         // it, so Reset in the rename dialog works here too.
         personalNames[channel] = name.isEmpty ? nil : name
+    }
+
+    // The channel's input stage. Mixer mode only, exactly as the real
+    // server has it - a head amp feeds every mix and the recording at
+    // once, so it is never reachable from an aux socket.
+    func setGain(channel: Int, gain: Double) {
+        guard mixerMode else { return }
+        console[channel]?.gain = gain
+    }
+
+    func setTrim(channel: Int, trim: Double) {
+        guard mixerMode else { return }
+        console[channel]?.trim = trim
+    }
+
+    func setPhantom(channel: Int, phantom: Bool) {
+        guard mixerMode else { return }
+        console[channel]?.phantom = phantom
+    }
+
+    func setPhase(channel: Int, phase: Int) {
+        guard mixerMode else { return }
+        console[channel]?.phase = phase
+    }
+
+    func setName(channel: Int, name: String) {
+        guard mixerMode else { return }
+        // The same cap the real server applies (MAX_CHANNEL_NAME).
+        console[channel]?.name = String(name.prefix(32))
     }
 
     func requestPresets() {
@@ -346,6 +500,11 @@ final class DemoMixer: MixerBackend {
     }
 
     private func pushLevels() {
+        if mixerMode {
+            pushMixerLevels()
+            return
+        }
+
         guard let aux = selectedAux, let mix = sends[aux] else { return }
 
         let visible = Self.catalog.filter { selectedBank == nil || $0.bank == selectedBank }
@@ -368,6 +527,35 @@ final class DemoMixer: MixerBackend {
         }
     }
 
+    /// The same row shape, read off the channel itself: the console's own
+    /// fader, panner and mute, plus the input stage behind them. Carries
+    /// the sentinel aux the real server sends in mixer mode, since no bus
+    /// is being ridden.
+    private func pushMixerLevels() {
+        let visible = Self.catalog.filter { selectedBank == nil || $0.bank == selectedBank }
+        let channels = visible.compactMap { entry -> ChannelState? in
+            guard let strip = console[entry.channel] else { return nil }
+            return ChannelState(
+                channel: entry.channel,
+                name: strip.name,
+                level: strip.level,
+                pan: strip.pan,
+                muted: strip.muted,
+                stereo: entry.stereo,
+                gain: strip.gain,
+                trim: strip.trim,
+                phantom: strip.phantom,
+                phase: strip.phase
+            )
+        }
+
+        Task { @MainActor in
+            self.delegate?.mixerDidReceiveLevels(
+                aux: MixerClient.mixerAux, channels: channels
+            )
+        }
+    }
+
     // MARK: - Fabricated meters
 
     /// Bars that move like a band playing rather than like noise: each
@@ -377,21 +565,37 @@ final class DemoMixer: MixerBackend {
     /// deterministic - a function of the wall clock and the channel
     /// number, with no state to keep between frames.
     private func pushMeters() {
-        guard let aux = selectedAux, let mix = sends[aux] else { return }
+        // Post-fader, so the bars follow whichever fader is being ridden:
+        // the send in aux mode, the channel's own in mixer mode.
+        let riding: (Int) -> (level: Double, muted: Bool)?
+
+        if mixerMode {
+            let strips = console
+            riding = { channel in
+                guard let strip = strips[channel] else { return nil }
+                return (strip.level, strip.muted)
+            }
+        } else {
+            guard let aux = selectedAux, let mix = sends[aux] else { return }
+            riding = { channel in
+                guard let send = mix[channel] else { return nil }
+                return (send.level, send.muted)
+            }
+        }
 
         let now = Date.timeIntervalSinceReferenceDate
         let visible = Self.catalog.filter { selectedBank == nil || $0.bank == selectedBank }
         var frame = [Int: MeterLevels](minimumCapacity: visible.count)
 
         for entry in visible {
-            guard let send = mix[entry.channel] else { continue }
+            guard let state = riding(entry.channel) else { continue }
 
-            let left = meterDb(entry, send, at: now, leg: 0)
+            let left = meterDb(entry, state, at: now, leg: 0)
             // A stereo pair's two legs never sit at exactly the same
             // level; a mono channel reports nothing at all on the right,
             // the same way the console's no-signal sentinel comes through
             // as null.
-            let right = entry.stereo ? meterDb(entry, send, at: now, leg: 1) : nil
+            let right = entry.stereo ? meterDb(entry, state, at: now, leg: 1) : nil
 
             frame[entry.channel] = MeterLevels(
                 leftPeak: left,
@@ -409,10 +613,12 @@ final class DemoMixer: MixerBackend {
         }
     }
 
-    private func meterDb(_ entry: DemoChannel, _ send: Send, at t: Double, leg: Int) -> Double? {
+    private func meterDb(
+        _ entry: DemoChannel, _ state: (level: Double, muted: Bool), at t: Double, leg: Int
+    ) -> Double? {
         // A muted send is not in this mix, so its post-fader meter reads
         // nothing - the same as the console's no-signal sentinel.
-        if send.muted { return nil }
+        if state.muted { return nil }
 
         let offset = Double(entry.channel) * 0.37 + Double(leg) * 0.11
         let amplitude = meterAmplitude(entry.voice, at: t, offset: offset)
@@ -426,7 +632,7 @@ final class DemoMixer: MixerBackend {
         // than applied in full: the seeded mix sits well below unity, and
         // at face value every bar would start pinned to the floor with
         // nothing to show.
-        let fader = max(-24, min(0, send.level + 6))
+        let fader = max(-24, min(0, state.level + 6))
         let db = base + fader
 
         return db <= Self.meterFloorDb ? nil : db

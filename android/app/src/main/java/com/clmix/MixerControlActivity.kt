@@ -241,10 +241,12 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             trim = channel.trim,
             phantom = channel.phantom,
             phase = channel.phase,
+            gainRange = MixerClient.gainRange,
+            trimRange = MixerClient.trimRange,
             onGainChanged = { ch, gain -> MixerClient.setGain(ch, gain) },
             onTrimChanged = { ch, trim -> MixerClient.setTrim(ch, trim) },
             onPhantomChanged = { ch, on -> MixerClient.setPhantom(ch, on) },
-            onPhaseChanged = { ch, on -> MixerClient.setPhase(ch, on) },
+            onPhaseChanged = { ch, state -> MixerClient.setPhase(ch, state) },
             onNameChanged = { ch, name -> MixerClient.setName(ch, name) },
             onInputClicked = { showInputPicker() }
         )

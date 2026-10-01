@@ -46,6 +46,29 @@ extension Color {
         light: UIColor(red: 0xE5 / 255, green: 0x47 / 255, blue: 0x3F / 255, alpha: 1),
         dark: UIColor(red: 0xFF / 255, green: 0x6B / 255, blue: 0x62 / 255, alpha: 1)
     )
+    // The same hue at 45% brightness, which is what the hard-mute breath
+    // fades towards. Fading to the inactive grey instead would read as
+    // the mute releasing rather than as a warning.
+    static let clmixMuteActiveDim = Color(
+        light: UIColor(red: 0x67 / 255, green: 0x1F / 255, blue: 0x1C / 255, alpha: 1),
+        dark: UIColor(red: 0x72 / 255, green: 0x30 / 255, blue: 0x2C / 255, alpha: 1)
+    )
+    // The little black readout beside a dial on the channel input sheet.
+    // Deliberately black in both palettes rather than a themed surface:
+    // it is a meter-style readout, the way a console prints its own
+    // values, not a panel.
+    static let clmixReadoutFill = Color(
+        light: UIColor(red: 0x0B / 255, green: 0x0C / 255, blue: 0x0E / 255, alpha: 1),
+        dark: UIColor(red: 0x0B / 255, green: 0x0C / 255, blue: 0x0E / 255, alpha: 1)
+    )
+    static let clmixReadoutStroke = Color(
+        light: UIColor(red: 0x2A / 255, green: 0x2D / 255, blue: 0x33 / 255, alpha: 1),
+        dark: UIColor(red: 0x2A / 255, green: 0x2D / 255, blue: 0x33 / 255, alpha: 1)
+    )
+    static let clmixReadoutText = Color(
+        light: UIColor(red: 0xF2 / 255, green: 0xF4 / 255, blue: 0xF8 / 255, alpha: 1),
+        dark: UIColor(red: 0xF2 / 255, green: 0xF4 / 255, blue: 0xF8 / 255, alpha: 1)
+    )
     static let clmixMuteInactive = Color(
         light: UIColor(red: 0xD3 / 255, green: 0xD6 / 255, blue: 0xDC / 255, alpha: 1),
         dark: UIColor(red: 0x33 / 255, green: 0x36 / 255, blue: 0x3C / 255, alpha: 1)

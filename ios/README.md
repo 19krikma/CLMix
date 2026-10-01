@@ -63,10 +63,15 @@ project and run.
 Builds clean and has been run in the Simulator via the XcodeGen path
 above (connect screen and the light/dark toggle confirmed live). The
 custom gesture-driven controls (`LevelFaderView`, `PanSheetView`'s
-`CenteredPanSlider`, and now `AuxSheetView`'s drag-to-open) haven't been
-exercised against a real `RemoteServer` yet - SwiftUI `DragGesture`
-geometry math is fiddly to get exactly right without live testing against
-real fader input, so expect to need some hands-on adjustment there.
+`CenteredPanSlider`, `AuxSheetView`'s drag-to-open, and now `DialView`'s
+hold-and-lean) haven't been exercised against a real `RemoteServer` yet -
+SwiftUI `DragGesture` geometry math is fiddly to get exactly right
+without live testing against real fader input, so expect to need some
+hands-on adjustment there. `DialView` in particular turns at a *rate* set
+by how far the finger has leaned, and the two constants that shape that
+curve (`unitsPerSecondAtOnePoint`, `maxUnitsPerSecond` in `DialTurn`) are
+carried over from the Android dial rather than dialled in on this
+platform.
 
 `ChannelMeterView` is a `UIViewRepresentable` rather than a SwiftUI view,
 and deliberately so: meter frames arrive ~20x a second against the levels
@@ -110,9 +115,19 @@ of them. In short: delete `DemoMixer.swift`, delete `demoBox` and its call
 site in `ConnectView.swift`, delete `enterDemoMode`/`leaveDemoMode`/
 `isDemo` and their uses in `AppModel.swift` (restoring the unconditional
 `SessionStore.clear()` in `logout()`), drop the DEMO badge in
-`MixerView.swift` and the title change in `AuxListView.swift`, and either
-keep `MixerBackend` or fold it back into `MixerClient` and point
-`AppModel.backend` at `MixerClient.shared` again.
+`MixerView.swift` and `MixerControlView.swift` and the title change in
+`AuxListView.swift`, and either keep `MixerBackend` or fold it back into
+`MixerClient` and point `AppModel.backend` at `MixerClient.shared` again.
+
+## Release notes
+
+`CHANGELOG.md` beside this file is the iOS app's own, and doubles as the
+draft for App Store Connect's "What's New". It deliberately names neither
+the other mobile platform nor the console's brand and model, because
+release notes are App Store metadata and both are ruled out there -
+`APP_STORE_LISTING.md` says which guidelines and why. Source comments and
+this README are not metadata and cross-reference the Android app freely;
+anything that ships to App Review must not.
 
 ## Structure
 
@@ -124,14 +139,18 @@ keep `MixerBackend` or fold it back into `MixerClient` and point
 | `MixerClient.swift` | `MixerClient.kt` | WebSocket client, JSON protocol |
 | `SessionStore.swift` | `SessionStore.kt` | Keychain-backed session token, so a relaunch resumes instead of asking for the password again |
 | `MdnsDiscovery.swift` | `MdnsDiscovery.kt` | Finds CLMix servers on the LAN via Bonjour/mDNS |
-| `AppModel.swift` | `ConnectActivity`/`AuxListActivity`/`MixerActivity` | Navigation + mixer state |
+| `AppModel.swift` | `ConnectActivity`/`AuxListActivity`/`MixerActivity`/`MixerControlActivity` | Navigation + mixer state |
 | `AuxSheetView.swift` | `activity_mixer.xml`'s aux `BottomSheetBehavior` | Persistent aux picker along the bottom of the mixer screen |
 | `BankPanelView.swift` | `BankAdapter.kt` + `item_bank.xml` | Pull-down grid of bank buttons |
 | `ChannelMeterView.swift` | `ChannelMeterView.kt` | Post-fader meter, plus `MeterCenter` routing frames past SwiftUI |
 | `ConnectView.swift` | `ConnectActivity` | Login screen |
+| `ControlChoiceView.swift` | `ControlChoiceActivity` | AUX Only vs Mixer Control, for accounts holding both |
 | `AuxListView.swift` | `AuxListActivity` | Aux bus picker, plus the shared `AuxRow` |
 | `MixerView.swift` | `MixerActivity` | Bank pull-down, channel grid, menu sheet |
-| `ChannelStripView.swift` | `ChannelAdapter.kt` | Per-channel fader/meter/pan/mute |
+| `MixerControlView.swift` | `MixerControlActivity` | The console's own faders: same strips, no aux sheet, no presets |
+| `ChannelInputSheet.swift` | `ChannelInputBottomSheet.kt` | A channel's input stage - name, 48V, polarity, gain and trim |
+| `DialView.swift` | `DialView.kt` | Hold-and-lean rotary for gain and trim, plus its `DialTurn` driver |
+| `ChannelStripView.swift` | `ChannelAdapter.kt` | Per-channel number/fader/meter/pan/mute |
 | `LevelFaderView.swift` | `ChannelAdapter.kt`'s fine-drag handling | Vertical fader with Fine-mode precision drag |
 | `LevelRulerView.swift` | `LevelRulerView.kt` | dB scale beside the fader, ticks packed tight near -infinity |
 | `PanSheetView.swift` | `PanBottomSheet.kt` + `PanTrackDrawable.kt` | Full-width pan control, center-anchored fill |

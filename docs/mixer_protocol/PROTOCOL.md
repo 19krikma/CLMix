@@ -6,6 +6,8 @@ Reverse-engineered by live-probing the actual console at `10.5.20.242` on 2026-0
 
 This document was generated from **946 concrete addresses** the console actually replied with, collapsed into **358 generalized command patterns**. See `commands.csv` in this folder for the full flat list (every concrete address + the live value it held at probe time).
 
+It was then corrected on 2026-09-29 against the **official iPad app's own parameter dictionary** - see [The iPad app's parameter dictionary](#the-ipad-apps-parameter-dictionary). That is where every type, range and unit in the tables below now comes from. `commands.csv` keeps its `inferred_type` column, but it is exactly that: a guess made from one sample value, which read `float (0/1 flag)` for anything that happened to be sitting at `0.0`. **Where the two disagree, `ipad_q2_params.csv` is right.**
+
 ## Transport / wire protocol
 
 - **OSC 1.0 over UDP.** App sends to `mixer_ip:send_port`; the console replies to the app's bound `recv_port` - matches [`ui/main_window.py`](../../ui/main_window.py)'s `MixerWorker`.
@@ -292,11 +294,137 @@ The app queries all three whenever it opens a channel's dynamics panel, and the 
 - More generally: **the dump cannot be trusted to be exhaustive.** There is no reason to think these three are the only ones, and no way to enumerate what is missing except by watching the official app ask for something and noticing it was never in the dump. Every future capture is worth diffing against `commands.csv` on exactly this question.
 - Only `Input_Channels` was observed. The `Dynamics` block is identical across `Aux_Outputs`, `Group_Outputs` and `Matrix_Outputs` in the map below, so the same three are very likely missing there too; CLMix asks for them on any strip whose dump showed a gate, which costs nothing if they are not there.
 
+**Confirmed 2026-09-29, and there is a fourth.** Diffing the app's dictionary against `commands.csv` is that enumeration, and it is a short list: across all nine categories, the leaves the app knows about and the console's dumps never returned are exactly
+
+`gate_hold`, `gate_range`, `gate-duck-comp` and `gate_meter`,
+
+and they are present in **all four** of `Input_Channels`, `Aux_Outputs`, `Group_Outputs` and `Matrix_Outputs`. So the "very likely" above was right, and asking for them on every strip with a gate is the correct behaviour rather than a cheap guess.
+
+`gate_meter` is a meter rather than stored state, so it stays out of `DUMP_GAP_LEAVES`: a backup has no use for it, and it is not gettable with `/?` in any case (see [Metering](#metering)). The other three are the complete set a backup has to ask for by name.
+
+The wider reassurance is that **nothing else is missing.** Outside those four, the dictionary and `commands.csv` agree leaf for leaf on every category - so a strip dump, plus `DUMP_GAP_LEAVES`, really is the whole strip.
+
 > **These three are deliberately *not* in `commands.csv`.** That file is the record of what the console's own dumps returned, and `tools/mock_mixer.py` builds its simulated strips straight from it - putting them in would both misrepresent the dump and quietly remove the gap the mock exists to reproduce. They live here and in `DUMP_GAP_LEAVES` instead.
+
+## The iPad app's parameter dictionary
+
+The official DiGiCo iPad app carries its own table of every parameter it knows how to speak to, and **that table states the limits the console refuses to**. It was decoded on 2026-09-29 and is the source for every type, range and unit in the tables below. `ipad_q2_params.csv` in this folder is the decoded form, all 841 records; `tools/parse_digico_dict.py` regenerates it and documents the binary layout in its docstring.
+
+### What it contains
+
+The file opens with the ASCII string `DiGiCo OSC Commands 1012` and a record count, then 841 fixed-prefix records. Each carries a parameter id, a 0-based instance index, a type (switch/enum, float, meter or string), a **minimum**, a **maximum** and a unit. Records run in blocks, one per category, in the same order `/Console/Channels/?` lists them:
+
+| Block | Records | |
+|---|---|---|
+| `Input_Channels` | 163 | |
+| `Aux_Outputs` | 171 | |
+| `Group_Outputs` | 176 | |
+| `Control_Groups` | 7 | exactly the seven leaves `/Control_Groups/1/?` returns |
+| `Talkback_Outputs` | **1** | `name`, and nothing else - see below |
+| `Matrix_Inputs` | 4 | |
+| `Matrix_Outputs` | 168 | |
+| `Graphic_EQ` | 37 | |
+| `Multis` | 4 | exactly the four leaves `/Multis/1/?` returns |
+| console-level commands | 110 | [Console-level commands](#console-level-commands) |
+
+Blocks were labelled by matching each one's leaf names against `commands.csv`, which is why the small ones are certain: the seven-parameter block *is* `Control_Groups`' seven leaves and the four-parameter one *is* `Multis`'.
+
+### Why it is trustworthy
+
+Four independent checks, none of which was built into the parse:
+
+- **The record count.** The header declares 841 and the parser finds 841.
+- **824 live values.** Every numeric sample value in `commands.csv` - read off the real desk across the 2026-08-09 and 2026-09-03 probing sessions - falls inside the range the dictionary declares for its address. Not one of 824 is outside.
+- **Known enums land exactly.** `stereo_mode` reads `1 … 2`, matching the documented `1` = mono / `2` = stereo. `Aux_Outputs/modes` and `Input_Channels/modes` likewise.
+- **A typo survives.** The dictionary spells one parameter `geq  trim`, with two spaces, and the console's own dump spells its address `/Graphic_EQ/1/geq__trim`, with two underscores.
+
+It also confirms the odd numbering noted under [Metering](#metering) from the other direction: the dynamic EQ's gain-reduction meters are four records at instance index `0`..`3` (hence `EQ/GR_meter_0`), while the dynamics section's are labelled `1`..`4`.
+
+### Units
+
+Types carry a unit where the app displays one, and two of them are worth stating plainly because getting them wrong is a factor-of-1000 error:
+
+- **Time parameters are in seconds, not milliseconds.** `comp_attack_{n}` is `2e-05 … 0.1`, `comp_release_{n}` is `0.001 … 10`, `gate_hold` is `0.002 … 2`, `Channel_Delay/delay` is `0 … 1.3`. The desk's own `gate_hold` samples, `[0.0799]` and `[0.0359]`, are 80 ms and 36 ms.
+- **Frequencies are in Hz.** The dial *reads* kHz above 1 kHz - the dictionary carries both labels for those parameters - but the wire value is Hz, `20 … 20000`.
+
+`fine_delay` is in samples, `-127 … +127`. Gains and thresholds are dB.
+
+**Pan is the third case where the dictionary describes the app's control rather than the wire**, after trim and the modes lists - and the most misleading of them, because the wrong reading of it is not out of range, it is off centre. The dictionary gives `send_pan` and `Panner/pan` as `-1 … +1`, which is what the app's control sweeps. **The wire carries `0 … 1`, with `0.5` as centre** - the desk's own sample value for a centred send is `[0.5]`, and `RemoteServer._wire_pan_to_ui` converts with `(value - 0.5) * 2` for exactly this reason. Taking the dictionary literally and sending `0.0` for centre hard-pans left.
+
+So a dictionary range is the *app's* range. It coincides with the wire's for most parameters, which is what makes the exceptions worth listing rather than assuming.
+
+### What it is not
+
+**It is the app's belief about the console, not a contract with it.** It says what the app will send and what its controls sweep; it is not evidence the desk accepts any particular write. The trim row in [Head-amp ranges](#head-amp-ranges-and-the-console-clamping-them) is the worked example of the two diverging, and the commands in the next section are untested for exactly this reason.
+
+## Console-level commands
+
+The last 110 records are not strip parameters. Each carries an **opcode** and a **target group** instead of a parameter id, and a flag saying whether the command **takes an index**. Together they enumerate the console's session, preset, macro and snapshot vocabulary - including most of what this document previously listed as unreachable.
+
+The addresses below are **inferred**, by the rule the labels obey wherever the wire has already shown one: spaces become underscores, under the target group's root. Eight of them were already captured live - `Recall_Snapshot`, `Change_Surface_Snapshot`, `Current_Snapshot`, `Surface_Snapshot`, `End_Recall_Snapshot`, `names/?`, `count` and `name` - and all eight match the rule, which is the evidence for applying it to the rest. **None of the others has been sent to a desk.**
+
+The index flag agrees with the wire everywhere it can be checked: `Recall_Snapshot` and `Meters/request` take one, `End_Recall_Snapshot` and `Meters/clear` do not.
+
+### Snapshots (target `0x0800`)
+
+Beyond the already-documented `count`, `names/?`, `name`, `Current_Snapshot`, `Surface_Snapshot` and `End_Recall_Snapshot`:
+
+| Label | Takes index | Note |
+|---|---|---|
+| `New Snapshot`, `Insert New Snapshot` | yes / no | |
+| `Update Snapshot`, `Update Current Snapshot` | yes / no | **This is the gap that costs real time** - see below |
+| `Update Snapshot Group`, `Update Waves only` | yes | |
+| `Rename Snapshot` | yes | takes a string |
+| `Delete Snapshot`, `Move Snapshot`, `Renumber Snapshot` | yes | |
+| `Fire Snapshot number` | no, index as argument | `0 … 9999` |
+| `Fire Selected Snapshot`, `Fire Prev Snapshot`, `Fire Next Snapshot` | no | |
+| `Undo Snapshot` | no | |
+| `notes`, `notes/?` | index as argument | snapshot notes, new here |
+| `MIDI fires Snapshots`, `Fire Snapshot sends MIDI` | no | `0`/`1` settings |
+
+`Update Snapshot` and `Update Current Snapshot` are **the first names worth trying** for "storing a snapshot", which the list at the end of this document calls the one gap that costs real time: a restore currently writes settings to the live desk and then asks the operator to press Update by hand.
+
+That is all they are. This is a dictionary: it says the app has a label for the operation, not that the console implements it, exposes it over OSC, or would accept it from a client rather than only from the surface. Every previous gap here was closed by watching the desk, and this one still is - the file has only replaced guessing at an address with knowing which address to guess at.
+
+So it is worth trying **on a scratch session, not a show file** - an unintended Update overwrites a snapshot with whatever the desk currently holds, and there is no undo but `Undo Snapshot`, itself untested.
+
+### Macros (target `0xfe00`)
+
+| Label | Takes index | Note |
+|---|---|---|
+| `Recall Macro` | yes | **A candidate for firing a macro**, which no capture has ever shown |
+| `Buttons/press` | no | `0 … 255`, so the button number is an argument |
+| `Buttons/count`, `Buttons/count/?`, `Buttons/?`, `Buttons/!` | no | |
+| `Buttons/state`, `Buttons/state/?` | no | `0 … 255` |
+| `count`, `count/?`, `names/?`, `name`, `name/?` | | already documented |
+
+This also explains `/Macros/Buttons/?` rather than resolving it: the address does exist, so the app's six unanswered queries were not aimed at nothing. Why the console stays silent is still unknown.
+
+### Presets (target `0xd000`)
+
+An entire group this document had no record of:
+
+`count`, `count/?`, `names/?`, `name`, `name/?`, `Recall Preset`, `New Preset`, `Update Preset`, `Rename Preset`, `Rename Preset Group`, `Delete Preset`, `Lock Preset`, `Recall Scope` (`0 … 2`).
+
+`New Preset`, `Update Preset`, `Rename Preset` and `Rename Preset Group` take strings; all but `New Preset` take an index.
+
+### Session and console (target `/Console`)
+
+| Address | Note |
+|---|---|
+| `/Console/Session/Name`, `/Console/Session/Name/?` | **A second session address.** `/Console/Session_Name` is listed below as a guess that failed - the real form is `Session/Name`, exactly parallel to the `Session/Filename` that was found by capture |
+| `/Console/Tubes/limit`, `/Console/DynamicEQs/limit`, `/Console/MultibandDynamics/limit` | `0 … 255`, each with a `/?` - how many instances of each the console allows |
+| `/Console/Monitoring/modes`, `/Console/Solo/modes` | `1 … 6`, each with a `/?` - see [Console topology](#console-topology-from-consolechannels) |
+| `/Console/Session/!` | |
+| `Save Session`, `Save current Session`, `Fader Banks`, `Channel List`, `Snapshot Notes view` | Target groups these do not share with any address seen on the wire, so no root is inferred for them |
+
+`/Layout/Layout/Banks` gains a `/!` form alongside the `/?` CLMix already uses.
 
 ## Full command map by category
 
 Numeric path segments and `_N` suffixes are collapsed to `{n}` (e.g. `eq_gain_1`..`eq_gain_4` become `eq_gain_{n}`, count 4). `count` is how many concrete instances were seen on channel/bus **index 1** - multiply by the category count above for the true total across the whole console. `sample value` is whatever the console actually held for that parameter at probe time, not a spec default.
+
+**The `Type` column comes from [the app's parameter dictionary](#the-ipad-apps-parameter-dictionary)**, not from the sample value beside it. It used to be inferred from that sample, which made every parameter that happened to be sitting at `0.0` read `float (0/1 flag)` - so `Channel_Delay/delay`, `comp_gain_{n}` and dozens of others were labelled as switches when they are continuous. 159 rows were corrected on 2026-09-29.
 
 ### Console
 
@@ -310,6 +438,20 @@ Console identity/topology. A single query ("/Console/Channels/?") triggers a bur
 | `/Console/Group_Outputs/modes` | 1 | int list (3) | `[2, 1, 1]` | `/Console/Group_Outputs/modes` |
 
 `*/modes` lists carry one entry per channel/bus: `1` = mono, `2` = stereo. `/Console/Aux_Outputs/modes` (already used by CLMix) is the same shape with 30 entries.
+
+**But `1`/`2` is not the whole scale, and which list you are reading matters.** The app's dictionary gives a range per modes list, and they differ:
+
+| Modes list | Range | Meaning |
+|---|---|---|
+| `/Console/Input_Channels/modes` | **1 … 2** | mono or stereo, and nothing else |
+| `/Console/Aux_Outputs/modes` | **1 … 2** | mono or stereo, and nothing else |
+| `/Console/Group_Outputs/modes` | **1 … 6** | more bus formats than mono/stereo - LCR and up |
+| `/Console/Monitoring/modes` | **1 … 6** | new here, see [Console-level commands](#console-level-commands) |
+| `/Console/Solo/modes` | **1 … 6** | new here |
+
+So **"`== 2` means stereo" is only safe for inputs and auxes.** For a group output, `3`..`6` is a bus with more legs than a stereo one, not a mono bus - and testing for equality with `2` would call it mono, which is the failure a multi-format group would produce. CLMix reads only the two 1…2 lists (`MixerWorker.channel_is_stereo` and `aux_is_stereo`), so its equality test is correct where it is used and must not be reused for groups without widening it first.
+
+The mode also has a per-strip sibling, `Channel_Input/stereo_mode`, whose range is likewise `1 … 2`.
 
 `/Console/Input_Channels/modes` is what tells you whether a channel's `.../post_meter/right` is worth a meter slot: the address exists on every channel regardless, so the modes list is the only way to know a right leg carries anything. CLMix subscribes one slot per leg on this basis - see [Metering](#metering).
 
@@ -412,15 +554,39 @@ Input channel strips (mic/line inputs). 72 on this console.
 #### Head-amp ranges, and the console clamping them
 
 The console never states a parameter's limits over OSC - there is no
-min/max address - so the only way to learn them is to push a value past
-the end and see what comes back. The official app does exactly that: it
-sends raw dial positions without clamping them itself, and the desk pins
-them.
+min/max address - so the only way to learn them *from the desk* is to
+push a value past the end and see what comes back. The official app does
+exactly that: it sends raw dial positions without clamping them itself,
+and the desk pins them.
 
-| Parameter | Range | Default | How it was established |
+**The app knows the limits even though the desk will not say them**, and
+it carries them in the dictionary described in [The iPad app's parameter
+dictionary](#the-ipad-apps-parameter-dictionary) - now the source for
+every range in this document. The two head-amp parameters are the useful
+case for telling the two kinds of limit apart:
+
+| Parameter | Dictionary range | Range the desk stores | Default |
 |---|---|---|---|
-| `Channel_Input/analog_gain` | **-20 dB to +60 dB** | `0` | Operator-stated, and confirmed on the wire: across 185 replies the console never reported outside it, while the app sent it values from -40 to +60 |
-| `Channel_Input/trim` | **-40 dB to +40 dB** | - | Clamp observed at `+40`; `-40` was reported by the console, so the floor is at least that and may be lower |
+| `Channel_Input/analog_gain` | -20 … +60 dB | **-20 … +60 dB** | `0` |
+| `Channel_Input/trim` | -40 … +60 dB | **-40 … +40 dB** | - |
+
+For gain the two agree, and that agreement independently confirms the
+operator-stated range: across 185 replies the console never reported
+outside it.
+
+For trim they do not, and the difference is the whole point. The
+dictionary's `+60` is **how far the app's dial travels**, not what the
+desk keeps - the clamp at `+40` was watched happening on the wire. So a
+dictionary range is an upper bound on what a parameter accepts, and where
+a clamp has actually been observed the clamp wins. It also settles the
+floor that was previously only a lower bound: trim's minimum is exactly
+`-40`, not "at least that and maybe lower".
+
+**CLMix therefore sweeps gain over -20 … +60 and trim over -40 … +40** -
+each dial over its own parameter's real range. It used to sweep both over
+the union, `-40 … +60`, on the reasoning that a shared range made the two
+dials read alike; the dictionary has since made a per-parameter range
+knowable, and the union only ever added a region the desk clamps.
 
 The clamp caught in the act, gain first:
 
@@ -523,85 +689,85 @@ there is nothing to tell it *which* socket to patch - see
 
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
-| `/Input_Channels/{n}/Aux_Send/{n}/send_level` | 30 | float | `[-5.670000076293945]` | `/Input_Channels/1/Aux_Send/1/send_level` |
+| `/Input_Channels/{n}/Aux_Send/{n}/send_level` | 30 | float (dB, -150..10) | `[-5.670000076293945]` | `/Input_Channels/1/Aux_Send/1/send_level` |
 | `/Input_Channels/{n}/Aux_Send/{n}/send_on` | 30 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/Aux_Send/1/send_on` |
-| `/Input_Channels/{n}/Aux_Send/{n}/send_pan` | 30 | float | `[0.5]` | `/Input_Channels/1/Aux_Send/1/send_pan` |
-| `/Input_Channels/{n}/CGs_level` | 1 | float | `[0.5217241048812866]` | `/Input_Channels/1/CGs_level` |
+| `/Input_Channels/{n}/Aux_Send/{n}/send_pan` | 30 | float (0..1, 0.5 centre) | `[0.5]` | `/Input_Channels/1/Aux_Send/1/send_pan` |
+| `/Input_Channels/{n}/CGs_level` | 1 | float (dB, -150..10) | `[0.5217241048812866]` | `/Input_Channels/1/CGs_level` |
 | `/Input_Channels/{n}/CGs_mute` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/CGs_mute` |
-| `/Input_Channels/{n}/Channel_Delay/delay` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Delay/delay` |
+| `/Input_Channels/{n}/Channel_Delay/delay` | 1 | float (s, 0..1.3) | `[0.0]` | `/Input_Channels/1/Channel_Delay/delay` |
 | `/Input_Channels/{n}/Channel_Delay/delay_on` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Delay/delay_on` |
-| `/Input_Channels/{n}/Channel_Delay/fine_delay` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Delay/fine_delay` |
-| `/Input_Channels/{n}/Channel_Input/alt_analog_gain` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/alt_analog_gain` |
+| `/Input_Channels/{n}/Channel_Delay/fine_delay` | 1 | float (samples, -127..127) | `[0.0]` | `/Input_Channels/1/Channel_Delay/fine_delay` |
+| `/Input_Channels/{n}/Channel_Input/alt_analog_gain` | 1 | float (dB, -20..60) | `[0.0]` | `/Input_Channels/1/Channel_Input/alt_analog_gain` |
 | `/Input_Channels/{n}/Channel_Input/alt_input_pad` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/alt_input_pad` |
 | `/Input_Channels/{n}/Channel_Input/alt_phantom` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/alt_phantom` |
-| `/Input_Channels/{n}/Channel_Input/analog_gain` | 1 | float (dB, -20..+60, default 0) | `[20.0]` | `/Input_Channels/1/Channel_Input/analog_gain` |
+| `/Input_Channels/{n}/Channel_Input/analog_gain` | 1 | float (dB, -20..60) | `[20.0]` | `/Input_Channels/1/Channel_Input/analog_gain` |
 | `/Input_Channels/{n}/Channel_Input/input_pad` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/input_pad` |
-| `/Input_Channels/{n}/Channel_Input/input_type` | 1 | float (enum, see below) | `[2.0]` | `/Input_Channels/1/Channel_Input/input_type` |
+| `/Input_Channels/{n}/Channel_Input/input_type` | 1 | float (enum, 0..2) | `[2.0]` | `/Input_Channels/1/Channel_Input/input_type` |
 | `/Input_Channels/{n}/Channel_Input/main/alt_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/main/alt_in` |
 | `/Input_Channels/{n}/Channel_Input/name` | 1 | string | `["KICK"]` | `/Input_Channels/1/Channel_Input/name` |
 | `/Input_Channels/{n}/Channel_Input/phantom` | 1 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/Channel_Input/phantom` |
-| `/Input_Channels/{n}/Channel_Input/phase` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Channel_Input/phase` |
+| `/Input_Channels/{n}/Channel_Input/phase` | 1 | float (enum, 0..3) | `[0.0]` | `/Input_Channels/1/Channel_Input/phase` |
 | `/Input_Channels/{n}/Channel_Input/post_meter/left` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Channel_Input/post_meter/left` |
 | `/Input_Channels/{n}/Channel_Input/post_meter/right` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Channel_Input/post_meter/right` |
 | `/Input_Channels/{n}/Channel_Input/pre_meter/left` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Channel_Input/pre_meter/left` |
 | `/Input_Channels/{n}/Channel_Input/pre_meter/right` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Channel_Input/pre_meter/right` |
-| `/Input_Channels/{n}/Channel_Input/stereo_mode` | 1 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/Channel_Input/stereo_mode` |
-| `/Input_Channels/{n}/Channel_Input/trim` | 1 | float (dB, -40..+40) | `[0.0]` | `/Input_Channels/1/Channel_Input/trim` |
+| `/Input_Channels/{n}/Channel_Input/stereo_mode` | 1 | float (enum, 1..2) | `[1.0]` | `/Input_Channels/1/Channel_Input/stereo_mode` |
+| `/Input_Channels/{n}/Channel_Input/trim` | 1 | float (dB, -40..60) | `[0.0]` | `/Input_Channels/1/Channel_Input/trim` |
 | `/Input_Channels/{n}/Dynamics/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Input_Channels/1/Dynamics/GR_meter_1` |
-| `/Input_Channels/{n}/Dynamics/comp-multiband-desser` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/comp-multiband-desser` |
-| `/Input_Channels/{n}/Dynamics/comp_HP_crossover` | 1 | float | `[1000.0]` | `/Input_Channels/1/Dynamics/comp_HP_crossover` |
-| `/Input_Channels/{n}/Dynamics/comp_LP_crossover` | 1 | float | `[130.0]` | `/Input_Channels/1/Dynamics/comp_LP_crossover` |
-| `/Input_Channels/{n}/Dynamics/comp_all_gain` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_all_gain` |
-| `/Input_Channels/{n}/Dynamics/comp_all_thresh` | 1 | float | `[-25.176437377929688]` | `/Input_Channels/1/Dynamics/comp_all_thresh` |
-| `/Input_Channels/{n}/Dynamics/comp_attack_{n}` | 3 | float | `[0.049162182956933975]` | `/Input_Channels/1/Dynamics/comp_attack_1` |
+| `/Input_Channels/{n}/Dynamics/comp-multiband-desser` | 1 | float (enum, 0..2) | `[0.0]` | `/Input_Channels/1/Dynamics/comp-multiband-desser` |
+| `/Input_Channels/{n}/Dynamics/comp_HP_crossover` | 1 | float (Hz, 20..20000) | `[1000.0]` | `/Input_Channels/1/Dynamics/comp_HP_crossover` |
+| `/Input_Channels/{n}/Dynamics/comp_LP_crossover` | 1 | float (Hz, 20..20000) | `[130.0]` | `/Input_Channels/1/Dynamics/comp_LP_crossover` |
+| `/Input_Channels/{n}/Dynamics/comp_all_gain` | 1 | float (dB, 0..40) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_all_gain` |
+| `/Input_Channels/{n}/Dynamics/comp_all_thresh` | 1 | float (dB, -60..0) | `[-25.176437377929688]` | `/Input_Channels/1/Dynamics/comp_all_thresh` |
+| `/Input_Channels/{n}/Dynamics/comp_attack_{n}` | 3 | float (s, 2e-05..0.1) | `[0.049162182956933975]` | `/Input_Channels/1/Dynamics/comp_attack_1` |
 | `/Input_Channels/{n}/Dynamics/comp_auto-gain_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_auto-gain_1` |
 | `/Input_Channels/{n}/Dynamics/comp_band_in_{n}` | 3 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/Dynamics/comp_band_in_1` |
-| `/Input_Channels/{n}/Dynamics/comp_gain_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_gain_1` |
+| `/Input_Channels/{n}/Dynamics/comp_gain_{n}` | 4 | float (dB, 0..40) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_gain_1` |
 | `/Input_Channels/{n}/Dynamics/comp_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_in` |
-| `/Input_Channels/{n}/Dynamics/comp_knee_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_knee_1` |
+| `/Input_Channels/{n}/Dynamics/comp_knee_{n}` | 4 | float (enum, 0..2) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_knee_1` |
 | `/Input_Channels/{n}/Dynamics/comp_listen_{n}` | 3 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/comp_listen_1` |
-| `/Input_Channels/{n}/Dynamics/comp_ratio_{n}` | 4 | float | `[4.930753231048584]` | `/Input_Channels/1/Dynamics/comp_ratio_1` |
-| `/Input_Channels/{n}/Dynamics/comp_release_{n}` | 3 | float | `[0.06719738245010376]` | `/Input_Channels/1/Dynamics/comp_release_1` |
-| `/Input_Channels/{n}/Dynamics/comp_thresh_{n}` | 3 | float | `[-25.176437377929688]` | `/Input_Channels/1/Dynamics/comp_thresh_1` |
-| `/Input_Channels/{n}/Dynamics/desser_centre_freq` | 1 | float | `[127.0]` | `/Input_Channels/1/Dynamics/desser_centre_freq` |
-| `/Input_Channels/{n}/Dynamics/desser_freq_width` | 1 | float | `[255.0]` | `/Input_Channels/1/Dynamics/desser_freq_width` |
-| `/Input_Channels/{n}/Dynamics/gate_attack` | 1 | float | `[0.0019596272613853216]` | `/Input_Channels/1/Dynamics/gate_attack` |
-| `/Input_Channels/{n}/Dynamics/gate_centre_freq` | 1 | float | `[127.0]` | `/Input_Channels/1/Dynamics/gate_centre_freq` |
-| `/Input_Channels/{n}/Dynamics/gate_freq_width` | 1 | float | `[255.0]` | `/Input_Channels/1/Dynamics/gate_freq_width` |
-| `/Input_Channels/{n}/Dynamics/gate_hold` | 1 | float (seconds) | `[0.0799]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
+| `/Input_Channels/{n}/Dynamics/comp_ratio_{n}` | 4 | float (1..50) | `[4.930753231048584]` | `/Input_Channels/1/Dynamics/comp_ratio_1` |
+| `/Input_Channels/{n}/Dynamics/comp_release_{n}` | 3 | float (s, 0.001..10) | `[0.06719738245010376]` | `/Input_Channels/1/Dynamics/comp_release_1` |
+| `/Input_Channels/{n}/Dynamics/comp_thresh_{n}` | 3 | float (dB, -60..0) | `[-25.176437377929688]` | `/Input_Channels/1/Dynamics/comp_thresh_1` |
+| `/Input_Channels/{n}/Dynamics/desser_centre_freq` | 1 | float (0..255) | `[127.0]` | `/Input_Channels/1/Dynamics/desser_centre_freq` |
+| `/Input_Channels/{n}/Dynamics/desser_freq_width` | 1 | float (0..255) | `[255.0]` | `/Input_Channels/1/Dynamics/desser_freq_width` |
+| `/Input_Channels/{n}/Dynamics/gate_attack` | 1 | float (s, 5e-05..0.1) | `[0.0019596272613853216]` | `/Input_Channels/1/Dynamics/gate_attack` |
+| `/Input_Channels/{n}/Dynamics/gate_centre_freq` | 1 | float (0..255) | `[127.0]` | `/Input_Channels/1/Dynamics/gate_centre_freq` |
+| `/Input_Channels/{n}/Dynamics/gate_freq_width` | 1 | float (0..255) | `[255.0]` | `/Input_Channels/1/Dynamics/gate_freq_width` |
+| `/Input_Channels/{n}/Dynamics/gate_hold` | 1 | float (s, 0.002..2) | `[0.0799]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
 | `/Input_Channels/{n}/Dynamics/gate_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/gate_in` |
 | `/Input_Channels/{n}/Dynamics/gate_meter` | 1 | none (meter/empty) | `[]` | subscribed by the app; not in the dump |
-| `/Input_Channels/{n}/Dynamics/gate_range` | 1 | float (dB) | `[15.0]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
-| `/Input_Channels/{n}/Dynamics/gate-duck-comp` | 1 | float (enum) | `[2.0]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
-| `/Input_Channels/{n}/Dynamics/gate_release` | 1 | float | `[0.017051173374056816]` | `/Input_Channels/1/Dynamics/gate_release` |
-| `/Input_Channels/{n}/Dynamics/gate_thresh` | 1 | float | `[-9.41171646118164]` | `/Input_Channels/1/Dynamics/gate_thresh` |
+| `/Input_Channels/{n}/Dynamics/gate_range` | 1 | float (dB, 0..90) | `[15.0]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
+| `/Input_Channels/{n}/Dynamics/gate-duck-comp` | 1 | float (enum, 0..2) | `[2.0]` | not in the dump - see [Parameters a strip dump leaves out](#parameters-a-strip-dump-leaves-out) |
+| `/Input_Channels/{n}/Dynamics/gate_release` | 1 | float (s, 0.005..10) | `[0.017051173374056816]` | `/Input_Channels/1/Dynamics/gate_release` |
+| `/Input_Channels/{n}/Dynamics/gate_thresh` | 1 | float (dB, -60..0) | `[-9.41171646118164]` | `/Input_Channels/1/Dynamics/gate_thresh` |
 | `/Input_Channels/{n}/Dynamics/input_meter/left` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Dynamics/input_meter/left` |
 | `/Input_Channels/{n}/Dynamics/input_meter/right` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Dynamics/input_meter/right` |
 | `/Input_Channels/{n}/Dynamics/key_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Dynamics/key_solo` |
 | `/Input_Channels/{n}/EQ/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Input_Channels/1/EQ/GR_meter_1` - but the app subscribes `GR_meter_0` too, so this one is 0-based |
 | `/Input_Channels/{n}/EQ/dynamic_eq_on_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/EQ/dynamic_eq_on_1` |
-| `/Input_Channels/{n}/EQ/eq_Q_{n}` | 4 | float | `[2.9718434810638428]` | `/Input_Channels/1/EQ/eq_Q_1` |
-| `/Input_Channels/{n}/EQ/eq_attack_{n}` | 4 | float | `[0.009999999776482582]` | `/Input_Channels/1/EQ/eq_attack_1` |
-| `/Input_Channels/{n}/EQ/eq_curve_{n}` | 4 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/EQ/eq_curve_1` |
-| `/Input_Channels/{n}/EQ/eq_freq_{n}` | 4 | float | `[6410.8017578125]` | `/Input_Channels/1/EQ/eq_freq_1` |
-| `/Input_Channels/{n}/EQ/eq_gain_{n}` | 4 | float | `[4.588225364685059]` | `/Input_Channels/1/EQ/eq_gain_1` |
+| `/Input_Channels/{n}/EQ/eq_Q_{n}` | 4 | float (0.1..20) | `[2.9718434810638428]` | `/Input_Channels/1/EQ/eq_Q_1` |
+| `/Input_Channels/{n}/EQ/eq_attack_{n}` | 4 | float (s, 0.0005..0.1) | `[0.009999999776482582]` | `/Input_Channels/1/EQ/eq_attack_1` |
+| `/Input_Channels/{n}/EQ/eq_curve_{n}` | 4 | float (enum, 1..4) | `[1.0]` | `/Input_Channels/1/EQ/eq_curve_1` |
+| `/Input_Channels/{n}/EQ/eq_freq_{n}` | 4 | float (Hz, 20..20000) | `[6410.8017578125]` | `/Input_Channels/1/EQ/eq_freq_1` |
+| `/Input_Channels/{n}/EQ/eq_gain_{n}` | 4 | float (dB, -18..18) | `[4.588225364685059]` | `/Input_Channels/1/EQ/eq_gain_1` |
 | `/Input_Channels/{n}/EQ/eq_in` | 1 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/EQ/eq_in` |
 | `/Input_Channels/{n}/EQ/eq_on_{n}` | 4 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/EQ/eq_on_1` |
 | `/Input_Channels/{n}/EQ/eq_over-under_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/EQ/eq_over-under_1` |
-| `/Input_Channels/{n}/EQ/eq_ratio_{n}` | 4 | float | `[2.0]` | `/Input_Channels/1/EQ/eq_ratio_1` |
-| `/Input_Channels/{n}/EQ/eq_release_{n}` | 4 | float | `[0.30000001192092896]` | `/Input_Channels/1/EQ/eq_release_1` |
+| `/Input_Channels/{n}/EQ/eq_ratio_{n}` | 4 | float (1..10) | `[2.0]` | `/Input_Channels/1/EQ/eq_ratio_1` |
+| `/Input_Channels/{n}/EQ/eq_release_{n}` | 4 | float (s, 0.01..10) | `[0.30000001192092896]` | `/Input_Channels/1/EQ/eq_release_1` |
 | `/Input_Channels/{n}/EQ/eq_symm_Q_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/EQ/eq_symm_Q_1` |
-| `/Input_Channels/{n}/EQ/eq_thresh_{n}` | 4 | float | `[-36.0]` | `/Input_Channels/1/EQ/eq_thresh_1` |
-| `/Input_Channels/{n}/Filters/hi_filter_freq` | 1 | float | `[2768.257568359375]` | `/Input_Channels/1/Filters/hi_filter_freq` |
+| `/Input_Channels/{n}/EQ/eq_thresh_{n}` | 4 | float (dB, -60..0) | `[-36.0]` | `/Input_Channels/1/EQ/eq_thresh_1` |
+| `/Input_Channels/{n}/Filters/hi_filter_freq` | 1 | float (Hz, 20..20000) | `[2768.257568359375]` | `/Input_Channels/1/Filters/hi_filter_freq` |
 | `/Input_Channels/{n}/Filters/hi_filter_in` | 1 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/Filters/hi_filter_in` |
-| `/Input_Channels/{n}/Filters/lo_filter_freq` | 1 | float | `[45.078678131103516]` | `/Input_Channels/1/Filters/lo_filter_freq` |
+| `/Input_Channels/{n}/Filters/lo_filter_freq` | 1 | float (Hz, 20..20000) | `[45.078678131103516]` | `/Input_Channels/1/Filters/lo_filter_freq` |
 | `/Input_Channels/{n}/Filters/lo_filter_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Filters/lo_filter_in` |
 | `/Input_Channels/{n}/Group_Send/{n}/group` | 3 | float (0/1 flag) | `[1.0]` | `/Input_Channels/1/Group_Send/1/group` |
-| `/Input_Channels/{n}/Insert/insert_A_analog_gain` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Insert/insert_A_analog_gain` |
+| `/Input_Channels/{n}/Insert/insert_A_analog_gain` | 1 | float (dB, -20..60) | `[0.0]` | `/Input_Channels/1/Insert/insert_A_analog_gain` |
 | `/Input_Channels/{n}/Insert/insert_A_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Insert/insert_A_in` |
 | `/Input_Channels/{n}/Insert/insert_A_input_pad` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Insert/insert_A_input_pad` |
 | `/Input_Channels/{n}/Insert/insert_A_phantom` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Insert/insert_A_phantom` |
-| `/Input_Channels/{n}/Insert/insert_B_analog_gain` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Insert/insert_B_analog_gain` |
+| `/Input_Channels/{n}/Insert/insert_B_analog_gain` | 1 | float (dB, -20..60) | `[0.0]` | `/Input_Channels/1/Insert/insert_B_analog_gain` |
 | `/Input_Channels/{n}/Insert/insert_B_in` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Insert/insert_B_in` |
 | `/Input_Channels/{n}/Insert/insert_B_input_pad` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Insert/insert_B_input_pad` |
 | `/Input_Channels/{n}/Insert/insert_B_phantom` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Insert/insert_B_phantom` |
@@ -613,11 +779,11 @@ there is nothing to tell it *which* socket to patch - see
 | `/Input_Channels/{n}/Output/meter/right` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Output/meter/right` |
 | `/Input_Channels/{n}/Output/meter2` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Output/meter2` |
 | `/Input_Channels/{n}/Output/meter4` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/Output/meter4` |
-| `/Input_Channels/{n}/Panner/LFE_level` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Panner/LFE_level` |
+| `/Input_Channels/{n}/Panner/LFE_level` | 1 | float (dB, -18..18) | `[0.0]` | `/Input_Channels/1/Panner/LFE_level` |
 | `/Input_Channels/{n}/Panner/LFE_off-only-all` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Panner/LFE_off-only-all` |
-| `/Input_Channels/{n}/Panner/f-b` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/Panner/f-b` |
-| `/Input_Channels/{n}/Panner/pan` | 1 | float | `[0.5]` | `/Input_Channels/1/Panner/pan` |
-| `/Input_Channels/{n}/fader` | 1 | float | `[-4.44444465637207]` | `/Input_Channels/1/fader` |
+| `/Input_Channels/{n}/Panner/f-b` | 1 | float (0..1) | `[0.0]` | `/Input_Channels/1/Panner/f-b` |
+| `/Input_Channels/{n}/Panner/pan` | 1 | float (0..1, 0.5 centre) | `[0.5]` | `/Input_Channels/1/Panner/pan` |
+| `/Input_Channels/{n}/fader` | 1 | float (dB, -150..10) | `[-4.44444465637207]` | `/Input_Channels/1/fader` |
 | `/Input_Channels/{n}/fader_meter/left` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/fader_meter/left` |
 | `/Input_Channels/{n}/fader_meter/right` | 1 | none (meter/empty) | `[]` | `/Input_Channels/1/fader_meter/right` |
 | `/Input_Channels/{n}/mute` | 1 | float (0/1 flag) | `[0.0]` | `/Input_Channels/1/mute` |
@@ -630,61 +796,61 @@ Aux/IEM sends ("Buss_Trim" wraps a mono/stereo aux bus). 30 on this console.
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
 | `/Aux_Outputs/{n}/Buss_Trim/name` | 1 | string | `["IEM 5"]` | `/Aux_Outputs/1/Buss_Trim/name` |
-| `/Aux_Outputs/{n}/Buss_Trim/phase` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Buss_Trim/phase` |
+| `/Aux_Outputs/{n}/Buss_Trim/phase` | 1 | float (enum, 0..3) | `[0.0]` | `/Aux_Outputs/1/Buss_Trim/phase` |
 | `/Aux_Outputs/{n}/Buss_Trim/post_meter` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Buss_Trim/post_meter` |
 | `/Aux_Outputs/{n}/Buss_Trim/post_meter/right` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Buss_Trim/post_meter/right` |
 | `/Aux_Outputs/{n}/Buss_Trim/pre_meter` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Buss_Trim/pre_meter` |
 | `/Aux_Outputs/{n}/Buss_Trim/pre_meter/right` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Buss_Trim/pre_meter/right` |
-| `/Aux_Outputs/{n}/Buss_Trim/trim` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Buss_Trim/trim` |
+| `/Aux_Outputs/{n}/Buss_Trim/trim` | 1 | float (dB, -40..60) | `[0.0]` | `/Aux_Outputs/1/Buss_Trim/trim` |
 | `/Aux_Outputs/{n}/Buss_Trim/tube_meter/left` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Buss_Trim/tube_meter/left` |
 | `/Aux_Outputs/{n}/Buss_Trim/tube_meter/right` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Buss_Trim/tube_meter/right` |
-| `/Aux_Outputs/{n}/CGs_level` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/CGs_level` |
+| `/Aux_Outputs/{n}/CGs_level` | 1 | float (dB, -150..10) | `[0.0]` | `/Aux_Outputs/1/CGs_level` |
 | `/Aux_Outputs/{n}/CGs_mute` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/CGs_mute` |
-| `/Aux_Outputs/{n}/Channel_Delay/delay` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Channel_Delay/delay` |
+| `/Aux_Outputs/{n}/Channel_Delay/delay` | 1 | float (s, 0..1.3) | `[0.0]` | `/Aux_Outputs/1/Channel_Delay/delay` |
 | `/Aux_Outputs/{n}/Channel_Delay/delay_on` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Channel_Delay/delay_on` |
-| `/Aux_Outputs/{n}/Channel_Delay/fine_delay` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Channel_Delay/fine_delay` |
+| `/Aux_Outputs/{n}/Channel_Delay/fine_delay` | 1 | float (samples, -127..127) | `[0.0]` | `/Aux_Outputs/1/Channel_Delay/fine_delay` |
 | `/Aux_Outputs/{n}/Dynamics/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Dynamics/GR_meter_1` |
-| `/Aux_Outputs/{n}/Dynamics/comp-multiband-desser` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp-multiband-desser` |
-| `/Aux_Outputs/{n}/Dynamics/comp_HP_crossover` | 1 | float | `[1000.0]` | `/Aux_Outputs/1/Dynamics/comp_HP_crossover` |
-| `/Aux_Outputs/{n}/Dynamics/comp_LP_crossover` | 1 | float | `[130.0]` | `/Aux_Outputs/1/Dynamics/comp_LP_crossover` |
-| `/Aux_Outputs/{n}/Dynamics/comp_all_gain` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_all_gain` |
-| `/Aux_Outputs/{n}/Dynamics/comp_all_thresh` | 1 | float | `[-20.0]` | `/Aux_Outputs/1/Dynamics/comp_all_thresh` |
-| `/Aux_Outputs/{n}/Dynamics/comp_attack_{n}` | 3 | float | `[0.009999999776482582]` | `/Aux_Outputs/1/Dynamics/comp_attack_1` |
+| `/Aux_Outputs/{n}/Dynamics/comp-multiband-desser` | 1 | float (enum, 0..2) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp-multiband-desser` |
+| `/Aux_Outputs/{n}/Dynamics/comp_HP_crossover` | 1 | float (Hz, 20..20000) | `[1000.0]` | `/Aux_Outputs/1/Dynamics/comp_HP_crossover` |
+| `/Aux_Outputs/{n}/Dynamics/comp_LP_crossover` | 1 | float (Hz, 20..20000) | `[130.0]` | `/Aux_Outputs/1/Dynamics/comp_LP_crossover` |
+| `/Aux_Outputs/{n}/Dynamics/comp_all_gain` | 1 | float (dB, 0..40) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_all_gain` |
+| `/Aux_Outputs/{n}/Dynamics/comp_all_thresh` | 1 | float (dB, -60..0) | `[-20.0]` | `/Aux_Outputs/1/Dynamics/comp_all_thresh` |
+| `/Aux_Outputs/{n}/Dynamics/comp_attack_{n}` | 3 | float (s, 2e-05..0.1) | `[0.009999999776482582]` | `/Aux_Outputs/1/Dynamics/comp_attack_1` |
 | `/Aux_Outputs/{n}/Dynamics/comp_auto-gain_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_auto-gain_1` |
 | `/Aux_Outputs/{n}/Dynamics/comp_band_in_{n}` | 3 | float (0/1 flag) | `[1.0]` | `/Aux_Outputs/1/Dynamics/comp_band_in_1` |
-| `/Aux_Outputs/{n}/Dynamics/comp_gain_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_gain_1` |
+| `/Aux_Outputs/{n}/Dynamics/comp_gain_{n}` | 4 | float (dB, 0..40) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_gain_1` |
 | `/Aux_Outputs/{n}/Dynamics/comp_in` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_in` |
-| `/Aux_Outputs/{n}/Dynamics/comp_knee_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_knee_1` |
+| `/Aux_Outputs/{n}/Dynamics/comp_knee_{n}` | 4 | float (enum, 0..2) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_knee_1` |
 | `/Aux_Outputs/{n}/Dynamics/comp_listen_{n}` | 3 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/comp_listen_1` |
-| `/Aux_Outputs/{n}/Dynamics/comp_ratio_{n}` | 4 | float | `[3.0]` | `/Aux_Outputs/1/Dynamics/comp_ratio_1` |
-| `/Aux_Outputs/{n}/Dynamics/comp_release_{n}` | 3 | float | `[0.5]` | `/Aux_Outputs/1/Dynamics/comp_release_1` |
-| `/Aux_Outputs/{n}/Dynamics/comp_thresh_{n}` | 3 | float | `[-20.0]` | `/Aux_Outputs/1/Dynamics/comp_thresh_1` |
-| `/Aux_Outputs/{n}/Dynamics/desser_centre_freq` | 1 | float | `[127.0]` | `/Aux_Outputs/1/Dynamics/desser_centre_freq` |
-| `/Aux_Outputs/{n}/Dynamics/desser_freq_width` | 1 | float | `[255.0]` | `/Aux_Outputs/1/Dynamics/desser_freq_width` |
-| `/Aux_Outputs/{n}/Dynamics/gate_attack` | 1 | float | `[0.0020000000949949026]` | `/Aux_Outputs/1/Dynamics/gate_attack` |
-| `/Aux_Outputs/{n}/Dynamics/gate_centre_freq` | 1 | float | `[127.0]` | `/Aux_Outputs/1/Dynamics/gate_centre_freq` |
-| `/Aux_Outputs/{n}/Dynamics/gate_freq_width` | 1 | float | `[255.0]` | `/Aux_Outputs/1/Dynamics/gate_freq_width` |
+| `/Aux_Outputs/{n}/Dynamics/comp_ratio_{n}` | 4 | float (1..50) | `[3.0]` | `/Aux_Outputs/1/Dynamics/comp_ratio_1` |
+| `/Aux_Outputs/{n}/Dynamics/comp_release_{n}` | 3 | float (s, 0.001..10) | `[0.5]` | `/Aux_Outputs/1/Dynamics/comp_release_1` |
+| `/Aux_Outputs/{n}/Dynamics/comp_thresh_{n}` | 3 | float (dB, -60..0) | `[-20.0]` | `/Aux_Outputs/1/Dynamics/comp_thresh_1` |
+| `/Aux_Outputs/{n}/Dynamics/desser_centre_freq` | 1 | float (0..255) | `[127.0]` | `/Aux_Outputs/1/Dynamics/desser_centre_freq` |
+| `/Aux_Outputs/{n}/Dynamics/desser_freq_width` | 1 | float (0..255) | `[255.0]` | `/Aux_Outputs/1/Dynamics/desser_freq_width` |
+| `/Aux_Outputs/{n}/Dynamics/gate_attack` | 1 | float (s, 5e-05..0.1) | `[0.0020000000949949026]` | `/Aux_Outputs/1/Dynamics/gate_attack` |
+| `/Aux_Outputs/{n}/Dynamics/gate_centre_freq` | 1 | float (0..255) | `[127.0]` | `/Aux_Outputs/1/Dynamics/gate_centre_freq` |
+| `/Aux_Outputs/{n}/Dynamics/gate_freq_width` | 1 | float (0..255) | `[255.0]` | `/Aux_Outputs/1/Dynamics/gate_freq_width` |
 | `/Aux_Outputs/{n}/Dynamics/gate_in` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/gate_in` |
-| `/Aux_Outputs/{n}/Dynamics/gate_release` | 1 | float | `[0.14000000059604645]` | `/Aux_Outputs/1/Dynamics/gate_release` |
-| `/Aux_Outputs/{n}/Dynamics/gate_thresh` | 1 | float | `[-20.0]` | `/Aux_Outputs/1/Dynamics/gate_thresh` |
+| `/Aux_Outputs/{n}/Dynamics/gate_release` | 1 | float (s, 0.005..10) | `[0.14000000059604645]` | `/Aux_Outputs/1/Dynamics/gate_release` |
+| `/Aux_Outputs/{n}/Dynamics/gate_thresh` | 1 | float (dB, -60..0) | `[-20.0]` | `/Aux_Outputs/1/Dynamics/gate_thresh` |
 | `/Aux_Outputs/{n}/Dynamics/input_meter/left` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Dynamics/input_meter/left` |
 | `/Aux_Outputs/{n}/Dynamics/input_meter/right` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Dynamics/input_meter/right` |
 | `/Aux_Outputs/{n}/Dynamics/key_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Dynamics/key_solo` |
 | `/Aux_Outputs/{n}/EQ/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Aux_Outputs/1/EQ/GR_meter_1` |
 | `/Aux_Outputs/{n}/EQ/dynamic_eq_on_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/EQ/dynamic_eq_on_1` |
-| `/Aux_Outputs/{n}/EQ/eq_Q_{n}` | 8 | float | `[0.7099999785423279]` | `/Aux_Outputs/1/EQ/eq_Q_1` |
-| `/Aux_Outputs/{n}/EQ/eq_attack_{n}` | 4 | float | `[0.009999999776482582]` | `/Aux_Outputs/1/EQ/eq_attack_1` |
-| `/Aux_Outputs/{n}/EQ/eq_curve_{n}` | 8 | float (0/1 flag) | `[1.0]` | `/Aux_Outputs/1/EQ/eq_curve_1` |
-| `/Aux_Outputs/{n}/EQ/eq_freq_{n}` | 8 | float | `[8000.0]` | `/Aux_Outputs/1/EQ/eq_freq_1` |
-| `/Aux_Outputs/{n}/EQ/eq_gain_{n}` | 8 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/EQ/eq_gain_1` |
+| `/Aux_Outputs/{n}/EQ/eq_Q_{n}` | 8 | float (0.1..20) | `[0.7099999785423279]` | `/Aux_Outputs/1/EQ/eq_Q_1` |
+| `/Aux_Outputs/{n}/EQ/eq_attack_{n}` | 4 | float (s, 0.0005..0.1) | `[0.009999999776482582]` | `/Aux_Outputs/1/EQ/eq_attack_1` |
+| `/Aux_Outputs/{n}/EQ/eq_curve_{n}` | 8 | float (enum, 1..4) | `[1.0]` | `/Aux_Outputs/1/EQ/eq_curve_1` |
+| `/Aux_Outputs/{n}/EQ/eq_freq_{n}` | 8 | float (Hz, 20..20000) | `[8000.0]` | `/Aux_Outputs/1/EQ/eq_freq_1` |
+| `/Aux_Outputs/{n}/EQ/eq_gain_{n}` | 8 | float (dB, -18..18) | `[0.0]` | `/Aux_Outputs/1/EQ/eq_gain_1` |
 | `/Aux_Outputs/{n}/EQ/eq_in` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/EQ/eq_in` |
 | `/Aux_Outputs/{n}/EQ/eq_on_{n}` | 8 | float (0/1 flag) | `[1.0]` | `/Aux_Outputs/1/EQ/eq_on_1` |
 | `/Aux_Outputs/{n}/EQ/eq_over-under_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/EQ/eq_over-under_1` |
 | `/Aux_Outputs/{n}/EQ/eq_pre-ins` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/EQ/eq_pre-ins` |
-| `/Aux_Outputs/{n}/EQ/eq_ratio_{n}` | 4 | float | `[2.0]` | `/Aux_Outputs/1/EQ/eq_ratio_1` |
-| `/Aux_Outputs/{n}/EQ/eq_release_{n}` | 4 | float | `[0.30000001192092896]` | `/Aux_Outputs/1/EQ/eq_release_1` |
+| `/Aux_Outputs/{n}/EQ/eq_ratio_{n}` | 4 | float (1..10) | `[2.0]` | `/Aux_Outputs/1/EQ/eq_ratio_1` |
+| `/Aux_Outputs/{n}/EQ/eq_release_{n}` | 4 | float (s, 0.01..10) | `[0.30000001192092896]` | `/Aux_Outputs/1/EQ/eq_release_1` |
 | `/Aux_Outputs/{n}/EQ/eq_symm_Q_{n}` | 8 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/EQ/eq_symm_Q_1` |
-| `/Aux_Outputs/{n}/EQ/eq_thresh_{n}` | 4 | float | `[-36.0]` | `/Aux_Outputs/1/EQ/eq_thresh_1` |
+| `/Aux_Outputs/{n}/EQ/eq_thresh_{n}` | 4 | float (dB, -60..0) | `[-36.0]` | `/Aux_Outputs/1/EQ/eq_thresh_1` |
 | `/Aux_Outputs/{n}/Insert/insert_A_in` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Insert/insert_A_in` |
 | `/Aux_Outputs/{n}/Insert/insert_B_in` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/Insert/insert_B_in` |
 | `/Aux_Outputs/{n}/Output/dir_meter/left` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Output/dir_meter/left` |
@@ -698,8 +864,8 @@ Aux/IEM sends ("Buss_Trim" wraps a mono/stereo aux bus). 30 on this console.
 | `/Aux_Outputs/{n}/Output/meter2` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Output/meter2` |
 | `/Aux_Outputs/{n}/Output/meter4` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/Output/meter4` |
 | `/Aux_Outputs/{n}/alternate_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/alternate_solo` |
-| `/Aux_Outputs/{n}/auto_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/auto_solo` |
-| `/Aux_Outputs/{n}/fader` | 1 | float | `[0.17724137008190155]` | `/Aux_Outputs/1/fader` |
+| `/Aux_Outputs/{n}/auto_solo` | 1 | float (enum, 0..3) | `[0.0]` | `/Aux_Outputs/1/auto_solo` |
+| `/Aux_Outputs/{n}/fader` | 1 | float (dB, -150..10) | `[0.17724137008190155]` | `/Aux_Outputs/1/fader` |
 | `/Aux_Outputs/{n}/fader_meter/left` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/fader_meter/left` |
 | `/Aux_Outputs/{n}/fader_meter/right` | 1 | none (meter/empty) | `[]` | `/Aux_Outputs/1/fader_meter/right` |
 | `/Aux_Outputs/{n}/hard_mute` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/hard_mute` |
@@ -707,7 +873,7 @@ Aux/IEM sends ("Buss_Trim" wraps a mono/stereo aux bus). 30 on this console.
 | `/Aux_Outputs/{n}/sends_to_faders` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/sends_to_faders` |
 | `/Aux_Outputs/{n}/sends_to_rotaries` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/sends_to_rotaries` |
 | `/Aux_Outputs/{n}/solo` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/solo` |
-| `/Aux_Outputs/{n}/solo_1_or_{n}` | 1 | float (0/1 flag) | `[0.0]` | `/Aux_Outputs/1/solo_1_or_2` |
+| `/Aux_Outputs/{n}/solo_1_or_{n}` | 1 | float (enum, 0..2) | `[0.0]` | `/Aux_Outputs/1/solo_1_or_2` |
 
 ### Group_Outputs
 
@@ -715,66 +881,66 @@ Subgroup/master busses (e.g. "MASTER"). Only 3 exist, but each carries a full pr
 
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
-| `/Group_Outputs/{n}/Aux_Send/{n}/send_level` | 30 | float | `[-150.0]` | `/Group_Outputs/1/Aux_Send/1/send_level` |
+| `/Group_Outputs/{n}/Aux_Send/{n}/send_level` | 30 | float (dB, -150..10) | `[-150.0]` | `/Group_Outputs/1/Aux_Send/1/send_level` |
 | `/Group_Outputs/{n}/Aux_Send/{n}/send_on` | 30 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Aux_Send/1/send_on` |
-| `/Group_Outputs/{n}/Aux_Send/{n}/send_pan` | 30 | float | `[0.5]` | `/Group_Outputs/1/Aux_Send/1/send_pan` |
-| `/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post` | 30 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Aux_Send/1/send_pre-post` |
+| `/Group_Outputs/{n}/Aux_Send/{n}/send_pan` | 30 | float (0..1, 0.5 centre) | `[0.5]` | `/Group_Outputs/1/Aux_Send/1/send_pan` |
+| `/Group_Outputs/{n}/Aux_Send/{n}/send_pre-post` | 30 | float (enum, 0..2) | `[0.0]` | `/Group_Outputs/1/Aux_Send/1/send_pre-post` |
 | `/Group_Outputs/{n}/Buss_Trim/name` | 1 | string | `["MASTER"]` | `/Group_Outputs/1/Buss_Trim/name` |
-| `/Group_Outputs/{n}/Buss_Trim/phase` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Buss_Trim/phase` |
+| `/Group_Outputs/{n}/Buss_Trim/phase` | 1 | float (enum, 0..3) | `[0.0]` | `/Group_Outputs/1/Buss_Trim/phase` |
 | `/Group_Outputs/{n}/Buss_Trim/post_meter` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Buss_Trim/post_meter` |
 | `/Group_Outputs/{n}/Buss_Trim/post_meter/right` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Buss_Trim/post_meter/right` |
 | `/Group_Outputs/{n}/Buss_Trim/pre_meter` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Buss_Trim/pre_meter` |
 | `/Group_Outputs/{n}/Buss_Trim/pre_meter/right` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Buss_Trim/pre_meter/right` |
-| `/Group_Outputs/{n}/Buss_Trim/trim` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Buss_Trim/trim` |
+| `/Group_Outputs/{n}/Buss_Trim/trim` | 1 | float (dB, -40..60) | `[0.0]` | `/Group_Outputs/1/Buss_Trim/trim` |
 | `/Group_Outputs/{n}/Buss_Trim/tube_meter/left` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Buss_Trim/tube_meter/left` |
 | `/Group_Outputs/{n}/Buss_Trim/tube_meter/right` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Buss_Trim/tube_meter/right` |
-| `/Group_Outputs/{n}/CGs_level` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/CGs_level` |
+| `/Group_Outputs/{n}/CGs_level` | 1 | float (dB, -150..10) | `[0.0]` | `/Group_Outputs/1/CGs_level` |
 | `/Group_Outputs/{n}/CGs_mute` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/CGs_mute` |
-| `/Group_Outputs/{n}/Channel_Delay/delay` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Channel_Delay/delay` |
+| `/Group_Outputs/{n}/Channel_Delay/delay` | 1 | float (s, 0..1.3) | `[0.0]` | `/Group_Outputs/1/Channel_Delay/delay` |
 | `/Group_Outputs/{n}/Channel_Delay/delay_on` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Channel_Delay/delay_on` |
-| `/Group_Outputs/{n}/Channel_Delay/fine_delay` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Channel_Delay/fine_delay` |
+| `/Group_Outputs/{n}/Channel_Delay/fine_delay` | 1 | float (samples, -127..127) | `[0.0]` | `/Group_Outputs/1/Channel_Delay/fine_delay` |
 | `/Group_Outputs/{n}/Dynamics/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Group_Outputs/1/Dynamics/GR_meter_1` |
-| `/Group_Outputs/{n}/Dynamics/comp-multiband-desser` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp-multiband-desser` |
-| `/Group_Outputs/{n}/Dynamics/comp_HP_crossover` | 1 | float | `[1000.0]` | `/Group_Outputs/1/Dynamics/comp_HP_crossover` |
-| `/Group_Outputs/{n}/Dynamics/comp_LP_crossover` | 1 | float | `[130.0]` | `/Group_Outputs/1/Dynamics/comp_LP_crossover` |
-| `/Group_Outputs/{n}/Dynamics/comp_all_gain` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_all_gain` |
-| `/Group_Outputs/{n}/Dynamics/comp_all_thresh` | 1 | float | `[-20.0]` | `/Group_Outputs/1/Dynamics/comp_all_thresh` |
-| `/Group_Outputs/{n}/Dynamics/comp_attack_{n}` | 3 | float | `[0.009999999776482582]` | `/Group_Outputs/1/Dynamics/comp_attack_1` |
+| `/Group_Outputs/{n}/Dynamics/comp-multiband-desser` | 1 | float (enum, 0..2) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp-multiband-desser` |
+| `/Group_Outputs/{n}/Dynamics/comp_HP_crossover` | 1 | float (Hz, 20..20000) | `[1000.0]` | `/Group_Outputs/1/Dynamics/comp_HP_crossover` |
+| `/Group_Outputs/{n}/Dynamics/comp_LP_crossover` | 1 | float (Hz, 20..20000) | `[130.0]` | `/Group_Outputs/1/Dynamics/comp_LP_crossover` |
+| `/Group_Outputs/{n}/Dynamics/comp_all_gain` | 1 | float (dB, 0..40) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_all_gain` |
+| `/Group_Outputs/{n}/Dynamics/comp_all_thresh` | 1 | float (dB, -60..0) | `[-20.0]` | `/Group_Outputs/1/Dynamics/comp_all_thresh` |
+| `/Group_Outputs/{n}/Dynamics/comp_attack_{n}` | 3 | float (s, 2e-05..0.1) | `[0.009999999776482582]` | `/Group_Outputs/1/Dynamics/comp_attack_1` |
 | `/Group_Outputs/{n}/Dynamics/comp_auto-gain_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_auto-gain_1` |
 | `/Group_Outputs/{n}/Dynamics/comp_band_in_{n}` | 3 | float (0/1 flag) | `[1.0]` | `/Group_Outputs/1/Dynamics/comp_band_in_1` |
-| `/Group_Outputs/{n}/Dynamics/comp_gain_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_gain_1` |
+| `/Group_Outputs/{n}/Dynamics/comp_gain_{n}` | 4 | float (dB, 0..40) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_gain_1` |
 | `/Group_Outputs/{n}/Dynamics/comp_in` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_in` |
-| `/Group_Outputs/{n}/Dynamics/comp_knee_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_knee_1` |
+| `/Group_Outputs/{n}/Dynamics/comp_knee_{n}` | 4 | float (enum, 0..2) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_knee_1` |
 | `/Group_Outputs/{n}/Dynamics/comp_listen_{n}` | 3 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/comp_listen_1` |
-| `/Group_Outputs/{n}/Dynamics/comp_ratio_{n}` | 4 | float | `[3.0]` | `/Group_Outputs/1/Dynamics/comp_ratio_1` |
-| `/Group_Outputs/{n}/Dynamics/comp_release_{n}` | 3 | float | `[0.5]` | `/Group_Outputs/1/Dynamics/comp_release_1` |
-| `/Group_Outputs/{n}/Dynamics/comp_thresh_{n}` | 3 | float | `[-20.0]` | `/Group_Outputs/1/Dynamics/comp_thresh_1` |
-| `/Group_Outputs/{n}/Dynamics/desser_centre_freq` | 1 | float | `[127.0]` | `/Group_Outputs/1/Dynamics/desser_centre_freq` |
-| `/Group_Outputs/{n}/Dynamics/desser_freq_width` | 1 | float | `[255.0]` | `/Group_Outputs/1/Dynamics/desser_freq_width` |
-| `/Group_Outputs/{n}/Dynamics/gate_attack` | 1 | float | `[0.0020000000949949026]` | `/Group_Outputs/1/Dynamics/gate_attack` |
-| `/Group_Outputs/{n}/Dynamics/gate_centre_freq` | 1 | float | `[127.0]` | `/Group_Outputs/1/Dynamics/gate_centre_freq` |
-| `/Group_Outputs/{n}/Dynamics/gate_freq_width` | 1 | float | `[255.0]` | `/Group_Outputs/1/Dynamics/gate_freq_width` |
+| `/Group_Outputs/{n}/Dynamics/comp_ratio_{n}` | 4 | float (1..50) | `[3.0]` | `/Group_Outputs/1/Dynamics/comp_ratio_1` |
+| `/Group_Outputs/{n}/Dynamics/comp_release_{n}` | 3 | float (s, 0.001..10) | `[0.5]` | `/Group_Outputs/1/Dynamics/comp_release_1` |
+| `/Group_Outputs/{n}/Dynamics/comp_thresh_{n}` | 3 | float (dB, -60..0) | `[-20.0]` | `/Group_Outputs/1/Dynamics/comp_thresh_1` |
+| `/Group_Outputs/{n}/Dynamics/desser_centre_freq` | 1 | float (0..255) | `[127.0]` | `/Group_Outputs/1/Dynamics/desser_centre_freq` |
+| `/Group_Outputs/{n}/Dynamics/desser_freq_width` | 1 | float (0..255) | `[255.0]` | `/Group_Outputs/1/Dynamics/desser_freq_width` |
+| `/Group_Outputs/{n}/Dynamics/gate_attack` | 1 | float (s, 5e-05..0.1) | `[0.0020000000949949026]` | `/Group_Outputs/1/Dynamics/gate_attack` |
+| `/Group_Outputs/{n}/Dynamics/gate_centre_freq` | 1 | float (0..255) | `[127.0]` | `/Group_Outputs/1/Dynamics/gate_centre_freq` |
+| `/Group_Outputs/{n}/Dynamics/gate_freq_width` | 1 | float (0..255) | `[255.0]` | `/Group_Outputs/1/Dynamics/gate_freq_width` |
 | `/Group_Outputs/{n}/Dynamics/gate_in` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/gate_in` |
-| `/Group_Outputs/{n}/Dynamics/gate_release` | 1 | float | `[0.14000000059604645]` | `/Group_Outputs/1/Dynamics/gate_release` |
-| `/Group_Outputs/{n}/Dynamics/gate_thresh` | 1 | float | `[-20.0]` | `/Group_Outputs/1/Dynamics/gate_thresh` |
+| `/Group_Outputs/{n}/Dynamics/gate_release` | 1 | float (s, 0.005..10) | `[0.14000000059604645]` | `/Group_Outputs/1/Dynamics/gate_release` |
+| `/Group_Outputs/{n}/Dynamics/gate_thresh` | 1 | float (dB, -60..0) | `[-20.0]` | `/Group_Outputs/1/Dynamics/gate_thresh` |
 | `/Group_Outputs/{n}/Dynamics/input_meter/left` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Dynamics/input_meter/left` |
 | `/Group_Outputs/{n}/Dynamics/input_meter/right` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Dynamics/input_meter/right` |
 | `/Group_Outputs/{n}/Dynamics/key_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Dynamics/key_solo` |
 | `/Group_Outputs/{n}/EQ/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Group_Outputs/1/EQ/GR_meter_1` |
 | `/Group_Outputs/{n}/EQ/dynamic_eq_on_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/EQ/dynamic_eq_on_1` |
-| `/Group_Outputs/{n}/EQ/eq_Q_{n}` | 8 | float | `[0.7099999785423279]` | `/Group_Outputs/1/EQ/eq_Q_1` |
-| `/Group_Outputs/{n}/EQ/eq_attack_{n}` | 4 | float | `[0.009999999776482582]` | `/Group_Outputs/1/EQ/eq_attack_1` |
-| `/Group_Outputs/{n}/EQ/eq_curve_{n}` | 8 | float (0/1 flag) | `[1.0]` | `/Group_Outputs/1/EQ/eq_curve_1` |
-| `/Group_Outputs/{n}/EQ/eq_freq_{n}` | 8 | float | `[8000.0]` | `/Group_Outputs/1/EQ/eq_freq_1` |
-| `/Group_Outputs/{n}/EQ/eq_gain_{n}` | 8 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/EQ/eq_gain_1` |
+| `/Group_Outputs/{n}/EQ/eq_Q_{n}` | 8 | float (0.1..20) | `[0.7099999785423279]` | `/Group_Outputs/1/EQ/eq_Q_1` |
+| `/Group_Outputs/{n}/EQ/eq_attack_{n}` | 4 | float (s, 0.0005..0.1) | `[0.009999999776482582]` | `/Group_Outputs/1/EQ/eq_attack_1` |
+| `/Group_Outputs/{n}/EQ/eq_curve_{n}` | 8 | float (enum, 1..4) | `[1.0]` | `/Group_Outputs/1/EQ/eq_curve_1` |
+| `/Group_Outputs/{n}/EQ/eq_freq_{n}` | 8 | float (Hz, 20..20000) | `[8000.0]` | `/Group_Outputs/1/EQ/eq_freq_1` |
+| `/Group_Outputs/{n}/EQ/eq_gain_{n}` | 8 | float (dB, -18..18) | `[0.0]` | `/Group_Outputs/1/EQ/eq_gain_1` |
 | `/Group_Outputs/{n}/EQ/eq_in` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/EQ/eq_in` |
 | `/Group_Outputs/{n}/EQ/eq_on_{n}` | 8 | float (0/1 flag) | `[1.0]` | `/Group_Outputs/1/EQ/eq_on_1` |
 | `/Group_Outputs/{n}/EQ/eq_over-under_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/EQ/eq_over-under_1` |
 | `/Group_Outputs/{n}/EQ/eq_pre-ins` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/EQ/eq_pre-ins` |
-| `/Group_Outputs/{n}/EQ/eq_ratio_{n}` | 4 | float | `[2.0]` | `/Group_Outputs/1/EQ/eq_ratio_1` |
-| `/Group_Outputs/{n}/EQ/eq_release_{n}` | 4 | float | `[0.30000001192092896]` | `/Group_Outputs/1/EQ/eq_release_1` |
+| `/Group_Outputs/{n}/EQ/eq_ratio_{n}` | 4 | float (1..10) | `[2.0]` | `/Group_Outputs/1/EQ/eq_ratio_1` |
+| `/Group_Outputs/{n}/EQ/eq_release_{n}` | 4 | float (s, 0.01..10) | `[0.30000001192092896]` | `/Group_Outputs/1/EQ/eq_release_1` |
 | `/Group_Outputs/{n}/EQ/eq_symm_Q_{n}` | 8 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/EQ/eq_symm_Q_1` |
-| `/Group_Outputs/{n}/EQ/eq_thresh_{n}` | 4 | float | `[-36.0]` | `/Group_Outputs/1/EQ/eq_thresh_1` |
+| `/Group_Outputs/{n}/EQ/eq_thresh_{n}` | 4 | float (dB, -60..0) | `[-36.0]` | `/Group_Outputs/1/EQ/eq_thresh_1` |
 | `/Group_Outputs/{n}/Group_Send/{n}/group` | 3 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Group_Send/1/group` |
 | `/Group_Outputs/{n}/Insert/insert_A_in` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Insert/insert_A_in` |
 | `/Group_Outputs/{n}/Insert/insert_B_in` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/Insert/insert_B_in` |
@@ -789,8 +955,8 @@ Subgroup/master busses (e.g. "MASTER"). Only 3 exist, but each carries a full pr
 | `/Group_Outputs/{n}/Output/meter2` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Output/meter2` |
 | `/Group_Outputs/{n}/Output/meter4` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/Output/meter4` |
 | `/Group_Outputs/{n}/alternate_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/alternate_solo` |
-| `/Group_Outputs/{n}/auto_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/auto_solo` |
-| `/Group_Outputs/{n}/fader` | 1 | float | `[-150.0]` | `/Group_Outputs/1/fader` |
+| `/Group_Outputs/{n}/auto_solo` | 1 | float (enum, 0..3) | `[0.0]` | `/Group_Outputs/1/auto_solo` |
+| `/Group_Outputs/{n}/fader` | 1 | float (dB, -150..10) | `[-150.0]` | `/Group_Outputs/1/fader` |
 | `/Group_Outputs/{n}/fader_meter/left` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/fader_meter/left` |
 | `/Group_Outputs/{n}/fader_meter/right` | 1 | none (meter/empty) | `[]` | `/Group_Outputs/1/fader_meter/right` |
 | `/Group_Outputs/{n}/hard_mute` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/hard_mute` |
@@ -798,7 +964,7 @@ Subgroup/master busses (e.g. "MASTER"). Only 3 exist, but each carries a full pr
 | `/Group_Outputs/{n}/sends_to_faders` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/sends_to_faders` |
 | `/Group_Outputs/{n}/sends_to_rotaries` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/sends_to_rotaries` |
 | `/Group_Outputs/{n}/solo` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/solo` |
-| `/Group_Outputs/{n}/solo_1_or_{n}` | 1 | float (0/1 flag) | `[0.0]` | `/Group_Outputs/1/solo_1_or_2` |
+| `/Group_Outputs/{n}/solo_1_or_{n}` | 1 | float (enum, 0..2) | `[0.0]` | `/Group_Outputs/1/solo_1_or_2` |
 
 ### Matrix_Inputs
 
@@ -807,7 +973,7 @@ Summing feeds into the matrix section - lighter parameter set (just sends to Mat
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
 | `/Matrix_Inputs/{n}/Channel_Input/name` | 1 | string | `["Master L"]` | `/Matrix_Inputs/1/Channel_Input/name` |
-| `/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level` | 12 | float (0/1 flag) | `[0.0]` | `/Matrix_Inputs/1/Matrix_Send/1/send_level` |
+| `/Matrix_Inputs/{n}/Matrix_Send/{n}/send_level` | 12 | float (dB, -150..10) | `[0.0]` | `/Matrix_Inputs/1/Matrix_Send/1/send_level` |
 | `/Matrix_Inputs/{n}/Matrix_Send/{n}/send_on` | 12 | float (0/1 flag) | `[1.0]` | `/Matrix_Inputs/1/Matrix_Send/1/send_on` |
 
 ### Matrix_Outputs
@@ -817,61 +983,61 @@ Matrix output busses - full processing chain like Group_Outputs.
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
 | `/Matrix_Outputs/{n}/Buss_Trim/name` | 1 | string | `["MAIN L"]` | `/Matrix_Outputs/1/Buss_Trim/name` |
-| `/Matrix_Outputs/{n}/Buss_Trim/phase` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Buss_Trim/phase` |
+| `/Matrix_Outputs/{n}/Buss_Trim/phase` | 1 | float (enum, 0..3) | `[0.0]` | `/Matrix_Outputs/1/Buss_Trim/phase` |
 | `/Matrix_Outputs/{n}/Buss_Trim/post_meter` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Buss_Trim/post_meter` |
 | `/Matrix_Outputs/{n}/Buss_Trim/post_meter/right` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Buss_Trim/post_meter/right` |
 | `/Matrix_Outputs/{n}/Buss_Trim/pre_meter` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Buss_Trim/pre_meter` |
 | `/Matrix_Outputs/{n}/Buss_Trim/pre_meter/right` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Buss_Trim/pre_meter/right` |
-| `/Matrix_Outputs/{n}/Buss_Trim/trim` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Buss_Trim/trim` |
+| `/Matrix_Outputs/{n}/Buss_Trim/trim` | 1 | float (dB, -40..60) | `[0.0]` | `/Matrix_Outputs/1/Buss_Trim/trim` |
 | `/Matrix_Outputs/{n}/Buss_Trim/tube_meter/left` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Buss_Trim/tube_meter/left` |
 | `/Matrix_Outputs/{n}/Buss_Trim/tube_meter/right` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Buss_Trim/tube_meter/right` |
-| `/Matrix_Outputs/{n}/CGs_level` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/CGs_level` |
+| `/Matrix_Outputs/{n}/CGs_level` | 1 | float (dB, -150..10) | `[0.0]` | `/Matrix_Outputs/1/CGs_level` |
 | `/Matrix_Outputs/{n}/CGs_mute` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/CGs_mute` |
-| `/Matrix_Outputs/{n}/Channel_Delay/delay` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Channel_Delay/delay` |
+| `/Matrix_Outputs/{n}/Channel_Delay/delay` | 1 | float (s, 0..1.3) | `[0.0]` | `/Matrix_Outputs/1/Channel_Delay/delay` |
 | `/Matrix_Outputs/{n}/Channel_Delay/delay_on` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Channel_Delay/delay_on` |
-| `/Matrix_Outputs/{n}/Channel_Delay/fine_delay` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Channel_Delay/fine_delay` |
+| `/Matrix_Outputs/{n}/Channel_Delay/fine_delay` | 1 | float (samples, -127..127) | `[0.0]` | `/Matrix_Outputs/1/Channel_Delay/fine_delay` |
 | `/Matrix_Outputs/{n}/Dynamics/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Dynamics/GR_meter_1` |
-| `/Matrix_Outputs/{n}/Dynamics/comp-multiband-desser` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp-multiband-desser` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_HP_crossover` | 1 | float | `[1000.0]` | `/Matrix_Outputs/1/Dynamics/comp_HP_crossover` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_LP_crossover` | 1 | float | `[130.0]` | `/Matrix_Outputs/1/Dynamics/comp_LP_crossover` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_all_gain` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_all_gain` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_all_thresh` | 1 | float | `[-16.235252380371094]` | `/Matrix_Outputs/1/Dynamics/comp_all_thresh` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_attack_{n}` | 3 | float | `[0.009999999776482582]` | `/Matrix_Outputs/1/Dynamics/comp_attack_1` |
+| `/Matrix_Outputs/{n}/Dynamics/comp-multiband-desser` | 1 | float (enum, 0..2) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp-multiband-desser` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_HP_crossover` | 1 | float (Hz, 20..20000) | `[1000.0]` | `/Matrix_Outputs/1/Dynamics/comp_HP_crossover` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_LP_crossover` | 1 | float (Hz, 20..20000) | `[130.0]` | `/Matrix_Outputs/1/Dynamics/comp_LP_crossover` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_all_gain` | 1 | float (dB, 0..40) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_all_gain` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_all_thresh` | 1 | float (dB, -60..0) | `[-16.235252380371094]` | `/Matrix_Outputs/1/Dynamics/comp_all_thresh` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_attack_{n}` | 3 | float (s, 2e-05..0.1) | `[0.009999999776482582]` | `/Matrix_Outputs/1/Dynamics/comp_attack_1` |
 | `/Matrix_Outputs/{n}/Dynamics/comp_auto-gain_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_auto-gain_1` |
 | `/Matrix_Outputs/{n}/Dynamics/comp_band_in_{n}` | 3 | float (0/1 flag) | `[1.0]` | `/Matrix_Outputs/1/Dynamics/comp_band_in_1` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_gain_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_gain_1` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_gain_{n}` | 4 | float (dB, 0..40) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_gain_1` |
 | `/Matrix_Outputs/{n}/Dynamics/comp_in` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_in` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_knee_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_knee_1` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_knee_{n}` | 4 | float (enum, 0..2) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_knee_1` |
 | `/Matrix_Outputs/{n}/Dynamics/comp_listen_{n}` | 3 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/comp_listen_1` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_ratio_{n}` | 4 | float | `[3.0]` | `/Matrix_Outputs/1/Dynamics/comp_ratio_1` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_release_{n}` | 3 | float | `[0.5]` | `/Matrix_Outputs/1/Dynamics/comp_release_1` |
-| `/Matrix_Outputs/{n}/Dynamics/comp_thresh_{n}` | 3 | float | `[-16.235252380371094]` | `/Matrix_Outputs/1/Dynamics/comp_thresh_1` |
-| `/Matrix_Outputs/{n}/Dynamics/desser_centre_freq` | 1 | float | `[127.0]` | `/Matrix_Outputs/1/Dynamics/desser_centre_freq` |
-| `/Matrix_Outputs/{n}/Dynamics/desser_freq_width` | 1 | float | `[255.0]` | `/Matrix_Outputs/1/Dynamics/desser_freq_width` |
-| `/Matrix_Outputs/{n}/Dynamics/gate_attack` | 1 | float | `[0.0020000000949949026]` | `/Matrix_Outputs/1/Dynamics/gate_attack` |
-| `/Matrix_Outputs/{n}/Dynamics/gate_centre_freq` | 1 | float | `[127.0]` | `/Matrix_Outputs/1/Dynamics/gate_centre_freq` |
-| `/Matrix_Outputs/{n}/Dynamics/gate_freq_width` | 1 | float | `[255.0]` | `/Matrix_Outputs/1/Dynamics/gate_freq_width` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_ratio_{n}` | 4 | float (1..50) | `[3.0]` | `/Matrix_Outputs/1/Dynamics/comp_ratio_1` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_release_{n}` | 3 | float (s, 0.001..10) | `[0.5]` | `/Matrix_Outputs/1/Dynamics/comp_release_1` |
+| `/Matrix_Outputs/{n}/Dynamics/comp_thresh_{n}` | 3 | float (dB, -60..0) | `[-16.235252380371094]` | `/Matrix_Outputs/1/Dynamics/comp_thresh_1` |
+| `/Matrix_Outputs/{n}/Dynamics/desser_centre_freq` | 1 | float (0..255) | `[127.0]` | `/Matrix_Outputs/1/Dynamics/desser_centre_freq` |
+| `/Matrix_Outputs/{n}/Dynamics/desser_freq_width` | 1 | float (0..255) | `[255.0]` | `/Matrix_Outputs/1/Dynamics/desser_freq_width` |
+| `/Matrix_Outputs/{n}/Dynamics/gate_attack` | 1 | float (s, 5e-05..0.1) | `[0.0020000000949949026]` | `/Matrix_Outputs/1/Dynamics/gate_attack` |
+| `/Matrix_Outputs/{n}/Dynamics/gate_centre_freq` | 1 | float (0..255) | `[127.0]` | `/Matrix_Outputs/1/Dynamics/gate_centre_freq` |
+| `/Matrix_Outputs/{n}/Dynamics/gate_freq_width` | 1 | float (0..255) | `[255.0]` | `/Matrix_Outputs/1/Dynamics/gate_freq_width` |
 | `/Matrix_Outputs/{n}/Dynamics/gate_in` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/gate_in` |
-| `/Matrix_Outputs/{n}/Dynamics/gate_release` | 1 | float | `[0.14000000059604645]` | `/Matrix_Outputs/1/Dynamics/gate_release` |
-| `/Matrix_Outputs/{n}/Dynamics/gate_thresh` | 1 | float | `[-20.0]` | `/Matrix_Outputs/1/Dynamics/gate_thresh` |
+| `/Matrix_Outputs/{n}/Dynamics/gate_release` | 1 | float (s, 0.005..10) | `[0.14000000059604645]` | `/Matrix_Outputs/1/Dynamics/gate_release` |
+| `/Matrix_Outputs/{n}/Dynamics/gate_thresh` | 1 | float (dB, -60..0) | `[-20.0]` | `/Matrix_Outputs/1/Dynamics/gate_thresh` |
 | `/Matrix_Outputs/{n}/Dynamics/input_meter/left` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Dynamics/input_meter/left` |
 | `/Matrix_Outputs/{n}/Dynamics/input_meter/right` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Dynamics/input_meter/right` |
 | `/Matrix_Outputs/{n}/Dynamics/key_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Dynamics/key_solo` |
 | `/Matrix_Outputs/{n}/EQ/GR_meter_{n}` | 4 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/EQ/GR_meter_1` |
 | `/Matrix_Outputs/{n}/EQ/dynamic_eq_on_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/EQ/dynamic_eq_on_1` |
-| `/Matrix_Outputs/{n}/EQ/eq_Q_{n}` | 8 | float | `[0.7099999785423279]` | `/Matrix_Outputs/1/EQ/eq_Q_1` |
-| `/Matrix_Outputs/{n}/EQ/eq_attack_{n}` | 4 | float | `[0.009999999776482582]` | `/Matrix_Outputs/1/EQ/eq_attack_1` |
-| `/Matrix_Outputs/{n}/EQ/eq_curve_{n}` | 8 | float (0/1 flag) | `[1.0]` | `/Matrix_Outputs/1/EQ/eq_curve_1` |
-| `/Matrix_Outputs/{n}/EQ/eq_freq_{n}` | 8 | float | `[8000.0]` | `/Matrix_Outputs/1/EQ/eq_freq_1` |
-| `/Matrix_Outputs/{n}/EQ/eq_gain_{n}` | 8 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/EQ/eq_gain_1` |
+| `/Matrix_Outputs/{n}/EQ/eq_Q_{n}` | 8 | float (0.1..20) | `[0.7099999785423279]` | `/Matrix_Outputs/1/EQ/eq_Q_1` |
+| `/Matrix_Outputs/{n}/EQ/eq_attack_{n}` | 4 | float (s, 0.0005..0.1) | `[0.009999999776482582]` | `/Matrix_Outputs/1/EQ/eq_attack_1` |
+| `/Matrix_Outputs/{n}/EQ/eq_curve_{n}` | 8 | float (enum, 1..4) | `[1.0]` | `/Matrix_Outputs/1/EQ/eq_curve_1` |
+| `/Matrix_Outputs/{n}/EQ/eq_freq_{n}` | 8 | float (Hz, 20..20000) | `[8000.0]` | `/Matrix_Outputs/1/EQ/eq_freq_1` |
+| `/Matrix_Outputs/{n}/EQ/eq_gain_{n}` | 8 | float (dB, -18..18) | `[0.0]` | `/Matrix_Outputs/1/EQ/eq_gain_1` |
 | `/Matrix_Outputs/{n}/EQ/eq_in` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/EQ/eq_in` |
 | `/Matrix_Outputs/{n}/EQ/eq_on_{n}` | 8 | float (0/1 flag) | `[1.0]` | `/Matrix_Outputs/1/EQ/eq_on_1` |
 | `/Matrix_Outputs/{n}/EQ/eq_over-under_{n}` | 4 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/EQ/eq_over-under_1` |
 | `/Matrix_Outputs/{n}/EQ/eq_pre-ins` | 1 | float (0/1 flag) | `[1.0]` | `/Matrix_Outputs/1/EQ/eq_pre-ins` |
-| `/Matrix_Outputs/{n}/EQ/eq_ratio_{n}` | 4 | float | `[2.0]` | `/Matrix_Outputs/1/EQ/eq_ratio_1` |
-| `/Matrix_Outputs/{n}/EQ/eq_release_{n}` | 4 | float | `[0.30000001192092896]` | `/Matrix_Outputs/1/EQ/eq_release_1` |
+| `/Matrix_Outputs/{n}/EQ/eq_ratio_{n}` | 4 | float (1..10) | `[2.0]` | `/Matrix_Outputs/1/EQ/eq_ratio_1` |
+| `/Matrix_Outputs/{n}/EQ/eq_release_{n}` | 4 | float (s, 0.01..10) | `[0.30000001192092896]` | `/Matrix_Outputs/1/EQ/eq_release_1` |
 | `/Matrix_Outputs/{n}/EQ/eq_symm_Q_{n}` | 8 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/EQ/eq_symm_Q_1` |
-| `/Matrix_Outputs/{n}/EQ/eq_thresh_{n}` | 4 | float | `[-36.0]` | `/Matrix_Outputs/1/EQ/eq_thresh_1` |
+| `/Matrix_Outputs/{n}/EQ/eq_thresh_{n}` | 4 | float (dB, -60..0) | `[-36.0]` | `/Matrix_Outputs/1/EQ/eq_thresh_1` |
 | `/Matrix_Outputs/{n}/Insert/insert_A_in` | 1 | float (0/1 flag) | `[1.0]` | `/Matrix_Outputs/1/Insert/insert_A_in` |
 | `/Matrix_Outputs/{n}/Insert/insert_B_in` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/Insert/insert_B_in` |
 | `/Matrix_Outputs/{n}/Output/dir_meter/left` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Output/dir_meter/left` |
@@ -885,13 +1051,13 @@ Matrix output busses - full processing chain like Group_Outputs.
 | `/Matrix_Outputs/{n}/Output/meter2` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Output/meter2` |
 | `/Matrix_Outputs/{n}/Output/meter4` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/Output/meter4` |
 | `/Matrix_Outputs/{n}/alternate_solo` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/alternate_solo` |
-| `/Matrix_Outputs/{n}/fader` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/fader` |
+| `/Matrix_Outputs/{n}/fader` | 1 | float (dB, -150..10) | `[0.0]` | `/Matrix_Outputs/1/fader` |
 | `/Matrix_Outputs/{n}/fader_meter/left` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/fader_meter/left` |
 | `/Matrix_Outputs/{n}/fader_meter/right` | 1 | none (meter/empty) | `[]` | `/Matrix_Outputs/1/fader_meter/right` |
 | `/Matrix_Outputs/{n}/hard_mute` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/hard_mute` |
 | `/Matrix_Outputs/{n}/mute` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/mute` |
 | `/Matrix_Outputs/{n}/solo` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/solo` |
-| `/Matrix_Outputs/{n}/solo_1_or_{n}` | 1 | float (0/1 flag) | `[0.0]` | `/Matrix_Outputs/1/solo_1_or_2` |
+| `/Matrix_Outputs/{n}/solo_1_or_{n}` | 1 | float (enum, 0..2) | `[0.0]` | `/Matrix_Outputs/1/solo_1_or_2` |
 
 ### Control_Groups
 
@@ -900,9 +1066,9 @@ DCA-style control/mute groups (e.g. "DRUMS DCA"). Simple: name, fader, mute, sol
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
 | `/Control_Groups/{n}/auto-mute` | 1 | float (0/1 flag) | `[0.0]` | `/Control_Groups/1/auto-mute` |
-| `/Control_Groups/{n}/aux_send` | 1 | float (0/1 flag) | `[0.0]` | `/Control_Groups/1/aux_send` |
-| `/Control_Groups/{n}/fader` | 1 | float | `[0.5217241048812866]` | `/Control_Groups/1/fader` |
-| `/Control_Groups/{n}/mode` | 1 | float (0/1 flag) | `[1.0]` | `/Control_Groups/1/mode` |
+| `/Control_Groups/{n}/aux_send` | 1 | float (dB, -18..18) | `[0.0]` | `/Control_Groups/1/aux_send` |
+| `/Control_Groups/{n}/fader` | 1 | float (dB, -150..10) | `[0.5217241048812866]` | `/Control_Groups/1/fader` |
+| `/Control_Groups/{n}/mode` | 1 | float (enum, 0..2) | `[1.0]` | `/Control_Groups/1/mode` |
 | `/Control_Groups/{n}/mute` | 1 | float (0/1 flag) | `[0.0]` | `/Control_Groups/1/mute` |
 | `/Control_Groups/{n}/name` | 1 | string | `["DRUMS DCA"]` | `/Control_Groups/1/name` |
 | `/Control_Groups/{n}/solo` | 1 | float (0/1 flag) | `[0.0]` | `/Control_Groups/1/solo` |
@@ -913,8 +1079,8 @@ Assignable 31-band graphic EQs (geq_gain_1..32) that can be inserted on an outpu
 
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
-| `/Graphic_EQ/{n}/geq__trim` | 1 | float (0/1 flag) | `[0.0]` | `/Graphic_EQ/1/geq__trim` |
-| `/Graphic_EQ/{n}/geq_gain_{n}` | 32 | float (0/1 flag) | `[0.0]` | `/Graphic_EQ/1/geq_gain_1` |
+| `/Graphic_EQ/{n}/geq__trim` | 1 | float (dB, -18..18) | `[0.0]` | `/Graphic_EQ/1/geq__trim` |
+| `/Graphic_EQ/{n}/geq_gain_{n}` | 32 | float (dB, -12..12) | `[0.0]` | `/Graphic_EQ/1/geq_gain_1` |
 | `/Graphic_EQ/{n}/geq_in` | 1 | float (0/1 flag) | `[1.0]` | `/Graphic_EQ/1/geq_in` |
 | `/Graphic_EQ/{n}/input_meter` | 1 | none (meter/empty) | `[]` | `/Graphic_EQ/1/input_meter` |
 | `/Graphic_EQ/{n}/name` | 1 | string | `[""]` | `/Graphic_EQ/1/name` |
@@ -926,7 +1092,7 @@ Multitrack recorder return channels (e.g. "FX"). Just fader/mute/solo/name.
 
 | Pattern | Count | Type | Sample value | Sample address |
 |---|---|---|---|---|
-| `/Multis/{n}/fader` | 1 | float | `[0.693965494632721]` | `/Multis/1/fader` |
+| `/Multis/{n}/fader` | 1 | float (dB, -150..10) | `[0.693965494632721]` | `/Multis/1/fader` |
 | `/Multis/{n}/mute` | 1 | float (0/1 flag) | `[0.0]` | `/Multis/1/mute` |
 | `/Multis/{n}/name` | 1 | string | `["FX"]` | `/Multis/1/name` |
 | `/Multis/{n}/solo` | 1 | float (0/1 flag) | `[0.0]` | `/Multis/1/solo` |
@@ -934,12 +1100,17 @@ Multitrack recorder return channels (e.g. "FX"). Just fader/mute/solo/name.
 ## Undocumented / not reachable this session
 
 - **Whether `Channel_Input/input_type` can be written.** Read constantly by the official app, never written by it - see [Input patching](#input-patching-channel_inputinput_type). Untested rather than disproven: nobody has yet sent `input_type 2.0` to an unpatched channel to see whether the desk ignores it, refuses it, or does something surprising. Worth trying **on a scratch session, not a show file**, since a half-applied patch state is not something to discover during a soundcheck. Even a success would be of limited use - no address carries socket identity, so there is no way to say *which* socket to patch to.
-- `/Macros/Buttons/?` - asked six times by the official app across two sessions, never answered once. Whatever the app wanted from it, it carried on without it. No address that *fires* a macro has been seen either, so macros are readable by name and nothing more.
-- **Storing a snapshot.** Still the one gap that costs real time: a restore has to write a snapshot's settings to the live desk and then ask the operator to press Update. The app never stored a snapshot during this capture, so there was nothing to learn from it - the next capture worth taking is one where somebody does.
+- `/Macros/Buttons/?` - asked six times by the official app across two sessions, never answered once. Whatever the app wanted from it, it carried on without it.
+  **Partly resolved:** the app's dictionary lists `Buttons/?` alongside `Buttons/count`, `Buttons/state` and `Buttons/press`, so the address is real and the app was not asking for nothing. Why the console will not answer it is still unknown. It also lists `Recall Macro` and `Buttons/press`, which are the first candidates ever seen for *firing* a macro - untested, so "readable by name and nothing more" is now "probably writable, nobody has tried". See [Console-level commands](#console-level-commands).
+- **Storing a snapshot.** Still the one gap that costs real time: a restore has to write a snapshot's settings to the live desk and then ask the operator to press Update. The app never stored a snapshot during this capture, so there was nothing to learn from it.
+  **Named but untested since:** the dictionary carries `Update Snapshot`, `Update Current Snapshot`, `New Snapshot`, `Insert New Snapshot`, `Update Snapshot Group` and `Update Waves only`. So the next step is no longer a capture - it is sending one of these to a scratch session and watching what the desk does. That is the highest-value experiment left on this desk.
 - `/Talkback_Outputs/{n}` - exists (count 2) per console topology, but no query form tried got a reply.
+  **Explained:** the dictionary gives `Talkback_Outputs` exactly **one** parameter, `name`. There is almost nothing there to answer with, which is why every `fader`/`mute`/`Buss_Trim` form tried came back silent - they do not exist. Whether `/Talkback_Outputs/{n}/name/?` answers has still not been tried; it is the only address worth trying.
 - `/Console/Session_Name`, `/Console/Show_File`, `/Console/Sample_Rate`, `/Console/Version`, `/Console/Type`, `/Console/Desk_Type` - guessed metadata addresses, none answered.
   **Resolved since:** the real session address is `/Console/Session/Filename` (not `/Console/Session`), found by capturing the official client rather than by guessing. Worth remembering as a method - guessing addresses found almost nothing here, while one capture of the real client resolved several at once.
+  **And a second one:** `/Console/Session/Name` does exist, per the dictionary - so `Session_Name` failed on its punctuation rather than its meaning. The method holds either way: it took the app's own table to find, not another guess.
 - `/Snapshots/Count`, `/Snapshots/Total` - guessed; the real one is `/Snapshots/count` -> `[10]`.
+- **What `Channel_Input/phase` values `2` and `3` mean.** The dictionary gives it a range of `0 … 3` rather than the 0/1 flag it was taken for, and four states is what a stereo channel needs - none, left, right, both, in some order. Which order is unknown: every sample ever captured read `0.0`. CLMix therefore treats non-zero as inverted and preserves the exact value rather than assuming `1` - see the phase handling in `services/remote_server.py`.
 
 ## Provenance
 
@@ -952,4 +1123,8 @@ Multitrack recorder return channels (e.g. "FX"). Just fader/mute/solo/name.
 | 2026-09-03 | `~/Pictures/VID2026090321*.mp4` - phone video of the console's meters and CLMix side by side | Corrected the meter scale: a field is dB directly (`dB = -field`, 0..-60), not `-field/3` |
 | 2026-09-20 | `digico-capture_2026-09-20_08-05-51.log` - official app via CLMix's own DiGiCo App Capture, 8 min, 13,119 datagrams | That a strip dump is not exhaustive (`gate_hold`, `gate_range`, `gate-duck-comp`); snapshot indices are 0-based; the four-message recall burst and `End_Recall_Snapshot`; `/Snapshots/name/?` by index; `/Macros/names/?`; the bulk `/Console` routing reads; that per-category counts answer only inside the `/Console/Channels/?` burst; meter subscriptions re-asserted ~1/s and running past 12 slots; that a string SET echoes even unchanged |
 
+| 2026-09-29 | `IPAD_Q2.DOSC` - the official iPad app's own parameter dictionary, 841 records, decoded by `tools/parse_digico_dict.py` | Every parameter's type, range and unit, which the console states nowhere: 159 corrected `Type` cells below, `phase` as a `0..3` enum rather than a flag, time parameters in seconds, `Group_Outputs`/`Monitoring`/`Solo` modes running to `6`; that the four gate leaves are the *complete* strip-dump gap and exist on all four output categories; that `Talkback_Outputs` has only `name`; 110 console-level commands including snapshot store, macro fire, the whole `/Presets` group and `/Console/Session/Name`. See [The iPad app's parameter dictionary](#the-ipad-apps-parameter-dictionary) |
+
 Anything marked "unidentified" above stayed unidentified because only one console was ever observed - constant fields may be constant by circumstance rather than by design.
+
+The 2026-09-29 dictionary is the one source here that is **not** a recording of the desk. It is the app's own idea of the console, which makes it authoritative about what the app will send and merely suggestive about what the desk will accept. Everything taken from it that has not also been seen on the wire is marked untested where it appears.

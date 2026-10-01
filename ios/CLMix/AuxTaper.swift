@@ -13,15 +13,18 @@ enum AuxTaper {
     static let topDb = 10.0
     static let bottomDb = -150.0
 
+    // Labels carry their sign. Without it the scale read 10, 5, 0, 5, 10
+    // going down - the same "5" appearing twice, five above unity and
+    // five below it, with nothing to say which was which.
     static let levelTicks: [(db: Double, label: String)] = [
-        (bottomDb, "∞"),
-        (-60.0, "60"),
-        (-50.0, "50"),
-        (-40.0, "40"),
-        (-30.0, "30"),
-        (-20.0, "20"),
-        (-10.0, "10"),
-        (-5.0, "5"),
+        (bottomDb, "-∞"),
+        (-60.0, "-60"),
+        (-50.0, "-50"),
+        (-40.0, "-40"),
+        (-30.0, "-30"),
+        (-20.0, "-20"),
+        (-10.0, "-10"),
+        (-5.0, "-5"),
         (0.0, "0"),
         (5.0, "5"),
         (topDb, "10"),

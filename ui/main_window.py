@@ -42,6 +42,7 @@ from ui.backup_window import BackupWindow
 from ui.logs_window import LogsWindow, open_folder
 from ui.phones_window import PhonesWindow
 from ui.presets_window import PresetsWindow
+from ui.copy_to_window import CopyToWindow
 from ui.show_backup_window import ShowBackupWindow
 from version import VERSION
 
@@ -149,7 +150,16 @@ class MixerWorker(threading.Thread):
     METER_FLOOR_DB = -60.0
 
     # /Console/Input_Channels/modes and /Console/Aux_Outputs/modes carry
-    # one entry per channel/bus: 1 is mono, 2 is stereo.
+    # one entry per channel/bus: 1 is mono, 2 is stereo. Those two lists
+    # hold nothing else - the app's own parameter dictionary gives both a
+    # range of 1..2 (docs/mixer_protocol/PROTOCOL.md, "Console topology").
+    #
+    # That is not true of every modes list, so the equality test below
+    # must not be pointed at another one. /Console/Group_Outputs/modes,
+    # /Console/Monitoring/modes and /Console/Solo/modes all run 1..6:
+    # a group output can be LCR or wider, and "== 2" would read those as
+    # mono - i.e. as having no second leg at all, which is the one answer
+    # that is certainly wrong. Widen this to "> 1" before reusing it.
     #
     # For an input channel this decides metering: a stereo channel meters
     # as two independent legs, each on its own subscription slot, while a
@@ -3071,6 +3081,7 @@ class MainWindow:
         self.aux_visibility_panel = None
         self.backup_window = None
         self.show_backup_window = None
+        self.copy_to_window = None
         self.logs_window = None
         self.presets_window = None
         self.phones_window = None
@@ -3154,12 +3165,18 @@ class MainWindow:
         )
         menu_bar.add_cascade(label="View", menu=self.view_menu)
 
+        self.mixer_menu = tk.Menu(menu_bar, tearoff=False)
+        self.mixer_menu.add_command(
+            label="Mixer Backup", command=self.open_show_backup_window
+        )
+        self.mixer_menu.add_command(
+            label="Copy To\u2026", command=self.open_copy_to_window
+        )
+        menu_bar.add_cascade(label="Mixer", menu=self.mixer_menu)
+
         self.help_menu = tk.Menu(menu_bar, tearoff=False)
         self.help_menu.add_command(label="Logs", command=self.open_logs_window)
         self.help_menu.add_command(label="CLMix Backup", command=self.open_backup_window)
-        self.help_menu.add_command(
-            label="Mixer Backup", command=self.open_show_backup_window
-        )
         self.help_menu.add_command(label="About", command=self.open_about_window)
         # Kept so the startup check can relabel this one entry - looking it
         # up by its current label would stop working the moment it changes.
@@ -4231,6 +4248,15 @@ class MainWindow:
         self.show_backup_window = ShowBackupWindow(
             self.root, self.settings, self.save_settings,
             lambda: self.worker, self.command_queue
+        )
+
+    def open_copy_to_window(self):
+        if self.copy_to_window and self.copy_to_window.window.winfo_exists():
+            self.copy_to_window.window.lift()
+            return
+
+        self.copy_to_window = CopyToWindow(
+            self.root, lambda: self.worker, self.command_queue
         )
 
     def on_backup_restored(self, keys):
