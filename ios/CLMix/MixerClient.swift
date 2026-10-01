@@ -35,6 +35,8 @@ protocol MixerBackend: AnyObject {
     var isConnected: Bool { get }
     var presetsAllowed: Bool { get }
     var muteAllowed: Bool { get }
+    var personalizationAllowed: Bool { get }
+    var liveSnapshot: String? { get }
 
     func connect(host: String, port: Int)
     func disconnect()
@@ -48,6 +50,7 @@ protocol MixerBackend: AnyObject {
     func setLevel(channel: Int, db: Double)
     func setPan(channel: Int, pan: Double)
     func setMute(channel: Int, muted: Bool)
+    func setPersonalName(channel: Int, name: String)
     func requestPresets()
     func savePreset(name: String)
     func loadPreset(name: String)
@@ -56,7 +59,7 @@ protocol MixerBackend: AnyObject {
 /// Talks to the CLMix desktop app's RemoteServer
 /// (services/remote_server.py) over a WebSocket, using the same JSON
 /// protocol the Android app's MixerClient.kt speaks: login/list_auxes/
-/// list_banks/select_aux/select_bank/set_level/set_pan/
+/// list_banks/select_aux/select_bank/set_level/set_pan/set_personal_name/
 /// list_presets/save_preset/load_preset out, login_result/auxes/banks/
 /// levels/presets/preset_saved/preset_loaded/error in.
 ///
@@ -81,6 +84,21 @@ final class MixerClient: NSObject, MixerBackend {
     // with no explicit setting, and an older server that never sends the
     // field, both mean "allowed".
     private(set) var muteAllowed = true
+
+    // Set from login_result - whether this account may give channels its
+    // own labels. Purely a display thing: the server files the label
+    // against the account and swaps it into this connection's pushes, so
+    // nothing about it reaches the console or any other account.
+    // Defaults false, which is also what an older server that never
+    // sends the field means.
+    private(set) var personalizationAllowed = false
+
+    // The snapshot live on the console right now, from the levels
+    // frames - not the account's snapshot *scope*, which may be "All
+    // Snapshots". A personal rename is filed against this, so the rename
+    // dialog can name the show the label will belong to. Nil until the
+    // first frame, or against a server too old to send it.
+    private(set) var liveSnapshot: String?
 
     // Advances once per received meter frame. The server only sends a
     // frame when something actually changed, so a bar that stops being
@@ -132,6 +150,8 @@ final class MixerClient: NSObject, MixerBackend {
         isConnected = false
         presetsAllowed = false
         muteAllowed = true
+        personalizationAllowed = false
+        liveSnapshot = nil
     }
 
     func login(username: String, password: String) {
@@ -194,6 +214,18 @@ final class MixerClient: NSObject, MixerBackend {
     /// the console's per-send on/off flag) - not a console-wide mute.
     func setMute(channel: Int, muted: Bool) {
         send(["action": "set_mute", "channel": channel, "muted": muted])
+    }
+
+    /// Labels one channel for this account alone.
+    ///
+    /// The near-opposite of the console rename the Android app offers in
+    /// Full Mixer Control: nothing here reaches the desk. The server
+    /// stores the label against this account and the snapshot currently
+    /// live, and swaps it into this connection's own pushes - no other
+    /// phone, and no surface on the console, ever sees it. An empty name
+    /// clears the label and puts the console's own name back.
+    func setPersonalName(channel: Int, name: String) {
+        send(["action": "set_personal_name", "channel": channel, "name": name])
     }
 
     func requestPresets() {
@@ -261,6 +293,8 @@ final class MixerClient: NSObject, MixerBackend {
                 let ok = json["ok"] as? Bool ?? false
                 presetsAllowed = ok && (json["presets"] as? Bool ?? false)
                 muteAllowed = !ok || (json["mute"] as? Bool ?? true)
+                personalizationAllowed =
+                    ok && (json["personalization"] as? Bool ?? false)
                 let token = (json["token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 delegate?.mixerDidReceiveLoginResult(
                     ok: ok, message: json["message"] as? String, token: token
@@ -285,6 +319,9 @@ final class MixerClient: NSObject, MixerBackend {
 
             case "levels":
                 guard let aux = json["aux"] as? Int else { return }
+
+                liveSnapshot = (json["snapshot"] as? String)
+                    .flatMap { $0.isEmpty ? nil : $0 }
 
                 let entries = json["channels"] as? [[String: Any]] ?? []
                 let channels = entries.compactMap { entry -> ChannelState? in
@@ -363,6 +400,8 @@ final class MixerClient: NSObject, MixerBackend {
 // unchanged. Mirrors Android's MixerClient.kt friendlyServerMessage.
 private func friendlyServerMessage(_ raw: String) -> String {
     switch raw {
+    case "Not permitted for personalization":
+        return "Access denied: not permitted to rename channels"
     case "Not permitted for the current snapshot": return MixerClient.snapshotDenied
     case "Not permitted for this aux": return "Access denied: not permitted for this aux"
     case "Not permitted for presets": return "Access denied: not permitted for presets"

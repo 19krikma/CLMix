@@ -7,10 +7,15 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.os.Bundle
+import android.text.InputFilter
+import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
@@ -38,6 +43,11 @@ private const val BANK_COLUMNS = 4
 // screen transition, so it only has to take the hard edge off the
 // strips jumping - any longer reads as waiting for the panel.
 private const val BANK_PANEL_ANIM_MS = 100L
+
+// Longest personal label the rename dialog accepts, matching the
+// server's own MAX_CHANNEL_NAME cap (services/remote_server.py) so the
+// field cannot take text the server would silently trim off.
+private const val MAX_PERSONAL_NAME_LENGTH = 32
 
 // How much of the screen the expanded aux sheet covers. Enough to show
 // a handful of mixes at once, short of swallowing the whole display -
@@ -108,7 +118,15 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
                 dragReleasedAt[channel] = System.currentTimeMillis()
             },
             onPanButtonClicked = { channel -> showPanSheet(channel) },
-            onMuteToggled = { channel, muted -> MixerClient.setMute(channel, muted) }
+            onMuteToggled = { channel, muted -> MixerClient.setMute(channel, muted) },
+            onNameLongPressed = if (MixerClient.personalizationAllowed) {
+                { channel -> showPersonalNameDialog(channel) }
+            } else {
+                // Left null rather than guarded inside the callback, so
+                // an account without the permission has no long-press
+                // target at all instead of one that eats the gesture.
+                null
+            }
         )
 
         binding.channelRecycler.layoutManager =
@@ -412,6 +430,65 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
+
+    /**
+     * Relabels one strip for this account only.
+     *
+     * Nothing here reaches the console: the server files the label
+     * against the account and the snapshot live on the desk, and swaps
+     * it into this connection's pushes. Which is why the dialog names
+     * the snapshot - an account that works several shows gets a
+     * different set of labels on each, and someone who renamed channel
+     * 12 last week should be able to see that this one is separate.
+     *
+     * No optimistic update: the next levels push is 150ms away and
+     * carries the new name, which is well inside what reads as
+     * immediate - unlike a console rename, which has to travel to the
+     * desk and back (see ChannelInputBottomSheet).
+     */
+    private fun showPersonalNameDialog(channel: ChannelState) {
+        val field = EditText(this).apply {
+            setText(channel.name)
+            setSelection(text.length)
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            filters = arrayOf(InputFilter.LengthFilter(MAX_PERSONAL_NAME_LENGTH))
+        }
+
+        // AlertDialog gives a custom view no padding of its own.
+        val padding = (resources.displayMetrics.density * 20).toInt()
+        val frame = FrameLayout(this).apply {
+            setPadding(padding, padding / 2, padding, 0)
+            addView(field)
+        }
+
+        val snapshot = MixerClient.liveSnapshot
+        val message = if (snapshot != null) {
+            "Your name for this channel on \"$snapshot\". " +
+                "Nobody else sees it, and the mixer is not changed."
+        } else {
+            "Your name for this channel. Nobody else sees it, " +
+                "and the mixer is not changed."
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Rename for you only")
+            .setMessage(message)
+            .setView(frame)
+            .setPositiveButton("Save") { _, _ ->
+                MixerClient.setPersonalName(
+                    channel.channel, field.text.toString().trim()
+                )
+            }
+            // An empty name is how the server is asked to drop the
+            // label, so this is a real action rather than a second
+            // Cancel - it puts the console's own name back.
+            .setNeutralButton("Reset") { _, _ ->
+                MixerClient.setPersonalName(channel.channel, "")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showPanSheet(channel: ChannelState) {

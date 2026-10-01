@@ -47,7 +47,8 @@ interface MixerClientListener {
  * (services/remote_server.py) over a WebSocket, using the same JSON
  * protocol: login/logout/list_auxes/list_banks/select_aux/select_mixer/
  * select_bank/
- * set_level/set_pan/set_mute/list_presets/save_preset/load_preset out,
+ * set_level/set_pan/set_mute/set_personal_name/
+ * list_presets/save_preset/load_preset out,
  * login_result/auxes/banks/levels/presets/preset_saved/preset_loaded/error
  * in.
  *
@@ -114,6 +115,23 @@ object MixerClient {
     // which is also what an older server that never sends the field
     // means.
     var mixerControlAllowed: Boolean = false
+        private set
+
+    // Set from login_result - whether this account may give channels its
+    // own labels on the aux screens. Purely a display thing: the server
+    // files the label against the account and swaps it into this
+    // connection's pushes, and nothing about it reaches the console or
+    // any other account. Defaults false, which is also what an older
+    // server that never sends the field means.
+    var personalizationAllowed: Boolean = false
+        private set
+
+    // The snapshot live on the console right now, from the levels frames
+    // - not the account's snapshot *scope*, which may be "All Snapshots".
+    // A personal rename is filed against this, so the rename dialog can
+    // name the show the label will belong to. Null until the first frame,
+    // or against a server too old to send it.
+    var liveSnapshot: String? = null
         private set
 
     // Advances once per received meter frame. The server only sends a
@@ -221,6 +239,8 @@ object MixerClient {
         presetsAllowed = false
         muteAllowed = true
         mixerControlAllowed = false
+        personalizationAllowed = false
+        liveSnapshot = null
         appContext?.let(MixerConnectionService::stop)
     }
 
@@ -336,6 +356,20 @@ object MixerClient {
             .put("name", name)
     )
 
+    // The opposite of setName above, despite the likeness: this one
+    // changes nothing on the console. The label is stored against this
+    // account and the snapshot currently live on the desk, and swapped
+    // into this connection's own pushes - no other phone, and no surface
+    // on the desk, ever sees it. An empty name clears the label and puts
+    // the console's own name back. Aux screens only; the server refuses
+    // it from a socket in mixer mode.
+    fun setPersonalName(channel: Int, name: String) = send(
+        JSONObject()
+            .put("action", "set_personal_name")
+            .put("channel", channel)
+            .put("name", name)
+    )
+
     fun requestPresets() = send(JSONObject().put("action", "list_presets"))
 
     fun savePreset(name: String) = send(
@@ -365,6 +399,7 @@ object MixerClient {
                 presetsAllowed = ok && json.optBoolean("presets", false)
                 muteAllowed = !ok || json.optBoolean("mute", true)
                 mixerControlAllowed = ok && json.optBoolean("mixer_control", false)
+                personalizationAllowed = ok && json.optBoolean("personalization", false)
                 onMain { listener?.onLoginResult(ok, message, token) }
             }
 
@@ -390,6 +425,7 @@ object MixerClient {
             "levels" -> {
                 // Mixer-mode frames carry no bus - see MIXER_AUX.
                 val aux = json.optInt("aux", MIXER_AUX)
+                liveSnapshot = json.optString("snapshot").takeIf { it.isNotEmpty() }
                 val arr = json.getJSONArray("channels")
                 val list = (0 until arr.length()).map {
                     val o = arr.getJSONObject(it)
@@ -470,6 +506,8 @@ private fun friendlyServerMessage(raw: String): String = when (raw) {
     "Not permitted for presets" -> "Access denied: not permitted for presets"
     "Not permitted for mixer control" ->
         "Access denied: not permitted for full mixer control"
+    "Not permitted for personalization" ->
+        "Access denied: not permitted to rename channels"
     "Mixer not connected" -> "Mixer not connected - try again shortly"
     "Not authenticated" -> "Not logged in"
     else -> raw

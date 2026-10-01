@@ -27,6 +27,20 @@ final class DemoMixer: MixerBackend {
     // Same default the real client uses - an account with no explicit
     // setting means "allowed".
     private(set) var muteAllowed = true
+    private(set) var personalizationAllowed = false
+
+    // The one snapshot this fake console knows about. The real server
+    // files personal labels per snapshot because an account can span
+    // several shows; there is only one show here, but the name is still
+    // reported so the rename dialog reads exactly as it does for real.
+    private(set) var liveSnapshot: String? = "Demo Show"
+
+    // Personal labels, as the server's user record holds them - and like
+    // that record, never written back into the catalog: the demo console
+    // keeps its own names, and only this account's view of them changes.
+    // Dropped on disconnect rather than persisted; the demo is meant to
+    // be walked into fresh.
+    private var personalNames: [Int: String] = [:]
 
     private init() {}
 
@@ -186,6 +200,8 @@ final class DemoMixer: MixerBackend {
         isConnected = false
         presetsAllowed = false
         muteAllowed = true
+        personalizationAllowed = false
+        personalNames = [:]
         selectedAux = nil
         selectedBank = nil
     }
@@ -195,6 +211,7 @@ final class DemoMixer: MixerBackend {
         // and there is no account behind it to get wrong.
         presetsAllowed = true
         muteAllowed = true
+        personalizationAllowed = true
 
         // No token is handed back, so SessionStore stores nothing and a
         // relaunch returns to the connect screen rather than silently
@@ -250,6 +267,12 @@ final class DemoMixer: MixerBackend {
     func setMute(channel: Int, muted: Bool) {
         guard let aux = selectedAux else { return }
         sends[aux]?[channel]?.muted = muted
+    }
+
+    func setPersonalName(channel: Int, name: String) {
+        // An empty name clears the label, the same way the server reads
+        // it, so Reset in the rename dialog works here too.
+        personalNames[channel] = name.isEmpty ? nil : name
     }
 
     func requestPresets() {
@@ -330,7 +353,9 @@ final class DemoMixer: MixerBackend {
             guard let send = mix[entry.channel] else { return nil }
             return ChannelState(
                 channel: entry.channel,
-                name: entry.name,
+                // The account's own label wins over the console's name,
+                // exactly as RemoteServer._channel_states applies it.
+                name: personalNames[entry.channel] ?? entry.name,
                 level: send.level,
                 pan: send.pan,
                 muted: send.muted,

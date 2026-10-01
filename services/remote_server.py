@@ -85,6 +85,15 @@ class RemoteServer:
     Nothing but this permission gates that mode, so it defaults to off
     (see UserStore).
 
+    An account granted "personalization" can relabel channels for its
+    own aux screens (action "set_personal_name"). Nothing about that
+    reaches the console: the label is stored against the account in
+    UserStore and swapped in by _channel_states on the way out, so only
+    this one account ever sees it, and only in aux mode. Mixer mode shows
+    the desk's own names untouched - a socket riding the main mix is
+    looking at what everyone else is looking at, and "set_name" is there
+    to rename the channel for real.
+
     A successful username/password login also mints an opaque session
     token, so a phone app that was killed and relaunched can resend just
     that token instead of asking the user to retype their password. The
@@ -541,6 +550,37 @@ class RemoteServer:
             else:
                 self._set_name(state, msg.get("channel"), msg.get("name"))
 
+        elif action == "set_personal_name":
+            # The mirror image of set_name above: that one writes the
+            # console's own name field and is refused outside mixer mode,
+            # this one touches nothing but this account's own record and
+            # is refused *inside* it. Deliberately not behind
+            # _reject_write - that guards writes to the desk, and there
+            # is no write to the desk here. A phone whose account is
+            # locked out of the live snapshot never reaches this at all
+            # (see the snapshot check above), which is the same gate the
+            # label itself is filed behind.
+            if not entry.get("personalization", False):
+                log("info", f"Denied set_personal_name for user "
+                    f"{state['user']!r} (account has no personalization "
+                    "permission)")
+                await self._send(websocket, {
+                    "type": "error",
+                    "message": "Not permitted for personalization",
+                })
+                return
+
+            if self._in_mixer_mode(state):
+                await self._send(websocket, {
+                    "type": "error",
+                    "message": "Personal names apply to aux mixes only",
+                })
+                return
+
+            await self._set_personal_name(
+                websocket, worker, state, msg.get("channel"), msg.get("name")
+            )
+
         elif action == "set_mute":
             if await self._reject_write(websocket, worker, state, entry):
                 return
@@ -663,6 +703,7 @@ class RemoteServer:
             "presets": entry.get("presets", False),
             "mute": entry.get("mute", True),
             "mixer_control": entry.get("mixer_control", False),
+            "personalization": entry.get("personalization", False),
             "token": new_token,
         })
 
@@ -716,6 +757,7 @@ class RemoteServer:
             "presets": entry.get("presets", False),
             "mute": entry.get("mute", True),
             "mixer_control": entry.get("mixer_control", False),
+            "personalization": entry.get("personalization", False),
             "token": token,
         })
 
@@ -916,7 +958,18 @@ class RemoteServer:
                     "type": "levels",
                     "aux": aux,
                     "mode": "aux",
-                    "channels": self._channel_states(worker, channels, aux),
+                    "channels": self._channel_states(
+                        worker, channels, aux,
+                        self._personal_names(worker, state),
+                    ),
+                    # The snapshot a personal rename would be filed
+                    # against, so the phone can name it rather than
+                    # saying "this snapshot". Sent on every frame rather
+                    # than once at login because an account scoped to
+                    # ALL_SNAPSHOTS stays connected across a recall, and
+                    # a label offered under the previous show's name
+                    # would be a lie.
+                    "snapshot": worker.snapshot_name,
                 }
 
             try:
@@ -1141,6 +1194,45 @@ class RemoteServer:
             f"/Input_Channels/{channel}/Channel_Input/name", [name]
         ))
 
+    # Nothing is sent to the console here - this is the whole of the
+    # "personalization" feature's write path. The label goes into the
+    # account's own record and is swapped in by _channel_states, so the
+    # phone sees it on the next push the same way it sees any other
+    # change, and no other account sees it at all.
+    #
+    # Filed against the snapshot live on the desk right now rather than
+    # the account's snapshot scope: an account scoped to ALL_SNAPSHOTS
+    # has one scope and many shows, and channel 12 is a different
+    # instrument in each of them.
+    async def _set_personal_name(self, websocket, worker, state, channel, name):
+        if channel is None:
+            return
+
+        snapshot = worker.snapshot_name
+
+        if not snapshot:
+            # The console has not said which snapshot it is on yet, so
+            # there is nothing to file the label against. Saying so beats
+            # storing it under a guess the user would then find missing.
+            await self._send(websocket, {
+                "type": "error",
+                "message": "Snapshot not known yet - try again shortly",
+            })
+            return
+
+        # An empty name is how a phone asks for the console's own name
+        # back, so unlike _set_name it is not discarded as a no-op.
+        name = str(name or "").strip()[:MAX_CHANNEL_NAME]
+
+        self.user_store.set_personal_name(
+            state["user"], snapshot, channel, name
+        )
+
+        log("info", f"User {state['user']!r} "
+            + (f"renamed channel {channel} to {name!r}" if name
+               else f"cleared their name for channel {channel}")
+            + f" on snapshot {snapshot!r}")
+
     # send_on is the inverse of mute: 0.0 drops the channel out of this
     # aux mix, 1.0 puts it back. Nothing is written to the cache here -
     # the console echoes the change back like any other parameter move,
@@ -1342,14 +1434,38 @@ class RemoteServer:
     def _ui_pan_to_wire(value):
         return round((value / 2) + 0.5, 2)
 
+    def _personal_names(self, worker, state):
+        """This socket's own channel labels, or {} if it has none.
+
+        Read per frame rather than cached on the connection: a rename
+        has to show up on the next push, and this is a dict lookup
+        against what UserStore already holds in memory.
+        """
+        entry = state.get("permission") or {}
+
+        if not entry.get("personalization", False):
+            return {}
+
+        return self.user_store.personal_names(
+            state.get("user"), worker.snapshot_name
+        )
+
     @classmethod
-    def _channel_states(cls, worker, channels, aux):
+    def _channel_states(cls, worker, channels, aux, personal_names=None):
+        personal_names = personal_names or {}
         states = []
 
         for channel in channels:
             name_key = f"/Input_Channels/{channel}/Channel_Input/name"
             name = worker.cache[name_key][0] \
                 if name_key in worker.cache else f"Ch {channel}"
+
+            # The account's own label for this strip, where it has one.
+            # Applied last so it wins over the console's name and over
+            # the "Ch n" placeholder alike - a performer who named a
+            # channel should see that name even on a strip the desk has
+            # not reported yet.
+            name = personal_names.get(channel, name)
 
             level_key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level"
             level = round(worker.cache[level_key][0], 2) \

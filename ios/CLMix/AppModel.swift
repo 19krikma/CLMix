@@ -46,6 +46,16 @@ final class AppModel: NSObject, ObservableObject {
     // setting, and an older server that never sends the field, both mean
     // "allowed".
     @Published var muteAllowed = true
+    // Gates whether a long press on a channel name offers to relabel it
+    // for this account. Like muteAllowed it only decides what is drawn -
+    // the server refuses the write regardless. False by default, which
+    // is also what an older server that never sends the field means.
+    @Published var personalizationAllowed = false
+    // The snapshot a personal label would be filed against: the one live
+    // on the console now, not the account's snapshot scope. Updated from
+    // every levels frame, so an account spanning several shows sees the
+    // right one named after a recall. Nil until the first frame.
+    @Published var liveSnapshot: String?
     @Published var presetNames: [String] = []
     @Published var discoveredServers: [DiscoveredServer] = []
     // True while the session is a local demo rather than a real console.
@@ -286,6 +296,17 @@ final class AppModel: NSObject, ObservableObject {
         backend.setMute(channel: channel, muted: muted)
     }
 
+    /// Labels one channel for this account alone - nothing is renamed on
+    /// the console. An empty name clears the label and brings the
+    /// console's own name back on the next push.
+    ///
+    /// No optimistic update, unlike setMute above: the next levels frame
+    /// is ~150ms away and already carries the new name, and a label is
+    /// not something a finger is holding and watching.
+    func setPersonalName(channel: Int, name: String) {
+        backend.setPersonalName(channel: channel, name: name)
+    }
+
     func requestPresets() {
         backend.requestPresets()
     }
@@ -328,6 +349,8 @@ final class AppModel: NSObject, ObservableObject {
         selectedBank = nil
         presetsAllowed = false
         muteAllowed = true
+        personalizationAllowed = false
+        liveSnapshot = nil
         presetNames = []
         isConnecting = false
         statusIsError = false
@@ -453,6 +476,7 @@ extension AppModel: MixerClientDelegate {
             statusMessage = "Connected"
             presetsAllowed = backend.presetsAllowed
             muteAllowed = backend.muteAllowed
+            personalizationAllowed = backend.personalizationAllowed
             backend.requestAuxes()
             return
         }
@@ -529,6 +553,8 @@ extension AppModel: MixerClientDelegate {
         // a tap awaiting confirmation - without pruning, a stale entry
         // would sit here suppressing that channel's real state if it ever
         // came back. Mirrors Android's pendingMutes.retainAll.
+        liveSnapshot = backend.liveSnapshot
+
         let newChannelSet = Set(channels.map(\.channel))
         pendingMutes = pendingMutes.filter { newChannelSet.contains($0.key) }
 

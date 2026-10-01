@@ -24,7 +24,14 @@ class ChannelAdapter(
     // Only Full Mixer Control passes this: the number above the name is
     // its own control there, opening the channel's input stage. Null
     // everywhere else, where the number is not even shown.
-    private val onChannelNumberClicked: ((ChannelState) -> Unit)? = null
+    private val onChannelNumberClicked: ((ChannelState) -> Unit)? = null,
+    // Only the aux screen passes this, and only for an account holding
+    // the "personalization" permission: a long press on the name offers
+    // to relabel the strip for this account alone. Null everywhere else,
+    // including Full Mixer Control - a socket riding the main mix is
+    // looking at what every other surface is looking at, and renaming
+    // there means renaming on the console (onChannelNumberClicked above).
+    private val onNameLongPressed: ((ChannelState) -> Unit)? = null
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     // "Fine" mode (toggled from MixerActivity's top bar): while on, the
@@ -408,6 +415,32 @@ class ChannelAdapter(
         // still ripple under a finger.
         holder.binding.channelNumber.isClickable = openInput != null
         holder.binding.channelName.isClickable = openInput != null
+
+        // A long press relabels the strip for this account only. The
+        // gesture rather than a tap because the aux screen's name is not
+        // otherwise a control, and a performer reaching past it for the
+        // fader should not open a dialog by brushing it. Resolved
+        // through the holder for the same reason as openInput above.
+        holder.binding.channelName.setOnLongClickListener(
+            if (onNameLongPressed != null) {
+                View.OnLongClickListener {
+                    val adapterPosition = holder.bindingAdapterPosition
+
+                    if (adapterPosition == RecyclerView.NO_POSITION) {
+                        false
+                    } else {
+                        onNameLongPressed.invoke(channels[adapterPosition])
+                        true
+                    }
+                }
+            } else {
+                null
+            }
+        )
+
+        // Same trap as isClickable above: clearing the listener leaves
+        // the view long-clickable and eating the gesture.
+        holder.binding.channelName.isLongClickable = onNameLongPressed != null
 
         holder.binding.panButton.visibility =
             if (panSupported) View.VISIBLE else View.GONE

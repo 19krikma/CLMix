@@ -1,5 +1,12 @@
 import SwiftUI
 
+// Longest personal label the rename alert sends, matching the server's
+// own MAX_CHANNEL_NAME cap (services/remote_server.py) so the text that
+// goes out is the text that comes back. An alert's TextField takes no
+// input filter, so unlike Android's dialog this is applied on the way
+// out rather than as it is typed.
+private let maxPersonalNameLength = 32
+
 struct ChannelStripView: View {
     @EnvironmentObject var model: AppModel
     let channel: ChannelState
@@ -10,6 +17,12 @@ struct ChannelStripView: View {
     var alternate: Bool = false
 
     @State private var showPanSheet = false
+    @State private var showRenameAlert = false
+
+    // Seeded from the strip's current name each time the alert opens, so
+    // editing starts from what is on screen rather than from an empty
+    // field or the last channel renamed.
+    @State private var nameDraft = ""
 
     var body: some View {
         VStack(spacing: 8) {
@@ -17,6 +30,21 @@ struct ChannelStripView: View {
                 .font(.system(size: 12, weight: .bold))
                 .multilineTextAlignment(.center)
                 .frame(height: 32)
+                // A long press relabels the strip for this account only.
+                // The gesture rather than a tap because the name is not
+                // otherwise a control here, and a performer reaching
+                // past it for the fader should not open a dialog by
+                // brushing it. The permission is checked inside rather
+                // than by attaching this conditionally - a conditional
+                // modifier would change the view's identity, and nothing
+                // else here consumes a long press, so an account without
+                // it simply finds the gesture does nothing. Mirrors
+                // Android's ChannelAdapter.onNameLongPressed.
+                .onLongPressGesture {
+                    guard model.personalizationAllowed else { return }
+                    nameDraft = channel.name
+                    showRenameAlert = true
+                }
 
             // Flexible height, not a fixed one - mirrors Android's
             // fader_row (layout_height="0dp", layout_weight="1"): the
@@ -76,6 +104,36 @@ struct ChannelStripView: View {
                 onChange: { pan in model.setPan(channel: channel.channel, pan: pan) }
             )
             .presentationDetents([.height(280)])
+        }
+        .alert("Rename for you only", isPresented: $showRenameAlert) {
+            TextField("Channel name", text: $nameDraft)
+                .textInputAutocapitalization(.characters)
+
+            Button("Save") {
+                let trimmed = nameDraft
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                model.setPersonalName(
+                    channel: channel.channel,
+                    name: String(trimmed.prefix(maxPersonalNameLength))
+                )
+            }
+
+            // An empty name is how the server is asked to drop the
+            // label, so this is a real action rather than a second
+            // Cancel - it puts the console's own name back.
+            Button("Reset") {
+                model.setPersonalName(channel: channel.channel, name: "")
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let snapshot = model.liveSnapshot {
+                Text("Your name for this channel on \"\(snapshot)\". "
+                     + "Nobody else sees it, and the mixer is not changed.")
+            } else {
+                Text("Your name for this channel. Nobody else sees it, "
+                     + "and the mixer is not changed.")
+            }
         }
         // Switching to a mono aux with the sheet already open would
         // otherwise leave a pan control on screen for a bus that has no
