@@ -18,7 +18,12 @@ enum AppScreen: Equatable {
 /// into one observable source of truth driving which screen is shown.
 @MainActor
 final class AppModel: NSObject, ObservableObject {
-    @Published var screen: AppScreen = .connect
+    @Published var screen: AppScreen = .connect {
+        didSet {
+            // The only screen that locks out landscape - see AppDelegate.
+            AppDelegate.lockedToPortrait = (screen == .connect)
+        }
+    }
     @Published var statusMessage = ""
     // True while statusMessage describes a failure rather than progress -
     // ConnectView reads it to color the message red instead of secondary.

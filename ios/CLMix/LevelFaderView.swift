@@ -26,6 +26,16 @@ struct LevelFaderView: View {
     /// frame before jumping to where it was actually put.
     private static let dragGraceSeconds: UInt64 = 300_000_000
 
+    // ChannelStripView overlaps the ruler and meter into this view's own
+    // frame (its ruler `.padding(.trailing, -5)` and meter
+    // `.padding(.leading, -8)`) so they sit close against the track
+    // without dead space between them. The hit-test rectangle below
+    // excludes exactly those slivers, so a tap that lands on a ruler
+    // number or the meter - which only visually overlap this view, not
+    // the other way round - never reads as a fader touch.
+    private static let rulerOverlap: CGFloat = 5
+    private static let meterOverlap: CGFloat = 8
+
     var body: some View {
         GeometryReader { geo in
             let height = geo.size.height
@@ -51,7 +61,14 @@ struct LevelFaderView: View {
                     .overlay(Circle().stroke(Color.clmixOnPrimary, lineWidth: 2))
                     .offset(y: -filledHeight + 13)
             }
-            .contentShape(Rectangle())
+            .contentShape(
+                Path(CGRect(
+                    x: Self.rulerOverlap,
+                    y: 0,
+                    width: geo.size.width - Self.rulerOverlap - Self.meterOverlap,
+                    height: height
+                ))
+            )
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in

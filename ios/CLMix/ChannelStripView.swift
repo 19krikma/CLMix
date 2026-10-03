@@ -229,13 +229,16 @@ struct ChannelStripView: View, Equatable {
     /// layout_weight="1", so a row of strips always has its Mute buttons
     /// at the same height whatever the names above them did.
     ///
-    /// The negative margins either side are the point of the layout: the
-    /// fader's touch band is far wider than the track drawn down the
-    /// middle of it, and both the tick lines and the meter were being
-    /// held out at arm's length by that dead width. Overlapping costs
-    /// nothing - the ruler's lines and the meter both draw over
-    /// transparent space, and the meter takes no touches, so the fader
-    /// underneath still gets them.
+    /// The negative margins either side are purely visual: the tick
+    /// lines and the meter sit close against the track instead of being
+    /// held out at arm's length by dead space. They cost nothing to draw
+    /// over - but two things keep that overlap from being felt as well as
+    /// seen. The meter takes no touches at all (below), and LevelFaderView
+    /// trims its own hit-test rectangle to exclude exactly these
+    /// overlapped slivers, so a tap that lands on a ruler number or the
+    /// meter never reads as a fader touch. zIndex keeps the thumb itself
+    /// drawn on top of the meter rather than sliced by it where the two
+    /// overlap.
     private var faderRow: some View {
         HStack(spacing: 0) {
             // .equatable() because the ruler has no inputs at all: it is
@@ -253,6 +256,7 @@ struct ChannelStripView: View, Equatable {
                 onChange: onLevel
             )
             .frame(width: 30)
+            .zIndex(1)
 
             // Beside the fader rather than against its ruler: this is
             // the console's own 0..-60 dB scale, not the fader's
