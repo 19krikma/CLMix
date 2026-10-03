@@ -692,17 +692,28 @@ extension AppModel: MixerClientDelegate {
             return
         }
 
+        // Assigned only when it actually moved. A levels frame arrives
+        // ~7x a second whether or not anything on the console changed,
+        // and writing an unchanged value to an @Published property still
+        // tells every view observing this model to rebuild - which, for a
+        // screen made of a dozen channel strips, is most of a frame's
+        // budget spent arriving back where it started. Same reason
+        // `channels` is compared below. Nothing on Android needed this:
+        // the RecyclerView adapter is handed the new list and diffs it
+        // itself.
+        if liveSnapshot != backend.liveSnapshot {
+            liveSnapshot = backend.liveSnapshot
+        }
+
         // A bank switch (or aux switch) can drop channels that still have
         // a tap awaiting confirmation - without pruning, a stale entry
         // would sit here suppressing that channel's real state if it ever
         // came back. Mirrors Android's pendingMutes.retainAll.
-        liveSnapshot = backend.liveSnapshot
-
         let newChannelSet = Set(channels.map(\.channel))
         pendingMutes = pendingMutes.filter { newChannelSet.contains($0.key) }
 
         let now = Date()
-        self.channels = channels.map { channel in
+        let resolved = channels.map { channel in
             guard let pending = pendingMutes[channel.channel] else { return channel }
 
             let confirmed = channel.muted == pending.expected
@@ -716,6 +727,10 @@ extension AppModel: MixerClientDelegate {
             var held = channel
             held.muted = pending.expected
             return held
+        }
+
+        if resolved != self.channels {
+            self.channels = resolved
         }
     }
 

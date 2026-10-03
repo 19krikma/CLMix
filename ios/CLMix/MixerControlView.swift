@@ -60,7 +60,7 @@ struct MixerControlView: View {
             channelGrid
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.clmixBackground)
+        .background(Color.clmixBackground.ignoresSafeArea())
         .navigationBarHidden(true)
         .sheet(isPresented: $showMenu) { menuSheet }
         .sheet(item: $openInput) { open in inputSheet(for: open.id) }
@@ -70,6 +70,9 @@ struct MixerControlView: View {
     }
 
     private var channelGrid: some View {
+        // As the aux screen: the model is read here and handed down as
+        // values, so a strip rebuilds only when its own state moves - see
+        // ChannelStripView.
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 0) {
                 ForEach(Array(model.channels.enumerated()), id: \.element.id) { index, channel in
@@ -81,8 +84,15 @@ struct MixerControlView: View {
                         // the whole console is in reach here, and the
                         // number is how the desk itself refers to a strip.
                         showChannelNumber: true,
+                        panSupported: model.panSupported,
+                        muteOffered: model.muteOffered,
+                        hardMuteArmed: model.hardMute,
+                        onLevel: { model.setLevel(channel: channel.channel, db: $0) },
+                        onPan: { model.setPan(channel: channel.channel, pan: $0) },
+                        onMute: { model.setMute(channel: channel.channel, muted: $0) },
                         onOpenInput: { openInput = OpenChannel(id: $0.channel) }
                     )
+                    .equatable()
                 }
             }
             .padding(10)

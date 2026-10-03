@@ -78,7 +78,12 @@ struct MixerView: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.clmixBackground)
+        // The fill ignores the safe area while the content above it does
+        // not: rotated, the inset the notch takes out of the leading edge
+        // would otherwise leave a bare strip down the side of the screen
+        // in whatever colour the window happens to be under this. Nothing
+        // moves - only the paint reaches further.
+        .background(Color.clmixBackground.ignoresSafeArea())
         .navigationBarHidden(true)
         .sheet(isPresented: $showMenu) { menuSheet }
         .sheet(isPresented: $showPresetSave) {
@@ -111,12 +116,31 @@ struct MixerView: View {
         // .center, which would otherwise center the (still content-sized)
         // HStack within the new taller frame instead of pinning it to the
         // top.
+        //
+        // Everything a strip draws is read out of the model here and
+        // handed down as a value, and .equatable() lets SwiftUI skip the
+        // ones that did not change - see ChannelStripView for why a
+        // strip deliberately does not reach into the environment for
+        // this itself.
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 0) {
                 ForEach(Array(model.channels.enumerated()), id: \.element.id) { index, channel in
                     ChannelStripView(
-                        channel: channel, fineMode: model.fineMode, alternate: index % 2 == 1
+                        channel: channel,
+                        fineMode: model.fineMode,
+                        alternate: index % 2 == 1,
+                        panSupported: model.panSupported,
+                        muteOffered: model.muteOffered,
+                        personalizationAllowed: model.personalizationAllowed,
+                        liveSnapshot: model.liveSnapshot,
+                        onLevel: { model.setLevel(channel: channel.channel, db: $0) },
+                        onPan: { model.setPan(channel: channel.channel, pan: $0) },
+                        onMute: { model.setMute(channel: channel.channel, muted: $0) },
+                        onPersonalName: {
+                            model.setPersonalName(channel: channel.channel, name: $0)
+                        }
                     )
+                    .equatable()
                 }
             }
             .padding(10)

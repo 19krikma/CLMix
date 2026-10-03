@@ -2,7 +2,8 @@ import SwiftUI
 import UIKit
 
 /// Routes meter frames straight at the meter views currently on screen,
-/// without going through any `@Published` state.
+/// without going through any `@Published` state, and advances every one
+/// of them off a single display link.
 ///
 /// Frames arrive ~20x a second against the levels push's ~7x (see
 /// METER_PUSH_INTERVAL_SECONDS in services/remote_server.py). Publishing
@@ -11,8 +12,15 @@ import UIKit
 /// the meter views directly instead, exactly as Android's
 /// ChannelAdapter.updateMeters walks the visible holders rather than
 /// calling notifyItemChanged.
+///
+/// The one display link matters as much as the one frame. A phone shows a
+/// dozen strips at once, and a dozen CADisplayLinks - each waking the
+/// main thread, taking its own timestamp and asking for its own redraw
+/// every vsync - cost more between them than the bars they were there to
+/// move. One link also means every bar on screen advances off exactly the
+/// same clock, so a row of meters fed the same signal can't drift apart.
 @MainActor
-final class MeterCenter {
+final class MeterCenter: NSObject {
     static let shared = MeterCenter()
 
     // Weak: a strip scrolled off the grid or dropped by a bank switch
@@ -23,7 +31,12 @@ final class MeterCenter {
     private var sequence: Int64 = 0
     private var frame: [Int: MeterLevels] = [:]
 
-    private init() {}
+    private var displayLink: CADisplayLink?
+    private var lastStepAt: CFTimeInterval = 0
+
+    // NSObject only so CADisplayLink has an Objective-C target to call
+    // tick() on - a pure Swift class cannot carry an @objc member.
+    private override init() { super.init() }
 
     func register(_ view: ChannelMeterUIView) {
         views.add(view)
@@ -33,21 +46,27 @@ final class MeterCenter {
         // for the next frame that happens to differ.
         if let levels = frame[view.channel] {
             view.apply(sequence: sequence, levels: levels)
+            startAnimating()
         }
     }
 
     func unregister(_ view: ChannelMeterUIView) {
         views.remove(view)
+        if views.count == 0 { stopAnimating() }
     }
 
     func publish(sequence: Int64, frame: [Int: MeterLevels]) {
         self.sequence = sequence
         self.frame = frame
 
+        var fed = false
         for view in views.allObjects {
             guard let levels = frame[view.channel] else { continue }
             view.apply(sequence: sequence, levels: levels)
+            fed = true
         }
+
+        if fed { startAnimating() }
     }
 
     /// Drops the retained frame and empties every bar - for a logout or a
@@ -57,6 +76,49 @@ final class MeterCenter {
         frame = [:]
         sequence = 0
         views.allObjects.forEach { $0.reset() }
+        stopAnimating()
+    }
+
+    /// Runs the link whenever anything on screen has somewhere to travel
+    /// to. Idempotent - every path that hands out a fresh sample calls it.
+    private func startAnimating() {
+        guard displayLink == nil else { return }
+
+        lastStepAt = 0
+
+        let link = CADisplayLink(target: self, selector: #selector(tick))
+        // .common so a fader drag or a sideways scroll of the channel
+        // grid doesn't suspend the meters for the length of the gesture.
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func stopAnimating() {
+        displayLink?.invalidate()
+        displayLink = nil
+        lastStepAt = 0
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        let now = link.timestamp
+        let elapsed = lastStepAt == 0 ? 0 : min(0.25, now - lastStepAt)
+        lastStepAt = now
+
+        // Batched across every meter on screen: one transaction for the
+        // whole row rather than one per bar.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
+        var moving = false
+        for view in views.allObjects {
+            if view.step(elapsed: elapsed, now: now) { moving = true }
+        }
+
+        CATransaction.commit()
+
+        // Idle strips stop the link entirely, rather than burning a frame
+        // each vsync on bars that are already at the floor.
+        if !moving { stopAnimating() }
     }
 }
 
@@ -76,6 +138,17 @@ final class MeterCenter {
 /// only advances when the server actually sent something new -
 /// re-applying the same latched value every frame would hold the bar up
 /// forever.
+///
+/// Nothing here draws per frame. The ladder of slices is two 1px-wide
+/// images - the lit gradient and the dimmed one - built once per bar
+/// height and shared by every meter on screen; a moving bar is then only
+/// a layer frame and a `contentsRect`, which the compositor handles off
+/// the main thread. Drawing it instead, as this used to and as Android
+/// still does, meant ~400 CoreGraphics fills and twice that many UIColor
+/// allocations per bar per vsync: Android's Canvas turns those into a
+/// hardware display list, where CoreGraphics rasterizes them on the CPU
+/// and re-uploads the bitmap every frame, so the same code costs
+/// something entirely different on the two platforms.
 final class ChannelMeterUIView: UIView {
     var channel: Int = 0 {
         didSet {
@@ -89,7 +162,7 @@ final class ChannelMeterUIView: UIView {
     var stereo: Bool = false {
         didSet {
             guard stereo != oldValue else { return }
-            setNeedsDisplay()
+            setNeedsLayout()
         }
     }
 
@@ -100,18 +173,48 @@ final class ChannelMeterUIView: UIView {
         var peakHold = ChannelMeterUIView.floorDb
         var peakHeldAt: CFTimeInterval = 0
         var seq: Int64 = -1
+
+        // The unlit ladder underneath, the lit one cropped to the bar's
+        // current height, and the peak-hold tick above it.
+        let dim = CALayer()
+        let lit = CALayer()
+        let peak = CALayer()
+
+        var x0: CGFloat = 0
+        var barWidth: CGFloat = 0
+
+        // What was last handed to the layers, so a vsync that doesn't
+        // move this bar by a whole slice sets nothing at all.
+        var litSlices = -1
+        var peakY: CGFloat = .nan
     }
 
     private let legs = [Leg(), Leg()]
-    private var displayLink: CADisplayLink?
-    private var lastFrameAt: CFTimeInterval = 0
+
+    // Slices down the whole bar, from the view's height. 0 until the
+    // first layout.
+    private var slices = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
         backgroundColor = .clear
         isUserInteractionEnabled = false
-        contentMode = .redraw
+
+        for leg in legs {
+            for layer in [leg.dim, leg.lit, leg.peak] {
+                layer.isHidden = true
+                layer.magnificationFilter = .nearest
+                layer.minificationFilter = .nearest
+                // The ladder is a vertical gradient stretched across the
+                // bar's width, so the images are 1px wide and the layer
+                // scales them out.
+                layer.contentsGravity = .resize
+                self.layer.addSublayer(layer)
+            }
+            leg.peak.contents = nil
+            leg.peak.backgroundColor = Self.peakColor.cgColor
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -134,7 +237,6 @@ final class ChannelMeterUIView: UIView {
 
         if window == nil {
             MeterCenter.shared.unregister(self)
-            stopAnimating()
         } else {
             MeterCenter.shared.register(self)
         }
@@ -144,7 +246,6 @@ final class ChannelMeterUIView: UIView {
     func apply(sequence: Int64, levels: MeterLevels) {
         applyLeg(legs[0], sequence, levels.leftPeak, levels.leftRms)
         applyLeg(legs[1], sequence, levels.rightPeak, levels.rightRms)
-        startAnimating()
     }
 
     func reset() {
@@ -156,8 +257,10 @@ final class ChannelMeterUIView: UIView {
             leg.seq = -1
         }
 
-        stopAnimating()
-        setNeedsDisplay()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for leg in legs { place(leg) }
+        CATransaction.commit()
     }
 
     private func applyLeg(_ leg: Leg, _ sequence: Int64, _ peak: Double?, _ rms: Double?) {
@@ -174,41 +277,14 @@ final class ChannelMeterUIView: UIView {
 
     // MARK: - Animation
 
-    private func startAnimating() {
-        guard displayLink == nil else { return }
-
-        lastFrameAt = CACurrentMediaTime()
-
-        let link = CADisplayLink(target: self, selector: #selector(tick))
-        // .common so a fader drag or a sideways scroll of the channel
-        // grid doesn't suspend the meters for the length of the gesture.
-        link.add(to: .main, forMode: .common)
-        displayLink = link
-    }
-
-    private func stopAnimating() {
-        displayLink?.invalidate()
-        displayLink = nil
-        lastFrameAt = 0
-    }
-
-    @objc private func tick() {
-        setNeedsDisplay()
-    }
-
-    // MARK: - Drawing
-
-    override func draw(_ rect: CGRect) {
-        guard let context = UIGraphicsGetCurrentContext() else { return }
-
-        let now = CACurrentMediaTime()
-        let elapsed = lastFrameAt == 0 ? 0 : min(0.25, now - lastFrameAt)
-        lastFrameAt = now
-
+    /// Advances this meter's ballistics by `elapsed` and moves its layers
+    /// to match. Returns whether anything is still off the floor, so
+    /// MeterCenter can stop the link once the whole screen is idle.
+    ///
+    /// Called inside MeterCenter's own CATransaction - nothing here opens
+    /// one of its own.
+    fileprivate func step(elapsed: CFTimeInterval, now: CFTimeInterval) -> Bool {
         let active = stereo ? 2 : 1
-        let gap: CGFloat = stereo ? Self.gapPoints : 0
-        let barWidth = (bounds.width - gap * CGFloat(active - 1)) / CGFloat(active)
-
         var moving = false
 
         for index in 0..<active {
@@ -219,14 +295,10 @@ final class ChannelMeterUIView: UIView {
                 moving = true
             }
 
-            drawLeg(context, leg, x0: CGFloat(index) * (barWidth + gap), barWidth: barWidth)
+            place(leg)
         }
 
-        // Idle strips stop redrawing entirely, rather than burning a
-        // frame each vsync on a bar that is already at the floor.
-        if !moving {
-            stopAnimating()
-        }
+        return moving
     }
 
     private func advance(_ leg: Leg, elapsed: CFTimeInterval, now: CFTimeInterval) {
@@ -252,46 +324,175 @@ final class ChannelMeterUIView: UIView {
         }
     }
 
-    private func drawLeg(_ context: CGContext, _ leg: Leg, x0: CGFloat, barWidth: CGFloat) {
+    // MARK: - Layout
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+
         let h = bounds.height
+        let active = stereo ? 2 : 1
+        let gap: CGFloat = stereo ? Self.gapPoints : 0
+        let barWidth = (bounds.width - gap * CGFloat(active - 1)) / CGFloat(active)
+
         guard h > 0, barWidth > 0 else { return }
 
-        let slices = max(1, Int((h / Self.slicePoints).rounded()))
-        let lit = Int((fraction(leg.shown) * Double(slices)).rounded())
-        let sliceHeight = h / CGFloat(slices)
+        slices = max(1, Int((h / Self.slicePoints).rounded()))
+        let ladder = Self.ladder(slices: slices)
 
-        for i in 0..<slices {
-            let db = Self.floorDb + (Double(i) + 0.5) / Double(slices) * -Self.floorDb
-            let rgb = gradientAt(db)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
 
-            context.setFillColor(i < lit ? rgb.cgColor : Self.dim(rgb).cgColor)
+        for (index, leg) in legs.enumerated() {
+            guard index < active else {
+                leg.dim.isHidden = true
+                leg.lit.isHidden = true
+                leg.peak.isHidden = true
+                continue
+            }
 
-            let bottom = h - CGFloat(i) * sliceHeight
-            context.fill(CGRect(x: x0, y: bottom - sliceHeight, width: barWidth, height: sliceHeight))
+            leg.x0 = CGFloat(index) * (barWidth + gap)
+            leg.barWidth = barWidth
+
+            leg.dim.contents = ladder.dim
+            leg.dim.frame = CGRect(x: leg.x0, y: 0, width: barWidth, height: h)
+            leg.dim.isHidden = false
+
+            leg.lit.contents = ladder.lit
+
+            // The bar hasn't moved, but everything it was measured
+            // against has - so the cached geometry is no longer what the
+            // layers are showing.
+            leg.litSlices = -1
+            leg.peakY = .nan
+            place(leg)
         }
 
-        if leg.peakHold > Self.floorDb {
-            let y = h - CGFloat(fraction(leg.peakHold)) * h
-            context.setFillColor(Self.peakColor.cgColor)
-            context.fill(
-                CGRect(x: x0, y: y - Self.peakThickness, width: barWidth, height: Self.peakThickness)
-            )
+        CATransaction.commit()
+    }
+
+    /// Moves one leg's layers to wherever its ballistics now say, and
+    /// nothing else. Cheap enough to call every vsync precisely because
+    /// it usually finds nothing to do.
+    private func place(_ leg: Leg) {
+        let h = bounds.height
+        guard h > 0, slices > 0, leg.barWidth > 0 else { return }
+
+        let lit = min(slices, max(0, Int((Self.fraction(leg.shown) * Double(slices)).rounded())))
+
+        if lit != leg.litSlices {
+            leg.litSlices = lit
+
+            if lit == 0 {
+                leg.lit.isHidden = true
+            } else {
+                let fraction = CGFloat(lit) / CGFloat(slices)
+                let litHeight = h * fraction
+
+                leg.lit.frame = CGRect(
+                    x: leg.x0, y: h - litHeight, width: leg.barWidth, height: litHeight
+                )
+                // Crops the ladder image to the same bottom fraction the
+                // layer covers, so the lit slices land on exactly the
+                // rows the unlit ones underneath them occupy.
+                leg.lit.contentsRect = CGRect(x: 0, y: 1 - fraction, width: 1, height: fraction)
+                leg.lit.isHidden = false
+            }
+        }
+
+        if leg.peakHold <= Self.floorDb {
+            if !leg.peak.isHidden { leg.peak.isHidden = true }
+            leg.peakY = .nan
+        } else {
+            let y = h - CGFloat(Self.fraction(leg.peakHold)) * h - Self.peakThickness
+            if y != leg.peakY {
+                leg.peakY = y
+                leg.peak.frame = CGRect(
+                    x: leg.x0, y: y, width: leg.barWidth, height: Self.peakThickness
+                )
+            }
+            if leg.peak.isHidden { leg.peak.isHidden = false }
         }
     }
 
-    private func fraction(_ db: Double) -> Double {
-        min(1, max(0, (db - Self.floorDb) / -Self.floorDb))
+    // MARK: - The ladder
+
+    // Optional because CGImage creation can in principle fail: a bar with
+    // no contents draws nothing, which is a meter that does not move
+    // rather than a show that stops.
+    private struct Ladder {
+        let lit: CGImage?
+        let dim: CGImage?
+    }
+
+    // Keyed on the slice count alone, which is the only thing the images
+    // depend on - every strip on screen is the same height, so in
+    // practice the whole app shares one pair. The colours are absolute
+    // (sampled off the console) rather than themed, so nothing here has
+    // to be rebuilt for dark mode.
+    @MainActor private static var ladders: [Int: Ladder] = [:]
+
+    @MainActor private static func ladder(slices: Int) -> Ladder {
+        if let cached = ladders[slices] { return cached }
+
+        var lit = [UInt8](repeating: 0, count: slices * 4)
+        var dim = [UInt8](repeating: 0, count: slices * 4)
+
+        for i in 0..<slices {
+            let db = floorDb + (Double(i) + 0.5) / Double(slices) * -floorDb
+            let rgb = gradientAt(db)
+
+            // Slice 0 is the bottom of the bar; row 0 is the top of the
+            // image.
+            let row = (slices - 1 - i) * 4
+
+            lit[row] = rgb.r
+            lit[row + 1] = rgb.g
+            lit[row + 2] = rgb.b
+            lit[row + 3] = 255
+
+            dim[row] = UInt8(Double(rgb.r) * dimFactor)
+            dim[row + 1] = UInt8(Double(rgb.g) * dimFactor)
+            dim[row + 2] = UInt8(Double(rgb.b) * dimFactor)
+            dim[row + 3] = 255
+        }
+
+        let ladder = Ladder(
+            lit: image(lit, height: slices),
+            dim: image(dim, height: slices)
+        )
+        ladders[slices] = ladder
+        return ladder
+    }
+
+    private static func image(_ bytes: [UInt8], height: Int) -> CGImage? {
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+
+        return CGImage(
+            width: 1, height: height,
+            bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider, decode: nil,
+            // The ladder's slice edges are the point of it - interpolating
+            // between rows would smear them into a continuous gradient.
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+    }
+
+    private static func fraction(_ db: Double) -> Double {
+        min(1, max(0, (db - floorDb) / -floorDb))
     }
 
     /// Linear interpolation between the stops bracketing this dB.
-    private func gradientAt(_ db: Double) -> UIColor {
-        var low = Self.gradient.first!
-        var high = Self.gradient.last!
+    private static func gradientAt(_ db: Double) -> (r: UInt8, g: UInt8, b: UInt8) {
+        var low = gradient.first!
+        var high = gradient.last!
 
-        for i in 0..<(Self.gradient.count - 1) {
-            if db >= Self.gradient[i].db && db <= Self.gradient[i + 1].db {
-                low = Self.gradient[i]
-                high = Self.gradient[i + 1]
+        for i in 0..<(gradient.count - 1) {
+            if db >= gradient[i].db && db <= gradient[i + 1].db {
+                low = gradient[i]
+                high = gradient[i + 1]
                 break
             }
         }
@@ -299,19 +500,11 @@ final class ChannelMeterUIView: UIView {
         let span = high.db - low.db
         let ratio = span == 0 ? 0 : (db - low.db) / span
 
-        return UIColor(
-            red: low.r + (high.r - low.r) * ratio,
-            green: low.g + (high.g - low.g) * ratio,
-            blue: low.b + (high.b - low.b) * ratio,
-            alpha: 1
+        return (
+            UInt8((low.r + (high.r - low.r) * ratio).rounded()),
+            UInt8((low.g + (high.g - low.g) * ratio).rounded()),
+            UInt8((low.b + (high.b - low.b) * ratio).rounded())
         )
-    }
-
-    /// Unlit slices keep their hue at low brightness, as on the desk.
-    private static func dim(_ color: UIColor) -> UIColor {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        color.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return UIColor(red: r * dimFactor, green: g * dimFactor, blue: b * dimFactor, alpha: 1)
     }
 
     // MARK: - Constants
@@ -320,7 +513,7 @@ final class ChannelMeterUIView: UIView {
 
     private static let gapPoints: CGFloat = 1.5
     private static let slicePoints: CGFloat = 1.5
-    private static let dimFactor: CGFloat = 0.22
+    private static let dimFactor = 0.22
     private static let peakThickness: CGFloat = 1
     private static let peakColor = UIColor(
         red: 0xE6 / 255, green: 0xED / 255, blue: 0xF3 / 255, alpha: 1
@@ -336,15 +529,15 @@ final class ChannelMeterUIView: UIView {
     // Android.
     private struct Stop {
         let db: Double
-        let r: CGFloat
-        let g: CGFloat
-        let b: CGFloat
+        let r: Double
+        let g: Double
+        let b: Double
 
         init(_ db: Double, _ hex: Int) {
             self.db = db
-            self.r = CGFloat((hex >> 16) & 0xFF) / 255
-            self.g = CGFloat((hex >> 8) & 0xFF) / 255
-            self.b = CGFloat(hex & 0xFF) / 255
+            self.r = Double((hex >> 16) & 0xFF)
+            self.g = Double((hex >> 8) & 0xFF)
+            self.b = Double(hex & 0xFF)
         }
     }
 

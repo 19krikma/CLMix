@@ -81,58 +81,74 @@ struct ChannelInputSheet: View {
     @State private var inputNote = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Capsule()
-                .fill(Color.clmixTrackBackground)
-                .frame(width: 40, height: 4)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 18)
+        // Scrolling, because the sheet does not always get the height
+        // it asks for: in landscape the phone reports a compact
+        // height, which makes every sheet full-screen and ignores the
+        // detent below outright - and this content is taller than the
+        // screen is in that orientation, so the Trim dial at the bottom
+        // would simply be cut off. .scrollBounceBehavior(.basedOnSize)
+        // keeps it feeling like a fixed panel wherever it does fit,
+        // which is every portrait case.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Capsule()
+                    .fill(Color.clmixTrackBackground)
+                    .frame(width: 40, height: 4)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 18)
 
-            Text("Channel \(channel.channel)")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.clmixOnSurfaceVariant)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 6)
+                Text("Channel \(channel.channel)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.clmixOnSurfaceVariant)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 6)
 
-            nameRow
-                .padding(.bottom, 16)
+                nameRow
+                    .padding(.bottom, 16)
 
-            inputRow
-                .padding(.bottom, 18)
+                inputRow
+                    .padding(.bottom, 18)
 
-            dialRow(
-                label: "Gain",
-                value: gainShown,
-                range: gainRange,
-                onChanged: { value, force in
-                    gainTouchedAt = Date()
-                    if force || gainTouchedAt.timeIntervalSince(gainSentAt) >= Self.writeInterval {
-                        gainSentAt = gainTouchedAt
-                        onGainChanged(channel.channel, value)
-                    }
-                },
-                onShown: { gainShown = $0 }
-            )
-            .padding(.bottom, 14)
+                dialRow(
+                    label: "Gain",
+                    value: gainShown,
+                    range: gainRange,
+                    onChanged: { value, force in
+                        gainTouchedAt = Date()
+                        let since = gainTouchedAt
+                            .timeIntervalSince(gainSentAt)
+                        if force || since >= Self.writeInterval {
+                            gainSentAt = gainTouchedAt
+                            onGainChanged(channel.channel, value)
+                        }
+                    },
+                    onShown: { gainShown = $0 }
+                )
+                .padding(.bottom, 14)
 
-            dialRow(
-                label: "Trim",
-                value: trimShown,
-                range: trimRange,
-                onChanged: { value, force in
-                    trimTouchedAt = Date()
-                    if force || trimTouchedAt.timeIntervalSince(trimSentAt) >= Self.writeInterval {
-                        trimSentAt = trimTouchedAt
-                        onTrimChanged(channel.channel, value)
-                    }
-                },
-                onShown: { trimShown = $0 }
-            )
+                dialRow(
+                    label: "Trim",
+                    value: trimShown,
+                    range: trimRange,
+                    onChanged: { value, force in
+                        trimTouchedAt = Date()
+                        let since = trimTouchedAt
+                            .timeIntervalSince(trimSentAt)
+                        if force || since >= Self.writeInterval {
+                            trimSentAt = trimTouchedAt
+                            onTrimChanged(channel.channel, value)
+                        }
+                    },
+                    onShown: { trimShown = $0 }
+                )
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 10)
+            .padding(.bottom, 28)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 10)
-        .padding(.bottom, 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clmixSurface)
         .onAppear(perform: seed)
         .onChange(of: channel) { _, state in fold(state) }

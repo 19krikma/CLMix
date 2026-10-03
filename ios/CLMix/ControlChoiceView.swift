@@ -52,7 +52,7 @@ struct ControlChoiceView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.clmixBackground)
+        .background(Color.clmixBackground.ignoresSafeArea())
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Log Out") { model.logout() }

@@ -47,20 +47,40 @@ targets:
         # only cryptography is the system Keychain and the platform's own
         # TLS, neither of which counts, and the mixer socket is plain ws://.
         ITSAppUsesNonExemptEncryption: false
-        # Every screen here (vertical faders running edge-to-edge, the
-        # connect form) is built portrait-only and has never been run in
-        # landscape or iPad Split View - declaring it explicitly avoids
-        # Xcode's "All interface orientations must be supported unless the
-        # app requires full screen" validation failure (ITMS-90474 at
-        # App Store Connect upload), which TARGETED_DEVICE_FAMILY "1,2"
-        # otherwise triggers by including the iPad idiom.
+        # Portrait and both landscapes, matching the other mobile
+        # platform - every screen there handles a rotation in place rather
+        # than being locked to one orientation, and a phone laid flat on a
+        # desk next to the console is held whichever way the operator
+        # happens to be standing.
+        #
+        # Landscape trades fader travel for strips on screen: the grid
+        # fits roughly twice as many channels at once, while the faders
+        # themselves lose most of their height to the chrome above and
+        # below them. That is the same trade the other platform already
+        # makes, so it is deliberately not corrected for here.
+        #
+        # Upside-down is deliberately absent: the phone reports it on
+        # tablets only, and a mixing surface that can arrive rotated 180
+        # degrees while being operated is not worth the one case where
+        # somebody wanted it.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
-        # iPad multitasking (Split View/Slide Over) can present the app in
-        # any orientation regardless of the key above unless this opts out
-        # of it - untested layout territory the same way landscape is.
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Stays true for two separate reasons. It opts out of iPad
+        # multitasking (Split View/Slide Over), which can hand the app an
+        # arbitrary fraction of the screen in any orientation - untested
+        # layout territory that rotation itself does not cover. It also
+        # keeps Xcode's "All interface orientations must be supported
+        # unless the app requires full screen" validation satisfied
+        # (ITMS-90474 at App Store Connect upload), which
+        # TARGETED_DEVICE_FAMILY "1,2" triggers by including the iPad
+        # idiom and which upside-down's absence above would otherwise
+        # fail.
         UIRequiresFullScreen: true
     settings:
       base:

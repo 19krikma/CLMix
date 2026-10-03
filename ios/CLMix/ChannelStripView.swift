@@ -7,8 +7,20 @@ import SwiftUI
 // out rather than as it is typed.
 private let maxPersonalNameLength = 32
 
-struct ChannelStripView: View {
-    @EnvironmentObject var model: AppModel
+/// One channel's column: name, ruler, fader, meter, pan and mute.
+///
+/// Everything it draws arrives as a value and everything it does leaves
+/// through a closure - deliberately, where every other screen in this app
+/// reads `AppModel` out of the environment. A view observing the model
+/// rebuilds when *any* of its published properties changes, and there are
+/// a dozen of these on screen at once: a status message landing in the
+/// top bar, or a snapshot name arriving with a levels frame, would
+/// otherwise re-lay-out twelve rulers, twelve faders and twelve meters to
+/// change something none of them draw. Taking values instead, and
+/// comparing them in `==` below, is what lets the grid rebuild only the
+/// strips that actually moved. Android gets the same effect from
+/// RecyclerView rebinding single positions.
+struct ChannelStripView: View, Equatable {
     let channel: ChannelState
     let fineMode: Bool
     // Alternates a subtle background so adjacent strips read as visually
@@ -22,6 +34,20 @@ struct ChannelStripView: View {
     // whole console is in reach and the number is how the desk itself
     // refers to a strip.
     var showChannelNumber: Bool = false
+
+    // AppModel.panSupported / .muteOffered, resolved by the screen above.
+    let panSupported: Bool
+    let muteOffered: Bool
+    // Whether hard mute is switched on for this screen at all - a strip
+    // pulses only when it is also muted (see `hardMuted`).
+    var hardMuteArmed: Bool = false
+    var personalizationAllowed: Bool = false
+    var liveSnapshot: String? = nil
+
+    let onLevel: (Double) -> Void
+    let onPan: (Double) -> Void
+    let onMute: (Bool) -> Void
+    var onPersonalName: ((String) -> Void)? = nil
     var onOpenInput: ((ChannelState) -> Void)? = nil
 
     @State private var showPanSheet = false
@@ -39,7 +65,27 @@ struct ChannelStripView: View {
     /// on a phone that showed three and a half.
     private static let width: CGFloat = 76
 
-    private var hardMuted: Bool { model.isMixerMode && model.hardMute && channel.muted }
+    /// Compares what the strip draws, and nothing else. The action
+    /// closures are new objects on every evaluation of the parent's body
+    /// and so can never compare equal - but they only ever reach back
+    /// into AppModel, which is a reference type, so a closure held over
+    /// from a skipped rebuild still acts on current state.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.channel == rhs.channel
+            && lhs.fineMode == rhs.fineMode
+            && lhs.alternate == rhs.alternate
+            && lhs.showChannelNumber == rhs.showChannelNumber
+            && lhs.panSupported == rhs.panSupported
+            && lhs.muteOffered == rhs.muteOffered
+            && lhs.hardMuteArmed == rhs.hardMuteArmed
+            && lhs.personalizationAllowed == rhs.personalizationAllowed
+            && lhs.liveSnapshot == rhs.liveSnapshot
+            // Not state, but it decides whether the heading is a button
+            // onto the input sheet or plain text.
+            && (lhs.onOpenInput == nil) == (rhs.onOpenInput == nil)
+    }
+
+    private var hardMuted: Bool { hardMuteArmed && channel.muted }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,14 +93,14 @@ struct ChannelStripView: View {
 
             faderRow
 
-            if model.panSupported {
+            if panSupported {
                 tonalButton(PanFormat.buttonLabel(channel.pan)) {
                     showPanSheet = true
                 }
                 .padding(.top, 4)
             }
 
-            if model.muteOffered {
+            if muteOffered {
                 // The label stays "MUTE" in both states - it names the
                 // button, it does not report the state. Colour carries
                 // that, which reads faster across a row of strips than
@@ -66,7 +112,7 @@ struct ChannelStripView: View {
                 // the server stays the authority on what's actually
                 // muted.
                 tonalButton("MUTE", active: channel.muted, pulsed: hardMuted) {
-                    model.setMute(channel: channel.channel, muted: !channel.muted)
+                    onMute(!channel.muted)
                 }
                 .padding(.top, 6)
             }
@@ -79,7 +125,7 @@ struct ChannelStripView: View {
             PanSheetView(
                 channelName: channel.name,
                 pan: channel.pan ?? 0,
-                onChange: { pan in model.setPan(channel: channel.channel, pan: pan) }
+                onChange: onPan
             )
             .presentationDetents([.height(280)])
         }
@@ -90,23 +136,20 @@ struct ChannelStripView: View {
             Button("Save") {
                 let trimmed = nameDraft
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                model.setPersonalName(
-                    channel: channel.channel,
-                    name: String(trimmed.prefix(maxPersonalNameLength))
-                )
+                onPersonalName?(String(trimmed.prefix(maxPersonalNameLength)))
             }
 
             // An empty name is how the server is asked to drop the
             // label, so this is a real action rather than a second
             // Cancel - it puts the console's own name back.
             Button("Reset") {
-                model.setPersonalName(channel: channel.channel, name: "")
+                onPersonalName?("")
             }
 
             Button("Cancel", role: .cancel) {}
         } message: {
-            if let snapshot = model.liveSnapshot {
-                Text("Your name for this channel on \"\(snapshot)\". "
+            if let liveSnapshot {
+                Text("Your name for this channel on \"\(liveSnapshot)\". "
                      + "Nobody else sees it, and the mixer is not changed.")
             } else {
                 Text("Your name for this channel. Nobody else sees it, "
@@ -116,7 +159,7 @@ struct ChannelStripView: View {
         // Switching to a mono aux with the sheet already open would
         // otherwise leave a pan control on screen for a bus that has no
         // pan axis - mirrors Android's applyAuxWidth dismissing it.
-        .onChange(of: model.panSupported) { _, supported in
+        .onChange(of: panSupported) { _, supported in
             if !supported { showPanSheet = false }
         }
     }
@@ -146,7 +189,7 @@ struct ChannelStripView: View {
             // ChannelAdapter.onNameLongPressed.
             headingLabel
                 .onLongPressGesture {
-                    guard model.personalizationAllowed else { return }
+                    guard personalizationAllowed else { return }
                     nameDraft = channel.name
                     showRenameAlert = true
                 }
@@ -195,14 +238,19 @@ struct ChannelStripView: View {
     /// underneath still gets them.
     private var faderRow: some View {
         HStack(spacing: 0) {
+            // .equatable() because the ruler has no inputs at all: it is
+            // the same twenty-odd positioned labels and lines on every
+            // strip and in every state, and laying them out again is pure
+            // cost. See LevelRulerView.
             LevelRulerView()
+                .equatable()
                 .frame(width: 31)
                 .padding(.trailing, -5)
 
             LevelFaderView(
                 db: channel.level ?? AuxTaper.bottomDb,
                 fineMode: fineMode,
-                onChange: { db in model.setLevel(channel: channel.channel, db: db) }
+                onChange: onLevel
             )
             .frame(width: 30)
 

@@ -11,7 +11,14 @@ import SwiftUI
 /// lines run on past the numbers and reach the fader they point at
 /// without taking any width from it. Everything but the lines is
 /// transparent, so the overlap is invisible.
-struct LevelRulerView: View {
+///
+/// `Equatable` with nothing to compare: the ruler takes no inputs, so
+/// every instance of it is identical and `.equatable()` at the call site
+/// (see ChannelStripView.faderRow) lets SwiftUI skip rebuilding a dozen
+/// of them every time anything else on the mixer screen changes. Laying
+/// out twenty-odd positioned labels and lines per strip is otherwise the
+/// most expensive thing in a strip that did not move.
+struct LevelRulerView: View, Equatable {
     // Keeps the top/bottom labels (10, -∞) from being clipped by the
     // view's edge, since they'd otherwise be vertically centered on the
     // exact top/bottom endpoints.

@@ -46,8 +46,17 @@ struct AuxSheetView: View {
                 auxList
             }
             .frame(height: expandedHeight, alignment: .top)
-            .background(Color.clmixSurface)
-            .shadow(color: .black.opacity(0.25), radius: 12, y: -2)
+            // The shadow hangs off the fill behind the sheet rather than
+            // off the sheet itself. Shadowing the content means SwiftUI
+            // has to rasterize the whole subtree - handle, arrows and the
+            // scrolling aux list - offscreen to find its silhouette, and
+            // then do it again on every re-render and every frame of the
+            // drag. The sheet is an opaque rectangle, so the silhouette
+            // of that rectangle is the same shadow for nothing.
+            .background {
+                Color.clmixSurface
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: -2)
+            }
             .frame(maxHeight: .infinity, alignment: .bottom)
             .offset(y: offset)
         }
