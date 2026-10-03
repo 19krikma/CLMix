@@ -78,6 +78,13 @@ struct LoginBackgroundView: View {
     /// recede far enough for a thin outlined box to read against it.
     private static let darkening: CGFloat = 0.48
 
+    /// How strongly the frost's blur comes through, independent of
+    /// `darkening`. Material has no blur-radius knob of its own - this
+    /// blends between the full `.ultraThinMaterial` blur and the sharp
+    /// picture underneath, so the band softens the artwork rather than
+    /// smearing it.
+    private static let blurStrength: CGFloat = 0.80
+
     var body: some View {
         GeometryReader { geo in
             // .top so the crop is predictable off the phone portrait
@@ -106,6 +113,7 @@ struct LoginBackgroundView: View {
     private func frost(height: CGFloat) -> some View {
         ZStack {
             Rectangle().fill(.ultraThinMaterial)
+                .opacity(Self.blurStrength)
             Color.black.opacity(Self.darkening)
         }
         // Two masks multiplied: across, the fade out to the margins;
