@@ -1,18 +1,5 @@
 import SwiftUI
 
-/// Reports the Discovered/Manual boxes' top-edge Y positions (in the
-/// "connectBanner" coordinate space) up to ConnectView, so it can tell
-/// FadingBannerView exactly where its fade should start and end -
-/// mirrors Android's ConnectActivity reading
-/// discoveredContainer.top/manualContainer.top directly off the views.
-private struct BoxTopPreferenceKey: PreferenceKey {
-    static var defaultValue: [String: CGFloat] = [:]
-
-    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
-
 struct ConnectView: View {
     @EnvironmentObject var model: AppModel
 
@@ -35,33 +22,26 @@ struct ConnectView: View {
     // plain, unselected appearance instead of every row being filled.
     @State private var selectedServerID: String?
 
-    // Where the banner's fade should run, in the ScrollView's own content
-    // coordinates - kept live by the Discovered/Manual boxes' own
-    // preference reports below, so the fade always finishes exactly at
-    // Manual's top regardless of how many servers Discovered is showing.
-    @State private var discoveredTop: CGFloat = 0
-    @State private var manualTop: CGFloat = 1
-
     private enum Field { case username, password }
     @FocusState private var focusedField: Field?
 
     var body: some View {
         GeometryReader { outerGeo in
-            // The banner replaced the old "CLMix" / "Remote Aux Control"
-            // title block entirely - the form now starts right where the
-            // artwork's solid-black tail begins, same as Android's
-            // bannerOffsetFor.
-            let contentTopPadding = outerGeo.size.width
-                / FadingBannerView.aspectRatio * FadingBannerView.tailStart
+            // The artwork fills the screen rather than heading it, so
+            // what this reserves is not room for a picture above the
+            // form but the strip of picture the form deliberately stays
+            // off: the hanging lights across the top. The same number
+            // goes to the background, which starts its frost just above
+            // it - see LoginBackgroundView.
+            let contentTopPadding = outerGeo.size.height
+                * LoginBackgroundView.contentTopFraction
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     discoveredBox
-                        .background(topReader("discovered"))
                         .padding(.bottom, 18)
 
                     manualBox
-                        .background(topReader("manual"))
                         .padding(.bottom, 18)
 
                     demoBox
@@ -92,41 +72,39 @@ struct ConnectView: View {
                 .padding(.top, contentTopPadding)
                 .padding(.bottom, 28)
                 .frame(maxWidth: .infinity)
-                .background(alignment: .top) {
-                    FadingBannerView(fadeStart: discoveredTop, fadeEnd: manualTop)
-                }
             }
-            .coordinateSpace(name: "connectBanner")
-            .onPreferenceChange(BoxTopPreferenceKey.self) { tops in
-                if let top = tops["discovered"] { discoveredTop = top }
-                if let top = tops["manual"] { manualTop = top }
+            // Behind the ScrollView rather than behind its content, so
+            // the frosted band stays put while the form scrolls through
+            // it - it marks where the controls are on screen, not where
+            // they are in the scrolling content.
+            .background {
+                LoginBackgroundView(bandTop: contentTopPadding)
+                    .ignoresSafeArea()
             }
         }
-        .background(Color.clmixBackground)
-        // The banner runs to the very top of the screen, under the status
-        // bar/notch, same as Android's enableEdgeToEdge() - the clock and
-        // status icons sit over the artwork itself rather than over an
-        // opaque bar. Only the top edge: the bottom still respects the
-        // home indicator's safe area, same as before. Unlike Android,
-        // there's no separate call needed to pick light-vs-dark status
-        // bar content here - iOS already switches that automatically with
-        // the color scheme, which is also what picks which banner (dark
-        // artwork at night, light by day) is showing.
+        // The artwork runs to the very top of the screen, under the
+        // status bar/notch, same as Android's enableEdgeToEdge() - the
+        // clock and status icons sit over the picture itself rather than
+        // over an opaque bar. Only the top edge here: the form still
+        // respects the home indicator's safe area at the bottom, same as
+        // before, while the background reaches past it on its own.
         .ignoresSafeArea(edges: .top)
+        // The palette is pinned to its night values whatever the phone
+        // or the user's own theme choice says, because the artwork
+        // behind it is black and there is no light cut of it: in day
+        // mode `Color.primary` would resolve to near-black and every
+        // label on this screen would disappear into the picture. Only
+        // this screen - everything past login follows the theme as it
+        // always has. CLMixApp pins the window to match, which is what
+        // turns the status bar's own clock and icons white over the top
+        // of the artwork; this line is what the colours in here actually
+        // read, so the two are deliberately both present.
+        .environment(\.colorScheme, .dark)
         .onAppear {
             model.startDiscovery()
             model.resumeSessionIfPossible()
         }
         .onDisappear { model.stopDiscovery() }
-    }
-
-    private func topReader(_ key: String) -> some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: BoxTopPreferenceKey.self,
-                value: [key: proxy.frame(in: .named("connectBanner")).minY]
-            )
-        }
     }
 
     // Always on screen, like Android's discovered_container - only the
