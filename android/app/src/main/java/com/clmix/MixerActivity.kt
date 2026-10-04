@@ -6,9 +6,14 @@ import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.res.Configuration
 import android.content.res.ColorStateList
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputFilter
 import android.text.InputType
+import android.view.Gravity
+import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
@@ -17,6 +22,8 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.coordinatorlayout.widget.CoordinatorLayout
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.core.view.isVisible
@@ -44,6 +51,15 @@ private const val BANK_COLUMNS = 4
 // screen transition, so it only has to take the hard edge off the
 // strips jumping - any longer reads as waiting for the panel.
 private const val BANK_PANEL_ANIM_MS = 100L
+
+// The landscape side panel sliding out and back. A touch longer than
+// the bank panel above: this one travels the width of itself rather
+// than unfolding in place, and at 100ms that reads as a jump.
+private const val PANEL_ANIM_MS = 180L
+
+// The drawer's own width, kept here because landscape takes the menu
+// out of the drawer and has to be able to put it back.
+private const val MENU_WIDTH_DP = 280
 
 // Longest personal label the rename dialog accepts, matching the
 // server's own MAX_CHANNEL_NAME cap (services/remote_server.py) so the
@@ -166,6 +182,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             // leaving it open would keep a third of the faders pushed off
             // screen after the choice is made.
             setBanksExpanded(false)
+            closeLandscapePanel()
 
             if (bank != selectedBank) {
                 selectedBank = bank
@@ -188,8 +205,27 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
+        // The landscape sidebar carries its own copies of the top bar's
+        // controls rather than the bar being moved: the bar is still
+        // what portrait uses, and two listeners onto the same actions is
+        // less to go wrong than one view re-parented between two
+        // layouts on every rotation.
+        binding.sidebarMenuButton.setOnClickListener { toggleLandscapePanel(Panel.MENU) }
+        binding.sidebarAuxButton.setOnClickListener { toggleLandscapePanel(Panel.AUX) }
+        binding.sidebarBankButton.setOnClickListener { toggleLandscapePanel(Panel.BANK) }
+        binding.sidebarSmoothButton.setOnClickListener {
+            smoothEnabled = !smoothEnabled
+            adapter.smoothEnabled = smoothEnabled
+            updateSmoothButtonAppearance()
+        }
+        binding.landscapeScrim.setOnClickListener { closeLandscapePanel() }
+        binding.root.addOnLayoutChangeListener(sidebarSideOnLayout)
+
         binding.auxSheetRecycler.layoutManager = LinearLayoutManager(this)
-        auxAdapter = AuxAdapter(auxes) { aux -> switchAux(aux) }
+        auxAdapter = AuxAdapter(auxes) { aux ->
+            closeLandscapePanel()
+            switchAux(aux)
+        }
         binding.auxSheetRecycler.adapter = auxAdapter
 
         // An explicit height rather than wrap_content. Left to wrap, the
@@ -300,11 +336,6 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             ThemeStore.setDarkMode(this, isChecked)
         }
 
-        binding.chromeToggle.setOnClickListener {
-            chromeVisible = !chromeVisible
-            applyChrome()
-        }
-
         // Back goes to the AUX Only / Mixer Control choice, which sits
         // two down from here with the aux list in between - so it is
         // CLEAR_TOP rather than finish(), which would only reach the
@@ -318,13 +349,20 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         // Gone rather than disabled, so Log Out simply has the row.
         binding.backButton.isVisible = MixerClient.mixerControlAllowed
         binding.backButton.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeMenu()
             dismissPanSheet()
             startActivity(
                 Intent(this, ControlChoiceActivity::class.java).addFlags(
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 )
             )
+        }
+
+        binding.customBanksButton.isVisible = MixerClient.personalizationAllowed
+        binding.customBanksButton.setOnClickListener {
+            closeMenu()
+            dismissPanSheet()
+            startActivity(Intent(this, CustomBanksActivity::class.java))
         }
 
         binding.logoutButton.setOnClickListener { logout() }
@@ -342,20 +380,315 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         applyOrientation()
     }
 
+    /** Every layout re-checks which edge the camera is on, which is what
+     *  catches a flip from one landscape to the other. */
+    private val sidebarSideOnLayout =
+        View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applySidebarSide() }
+
+    private fun currentRotation(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        display?.rotation ?: Surface.ROTATION_0
+    } else {
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.rotation
+    }
+
     /**
-     * Folds the bars away in landscape and offers the toggle that brings
-     * them back; portrait keeps them and hides the toggle.
+     * Landscape folds both bars away for good and moves what they held
+     * into a strip down the edge the selfie camera is on; portrait is
+     * unchanged.
+     *
+     * That edge is the one place a landscape screen cannot hold a fader
+     * anyway, so the strip costs nothing - which is the whole reason the
+     * controls go there rather than back across the top.
      */
     private fun applyOrientation() {
         val landscape =
             resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-        binding.chromeToggle.visibility = if (landscape) View.VISIBLE else View.GONE
+        // Closed before anything moves: a drawer cannot be taken out
+        // from under itself while it is open.
+        closeMenu()
+        closeLandscapePanel(animate = false)
+        hostMenu(inPanel = landscape)
+        binding.landscapeSidebar.isVisible = landscape
 
-        // Turning the phone starts from hidden - the point of landscape
-        // is the extra fader travel, so that is what it opens on.
+        if (landscape) {
+            // Forced, because the edge may not have changed since the
+            // last landscape even though everything else just did.
+            appliedCameraOnRight = null
+            applySidebarSide()
+        } else {
+            appliedCameraOnRight = null
+            binding.mixerColumn.updatePadding(left = 0, right = 0)
+        }
+
+        // The adapters follow whichever list is on screen. Moved rather
+        // than duplicated: one RecyclerView may hold an adapter at a
+        // time, and two copies of the aux list would be two things to
+        // keep in step with the console.
+        if (landscape) {
+            binding.auxSheetRecycler.adapter = null
+            binding.bankRecycler.adapter = null
+        } else {
+            binding.landscapePanelRecycler.adapter = null
+            binding.auxSheetRecycler.adapter = auxAdapter
+            binding.bankRecycler.adapter = bankAdapter
+        }
+
+        // Turning the phone gives the strips the whole height, which is
+        // the point of landscape.
         chromeVisible = !landscape
         applyChrome()
+    }
+
+    /**
+     * Which edge the selfie camera is on, and so which edge the sidebar
+     * belongs on.
+     *
+     * The cutout is the authority where the phone reports one. It often
+     * does not while the app is drawing edge to edge behind it, so the
+     * fallback is the rotation itself: the natural top of the phone -
+     * the edge the camera is in - lands on the right at ROTATION_270 and
+     * on the left at ROTATION_90.
+     */
+    // Which edge the sidebar is currently built for. Null until the
+    // first landscape layout.
+    private var appliedCameraOnRight: Boolean? = null
+
+    /**
+     * Puts the sidebar, the panel and the chevrons on whichever edge the
+     * camera is on now.
+     *
+     * Driven off the layout rather than off a rotation callback.
+     * Turning the phone end for end - landscape one way to landscape the
+     * other - changes nothing in the Configuration (same orientation,
+     * same size, same density), so onConfigurationChanged never fires
+     * for it; and DisplayManager's own callback can arrive before the
+     * display has finished reporting its new rotation, which makes it
+     * compare equal to the last one and drop the change on the floor.
+     * That is exactly what left the sidebar stuck on the wrong edge.
+     *
+     * A rotation always lays the window out again, so every layout
+     * checks the edge against what is actually applied. A no-op when
+     * nothing moved, which is nearly always.
+     */
+    private fun applySidebarSide() {
+        if (resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE) {
+            return
+        }
+
+        val onRight = cameraOnRight()
+
+        if (appliedCameraOnRight == onRight) return
+
+        appliedCameraOnRight = onRight
+
+        // The open panel belongs to the edge it came out of - its
+        // margin and its hidden offset are both that edge's - so it
+        // goes away rather than being dragged across the screen.
+        closeLandscapePanel(animate = false)
+
+        val edge = if (onRight) Gravity.END else Gravity.START
+        val sidebar = resources.getDimensionPixelSize(R.dimen.landscape_sidebar_width)
+
+        binding.landscapeSidebar.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            gravity = edge
+        }
+        // Inset by the sidebar's width so the panel comes out beside it
+        // rather than under it - the sidebar is what closes the panel
+        // again, so it cannot be the thing the panel covers.
+        binding.landscapePanel.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            gravity = edge
+            marginStart = if (onRight) 0 else sidebar
+            marginEnd = if (onRight) sidebar else 0
+        }
+
+        // The chevrons point away from their own edge - into the
+        // screen, the way the panel will travel. Mirrored rather than a
+        // second drawable, so there is one glyph to keep.
+        val flip = if (onRight) 1f else -1f
+        binding.sidebarAuxArrow.scaleX = flip
+        binding.sidebarBankArrow.scaleX = flip
+
+        // The strips stop at the sidebar rather than running under it: a
+        // fader half behind a button is one that cannot be grabbed by
+        // its bottom half.
+        binding.mixerColumn.updatePadding(
+            left = if (onRight) 0 else sidebar,
+            right = if (onRight) sidebar else 0
+        )
+    }
+
+    private fun cameraOnRight(): Boolean {
+        val cutout = window.decorView.rootWindowInsets?.displayCutout
+
+        if (cutout != null) {
+            if (cutout.safeInsetRight > 0) return true
+            if (cutout.safeInsetLeft > 0) return false
+        }
+
+        return currentRotation() != Surface.ROTATION_90
+    }
+
+    /** The sidebar's Fine carries the same on/off look as the top
+     *  bar's, since they are the same control in two places - green
+     *  when on, which is the one place in the app that colour means
+     *  "this is armed" rather than "this is selected". */
+    private fun updateSidebarSmoothAppearance() {
+        val on = smoothEnabled
+        binding.sidebarSmoothButton.backgroundTintList = ColorStateList.valueOf(
+            ContextCompat.getColor(
+                this, if (on) R.color.secondary else R.color.mute_inactive
+            )
+        )
+        binding.sidebarSmoothButton.setTextColor(
+            ContextCompat.getColor(
+                this, if (on) R.color.on_secondary else R.color.on_mute_inactive
+            )
+        )
+    }
+
+    private enum class Panel { MENU, AUX, BANK }
+
+    /**
+     * Puts the menu away wherever it currently is.
+     *
+     * Not closeDrawer(START) any more: in landscape the menu has been
+     * lifted out of the drawer (see hostMenu), and asking a DrawerLayout
+     * to close a drawer it no longer has throws.
+     */
+    private fun closeMenu() {
+        if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
+        }
+
+        closeLandscapePanel()
+    }
+
+    /**
+     * Moves the drawer's content between the drawer and the sidebar's
+     * panel, rather than keeping two copies of it in step.
+     *
+     * A DrawerLayout drawer always slides to the screen's own edge and
+     * draws over the content, which in landscape means over the sidebar
+     * that opened it - and from the wrong edge besides, when the camera
+     * is on the right. The panel already comes out of the correct side
+     * and already stops short of the sidebar, so landscape borrows it.
+     */
+    private fun hostMenu(inPanel: Boolean) {
+        val menu = binding.menuContent
+        val host = binding.landscapePanelMenuHost
+
+        if (inPanel) {
+            if (menu.parent === host) return
+
+            binding.drawerLayout.removeView(menu)
+            host.addView(
+                menu,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+
+            // DrawerLayout hides a closed drawer by setting the view
+            // itself INVISIBLE, and that sticks to the view when it is
+            // carried over here - so a menu that has been through the
+            // drawer at any point arrives in the panel already hidden.
+            // Turning the phone from one landscape to the other goes
+            // through portrait, which is exactly that trip, and is why
+            // the panel came back empty afterwards.
+            menu.isVisible = true
+            return
+        }
+
+        if (menu.parent === binding.drawerLayout) return
+
+        host.removeView(menu)
+        binding.drawerLayout.addView(
+            menu,
+            DrawerLayout.LayoutParams(
+                (MENU_WIDTH_DP * resources.displayMetrics.density).toInt(),
+                DrawerLayout.LayoutParams.MATCH_PARENT,
+                Gravity.START
+            )
+        )
+    }
+
+    private var openPanel: Panel? = null
+
+    private fun toggleLandscapePanel(panel: Panel) {
+        if (openPanel == panel) {
+            closeLandscapePanel()
+            return
+        }
+
+        openPanel = panel
+        binding.landscapePanelTitle.text = when (panel) {
+            Panel.MENU -> "MENU"
+            Panel.AUX -> "AUX"
+            Panel.BANK -> "BANK"
+        }
+
+        binding.landscapePanelMenuHost.isVisible = panel == Panel.MENU
+        binding.landscapePanelRecycler.isVisible = panel != Panel.MENU
+
+        if (panel != Panel.MENU) {
+            binding.landscapePanelRecycler.layoutManager = if (panel == Panel.AUX) {
+                LinearLayoutManager(this)
+            } else {
+                GridLayoutManager(this, BANK_COLUMNS)
+            }
+            binding.landscapePanelRecycler.adapter =
+                if (panel == Panel.AUX) auxAdapter else bankAdapter
+        }
+
+        binding.landscapeScrim.isVisible = true
+        binding.landscapePanel.isVisible = true
+
+        // Off its own edge and back, so it reads as coming out from
+        // under the sidebar whichever side that is on.
+        val hidden = hiddenPanelOffset()
+        binding.landscapePanel.translationX = hidden
+        binding.landscapePanel.animate()
+            .translationX(0f)
+            .setDuration(PANEL_ANIM_MS)
+            .start()
+    }
+
+    /** Far enough to clear its own width and the sidebar it is inset
+     *  by, so it is off the screen rather than behind the strip. */
+    private fun hiddenPanelOffset(): Float {
+        val distance = resources.getDimensionPixelSize(R.dimen.landscape_panel_width) +
+            resources.getDimensionPixelSize(R.dimen.landscape_sidebar_width)
+
+        return if (cameraOnRight()) distance.toFloat() else -distance.toFloat()
+    }
+
+    private fun closeLandscapePanel(animate: Boolean = true) {
+        if (openPanel == null) {
+            binding.landscapePanel.isVisible = false
+            binding.landscapeScrim.isVisible = false
+            return
+        }
+
+        openPanel = null
+        binding.landscapeScrim.isVisible = false
+
+        val hidden = hiddenPanelOffset()
+
+        if (!animate) {
+            binding.landscapePanel.animate().cancel()
+            binding.landscapePanel.translationX = hidden
+            binding.landscapePanel.isVisible = false
+            return
+        }
+
+        binding.landscapePanel.animate()
+            .translationX(hidden)
+            .setDuration(PANEL_ANIM_MS)
+            .withEndAction { binding.landscapePanel.isVisible = false }
+            .start()
     }
 
     private fun applyChrome() {
@@ -378,24 +711,6 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             setBanksExpanded(false)
             auxSheet?.state = BottomSheetBehavior.STATE_COLLAPSED
         }
-
-        // Lifted clear of the aux bar when that is showing, or it would
-        // sit half-buried behind the very bar it is there to dismiss.
-        val margin = resources.getDimensionPixelSize(R.dimen.chrome_toggle_margin)
-        binding.chromeToggle.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-            bottomMargin = if (chromeVisible) {
-                margin + resources.getDimensionPixelSize(R.dimen.aux_sheet_peek)
-            } else {
-                margin
-            }
-        }
-
-        // The icon says what pressing it will do, not what is showing.
-        binding.chromeToggle.setImageResource(
-            if (chromeVisible) R.drawable.ic_eye_off else R.drawable.ic_eye
-        )
-        binding.chromeToggle.contentDescription =
-            if (chromeVisible) "Hide controls" else "Show controls"
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -410,6 +725,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun updateSmoothButtonAppearance() {
+        updateSidebarSmoothAppearance()
         val backgroundRes = if (smoothEnabled) R.color.secondary else R.color.mute_inactive
         val textRes = if (smoothEnabled) R.color.on_secondary else R.color.on_mute_inactive
 

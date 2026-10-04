@@ -135,6 +135,11 @@ object DemoMixer {
     // keeps its own names, and only this account's view of them changes.
     private val personalNames = HashMap<Int, String>()
 
+    // This account's own banks, once it has any. Null until seeded from
+    // the catalog below, exactly as the real server seeds from whatever
+    // the console reports - see RemoteServer._stored_banks.
+    private var customBanks: MutableList<CustomBank>? = null
+
     private var selectedAux: Int? = null
     // True while riding the console's own faders. Mutually exclusive
     // with selectedAux, the same way the real server's two modes are.
@@ -164,6 +169,21 @@ object DemoMixer {
         mixerMode = false
         selectedBank = null
         personalNames.clear()
+        customBanks = null
+    }
+
+    /** The account's own banks, seeded on first use from the grouping
+     *  the fake console reports - the demo account holds personalization,
+     *  so it has a set like any other such account would. */
+    private fun storedBanks(): MutableList<CustomBank> {
+        customBanks?.let { return it }
+
+        val seeded = banks.map { bank ->
+            CustomBank(bank, catalog.filter { it.bank == bank }.map { it.channel })
+        }.toMutableList()
+
+        customBanks = seeded
+        return seeded
     }
 
     /**
@@ -369,6 +389,34 @@ object DemoMixer {
                     message.optString("name").take(32)
             }
 
+            "list_custom_banks" -> deliver(customBanksMessage())
+
+            "save_custom_banks" -> {
+                val arr = message.optJSONArray("banks") ?: JSONArray()
+                val saved = mutableListOf<CustomBank>()
+
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val name = o.optString("name").trim()
+                    if (name.isEmpty()) continue
+
+                    val chArr = o.optJSONArray("channels") ?: JSONArray()
+                    val channels = (0 until chArr.length())
+                        .map { chArr.optInt(it) }
+                        .distinct()
+
+                    saved.add(CustomBank(name.take(32), channels))
+                }
+
+                customBanks = saved
+                afterBanksChanged()
+            }
+
+            "reset_custom_banks" -> {
+                customBanks = null
+                afterBanksChanged()
+            }
+
             "list_presets" -> deliver(
                 JSONObject()
                     .put("type", "presets")
@@ -378,6 +426,21 @@ object DemoMixer {
             "save_preset" -> savePreset(message.optString("name"))
             "load_preset" -> loadPreset(message.optString("name"))
         }
+    }
+
+    /** The set, the picker and the strips all follow a change to the
+     *  banks - and a bank the client was sitting on may have just been
+     *  renamed out from under it, in which case it falls back to the
+     *  whole desk. */
+    private fun afterBanksChanged() {
+        deliver(customBanksMessage())
+
+        if (selectedBank != null && bankNames().none { it == selectedBank }) {
+            selectedBank = null
+        }
+
+        deliver(banksMessage())
+        pushLevels()
     }
 
     private fun currentMix(): HashMap<Int, Send>? = selectedAux?.let { sends[it] }
@@ -458,7 +521,39 @@ object DemoMixer {
     }
 
     private fun banksMessage(): JSONObject =
-        JSONObject().put("type", "banks").put("banks", JSONArray(banks))
+        JSONObject().put("type", "banks").put("banks", JSONArray(bankNames()))
+
+    /** Custom names in aux mode, the console's own in mixer mode - the
+     *  same split the real server makes. */
+    private fun bankNames(): List<String> =
+        if (mixerMode) banks else storedBanks().map { it.name }
+
+    private fun customBanksMessage(): JSONObject {
+        val arr = JSONArray()
+
+        for (bank in storedBanks()) {
+            arr.put(
+                JSONObject()
+                    .put("name", bank.name)
+                    .put("channels", JSONArray(bank.channels))
+            )
+        }
+
+        val chans = JSONArray()
+
+        for (entry in catalog) {
+            chans.put(
+                JSONObject()
+                    .put("channel", entry.channel)
+                    .put("name", personalNames[entry.channel] ?: entry.name)
+            )
+        }
+
+        return JSONObject()
+            .put("type", "custom_banks")
+            .put("banks", arr)
+            .put("channels", chans)
+    }
 
     // MARK: - Pushing
 
@@ -490,8 +585,17 @@ object DemoMixer {
         handler.removeCallbacks(pushMetersTick)
     }
 
-    private fun visibleChannels(): List<DemoChannel> =
-        catalog.filter { selectedBank == null || it.bank == selectedBank }
+    private fun visibleChannels(): List<DemoChannel> {
+        val bank = selectedBank ?: return catalog
+
+        if (!mixerMode) {
+            val custom = storedBanks().firstOrNull { it.name == bank }
+                ?: return emptyList()
+            return catalog.filter { custom.channels.contains(it.channel) }
+        }
+
+        return catalog.filter { it.bank == bank }
+    }
 
     private fun pushLevels() {
         val channels = JSONArray()

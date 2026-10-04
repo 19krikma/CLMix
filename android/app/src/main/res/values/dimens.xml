@@ -10,4 +10,9 @@
 
     <!-- Inset of the landscape controls toggle from the screen corner. -->
     <dimen name="chrome_toggle_margin">12dp</dimen>
+    <!-- The landscape control strip. Narrow on purpose: it lives on the
+         edge the selfie camera is on, which is dead screen in landscape
+         anyway, so it costs the faders nothing. -->
+    <dimen name="landscape_sidebar_width">58dp</dimen>
+    <dimen name="landscape_panel_width">300dp</dimen>
 </resources>

@@ -13,6 +13,26 @@ data class AuxBus(
     val stereo: Boolean = true
 ) : Serializable
 
+/**
+ * One of this account's own banks: a name it chose and the channels it
+ * put under it. Nothing to do with the console's own banks beyond the
+ * fact that a new account's set is seeded from them - see
+ * RemoteServer._stored_banks.
+ */
+data class CustomBank(
+    val name: String,
+    val channels: List<Int>
+) : Serializable
+
+/** A channel as the bank editor needs it: the number the desk calls it
+ *  and whatever name is currently on it. Every channel on the console,
+ *  not just the ones the current bank is pushing - picking from the lot
+ *  is the whole point of the editor. */
+data class BankChannel(
+    val channel: Int,
+    val name: String
+) : Serializable
+
 data class ChannelState(
     val channel: Int,
     val name: String,

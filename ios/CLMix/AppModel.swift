@@ -42,6 +42,14 @@ final class AppModel: NSObject, ObservableObject {
     @Published var buttonResultIsRejection = false
     @Published var auxes: [AuxBus] = []
     @Published var banks: [String] = []
+
+    // This account's own banks and the console's full channel list to
+    // build them from, as the custom bank editor needs them. Both are
+    // replaced wholesale by every reply, so what the editor shows is
+    // always what the server actually stored - including its own
+    // cleaning up of it (see UserStore._clean_banks).
+    @Published var customBanks: [CustomBank] = []
+    @Published var bankChannels: [BankChannel] = []
     // Which bank's channels are on screen. Lives here rather than in
     // MixerView so it survives the view being rebuilt, and so the
     // opening-bank logic in mixerDidReceiveBanks has one place to write
@@ -450,6 +458,26 @@ final class AppModel: NSObject, ObservableObject {
         backend.setPersonalName(channel: channel, name: name)
     }
 
+    /// This account's own banks, and the channels to pick from.
+    /// Personalization accounts only - the editor is not offered to
+    /// anyone else (see MixerView), and the server refuses it anyway.
+    func requestCustomBanks() {
+        backend.requestCustomBanks()
+    }
+
+    /// The whole set, every time: add, remove, rename and re-checking a
+    /// bank's channels are one write, so there is one path to get right
+    /// instead of four. The reply re-sends the set, the bank list and a
+    /// fresh frame of levels, so nothing here has to guess at what the
+    /// change did.
+    func saveCustomBanks(_ banks: [CustomBank]) {
+        backend.saveCustomBanks(banks)
+    }
+
+    func resetCustomBanks() {
+        backend.resetCustomBanks()
+    }
+
     func requestPresets() {
         backend.requestPresets()
     }
@@ -772,6 +800,11 @@ extension AppModel: MixerClientDelegate {
         if resolved != self.channels {
             self.channels = resolved
         }
+    }
+
+    func mixerDidReceiveCustomBanks(banks: [CustomBank], channels: [BankChannel]) {
+        customBanks = banks
+        bankChannels = channels
     }
 
     func mixerDidReceivePresets(_ names: [String]) {

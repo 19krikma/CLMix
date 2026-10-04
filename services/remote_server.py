@@ -493,7 +493,8 @@ class RemoteServer:
 
         elif action == "list_banks":
             await self._send(
-                websocket, {"type": "banks", "banks": list(worker.banks.keys())}
+                websocket,
+                {"type": "banks", "banks": self._bank_names(worker, state)}
             )
 
         elif action == "select_aux":
@@ -531,6 +532,55 @@ class RemoteServer:
 
         elif action == "select_bank":
             state["bank"] = msg.get("bank")
+            self._request_channel_states(worker, state)
+            self._claim_meters(worker, state)
+
+        elif action in ("list_custom_banks", "save_custom_banks",
+                        "reset_custom_banks"):
+            # Behind the same permission as personal names, and for the
+            # same reason: both are this account's own view of a console
+            # everyone else is sharing, and neither writes anything back
+            # to the desk.
+            if not entry.get("personalization", False):
+                log("info", f"Denied {action} for user {state['user']!r} "
+                    "(account has no personalization permission)")
+                await self._send(websocket, {
+                    "type": "error",
+                    "message": "Not permitted for personalization",
+                })
+                return
+
+            if action == "save_custom_banks":
+                self.user_store.set_custom_banks(state["user"], msg.get("banks"))
+            elif action == "reset_custom_banks":
+                # Forgotten rather than overwritten, so the next read
+                # seeds from whatever the console is reporting now -
+                # which may not be what it was reporting when this
+                # account was first seeded.
+                self.user_store.clear_custom_banks(state["user"])
+
+            banks = self._editable_banks(worker, state)
+
+            await self._send(websocket, {
+                "type": "custom_banks",
+                "banks": banks if banks is not None else [],
+                "channels": self._channel_catalog(worker, state),
+            })
+
+            if action == "list_custom_banks":
+                return
+
+            # The picker and the strips both follow from the set that
+            # just changed. A bank the client was sitting on may have
+            # been renamed or deleted out from under it, in which case
+            # it falls back to the whole desk rather than to the empty
+            # list _channels_for would otherwise hand it.
+            names = self._bank_names(worker, state)
+
+            if state.get("bank") not in names:
+                state["bank"] = None
+
+            await self._send(websocket, {"type": "banks", "banks": names})
             self._request_channel_states(worker, state)
             self._claim_meters(worker, state)
 
@@ -969,7 +1019,7 @@ class RemoteServer:
                 state["snapshot_epoch"] = worker.snapshot_epoch
                 self._request_channel_states(worker, state)
 
-            channels = self._channels_for(worker, state.get("bank"))
+            channels = self._channels_for(worker, state)
 
             if self._in_mixer_mode(state):
                 payload = {
@@ -1024,7 +1074,7 @@ class RemoteServer:
             if not self._has_selection(state) or state.get("permission") is None:
                 continue
 
-            channels = self._channels_for(worker, state.get("bank"))
+            channels = self._channels_for(worker, state)
             meters = self._meter_states(worker, channels)
 
             # Silence is identical frame after frame; sending it 20 times
@@ -1077,7 +1127,7 @@ class RemoteServer:
             return
 
         worker.subscribe_meters(
-            self._channels_for(worker, state.get("bank")),
+            self._channels_for(worker, state),
             source=state["meter_source"],
         )
 
@@ -1087,7 +1137,7 @@ class RemoteServer:
             # a parameter only when it changes, so a channel nobody has
             # touched this session would arrive with no fader, no pan and
             # no mute at all until someone moved it on the desk.
-            for channel in self._channels_for(worker, state.get("bank")):
+            for channel in self._channels_for(worker, state):
                 self.command_queue.put(f"/Input_Channels/{channel}/fader/?")
                 self.command_queue.put(f"/Input_Channels/{channel}/mute/?")
                 self.command_queue.put(f"/Input_Channels/{channel}/Panner/pan/?")
@@ -1115,7 +1165,7 @@ class RemoteServer:
         # honours the aux list's "stereo" flag expects anyway.
         stereo = worker.aux_is_stereo(aux)
 
-        for channel in self._channels_for(worker, state.get("bank")):
+        for channel in self._channels_for(worker, state):
             prefix = f"/Input_Channels/{channel}/Aux_Send/{aux}"
             self.command_queue.put(f"{prefix}/send_level/?")
             self.command_queue.put(f"{prefix}/send_on/?")
@@ -1477,13 +1527,126 @@ class RemoteServer:
 
         return auxes
 
-    @staticmethod
-    def _channels_for(worker, bank):
-        if bank:
-            return worker.banks.get(bank, [])
+    def _channels_for(self, worker, state):
+        """Which channels this socket is currently looking at.
+
+        No bank selected means every channel on the console - "All" is
+        the absence of a filter rather than a bank of its own.
+
+        A bank name is resolved against this account's own set first,
+        where it has one, and only then against the console's. The two
+        can carry the same name and mean different things, which is the
+        point of the feature: an account's "Drums" is whatever it put in
+        there. Mixer Control is deliberately left on the desk's own
+        grouping - see _stored_banks.
+        """
+        bank = state.get("bank")
+
+        if not bank:
+            channel_count = int(worker.cache["/Console/Input_Channels"][0])
+            return list(range(1, channel_count + 1))
+
+        if not self._in_mixer_mode(state):
+            custom = self._stored_banks(worker, state)
+
+            if custom is not None:
+                for entry in custom:
+                    if entry["name"] == bank:
+                        return entry["channels"]
+
+                # A bank this client still thinks it is on, which has
+                # since been renamed or deleted from another session.
+                # Empty rather than every channel: silently widening a
+                # filter to the whole desk is the more surprising of the
+                # two, and the next list_banks puts it right.
+                return []
+
+        return worker.banks.get(bank, [])
+
+    def _stored_banks(self, worker, state):
+        """This account's own banks, or None if it is not using any.
+
+        None covers three cases that all mean "fall back to the
+        console's": an account without the personalization permission,
+        one whose set has never been seeded because the console has not
+        reported its banks yet, and any client in Mixer Control, which
+        shows the desk's own truth the same way it shows the desk's own
+        channel names.
+
+        The seeding is the interesting part. An account that has never
+        customised anything is given the console's banks as its own, on
+        first use, so the phone's editor opens on the desk's grouping
+        rather than on nothing - which is what makes "remove the two I
+        never use" the first thing a user can do, instead of having to
+        build their rig back up from an empty list.
+        """
+        if self._in_mixer_mode(state):
+            return None
+
+        return self._editable_banks(worker, state)
+
+    def _editable_banks(self, worker, state):
+        """The same set, without the Mixer Control gate - what the
+        editor reads and writes. Kept apart from _stored_banks because
+        the gate is about which grouping the *strips* are filtered by,
+        not about whether the account owns a set at all."""
+        entry = state.get("permission") or {}
+        user = state.get("user")
+
+        if not user or not entry.get("personalization", False):
+            return None
+
+        stored = self.user_store.custom_banks(user)
+
+        if stored is not None:
+            return stored
+
+        console = getattr(worker, "banks", None) or {}
+
+        if not console:
+            # Nothing to seed from yet. Deliberately not stored as an
+            # empty set: that would freeze this account on no banks at
+            # all for a console that simply had not answered yet.
+            return None
+
+        seeded = [
+            {"name": name, "channels": list(channels)}
+            for name, channels in console.items()
+        ]
+        self.user_store.set_custom_banks(user, seeded)
+
+        return seeded
+
+    def _bank_names(self, worker, state):
+        """What the phone's bank picker should list."""
+        custom = self._stored_banks(worker, state)
+
+        if custom is not None:
+            return [entry["name"] for entry in custom]
+
+        return list(worker.banks.keys())
+
+    def _channel_catalog(self, worker, state):
+        """Every channel on the desk, numbered and named, for the custom
+        bank editor - which has to offer channels this socket is not
+        currently being pushed, since the whole point of it is picking
+        from the lot."""
+        personal_names = self._personal_names(worker, state)
+        catalog = []
 
         channel_count = int(worker.cache["/Console/Input_Channels"][0])
-        return list(range(1, channel_count + 1))
+
+        for channel in range(1, channel_count + 1):
+            name_key = f"/Input_Channels/{channel}/Channel_Input/name"
+            name = worker.cache[name_key][0] \
+                if name_key in worker.cache else f"Ch {channel}"
+
+            catalog.append({
+                "channel": channel,
+                "name": personal_names.get(channel, name),
+            })
+
+        return catalog
 
     # The mixer's own send_pan values run 0.0 (hard left) to 1.0 (hard
     # right) with 0.5 as center. Phone clients use the more conventional

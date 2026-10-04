@@ -40,6 +40,11 @@ interface MixerClientListener {
     fun onPresets(names: List<String>) {}
     fun onPresetSaved(name: String) {}
     fun onPresetLoaded(name: String) {}
+
+    /** This account's own banks, with the console's full channel list
+     *  to pick from. Both arrive together because the editor needs both
+     *  and neither is worth a round trip of its own. */
+    fun onCustomBanks(banks: List<CustomBank>, channels: List<BankChannel>) {}
 }
 
 /**
@@ -448,6 +453,38 @@ object MixerClient {
             .put("name", name)
     )
 
+    /**
+     * This account's own banks and the channel list to build them from.
+     * Behind the personalization permission, like personal names and for
+     * the same reason: it is this account's view of a console everyone
+     * else is sharing, and nothing it writes reaches the desk.
+     */
+    fun requestCustomBanks() = send(JSONObject().put("action", "list_custom_banks"))
+
+    /**
+     * Replaces the whole set. Whole set rather than one bank at a time
+     * because add, remove, rename and re-checking a bank's channels are
+     * then the same write, and the order sent is the order the picker
+     * shows.
+     */
+    fun saveCustomBanks(banks: List<CustomBank>) {
+        val array = JSONArray()
+
+        for (bank in banks) {
+            array.put(
+                JSONObject()
+                    .put("name", bank.name)
+                    .put("channels", JSONArray(bank.channels))
+            )
+        }
+
+        send(JSONObject().put("action", "save_custom_banks").put("banks", array))
+    }
+
+    /** Throws this account's set away so the server seeds it from the
+     *  console's own banks again. */
+    fun resetCustomBanks() = send(JSONObject().put("action", "reset_custom_banks"))
+
     fun requestPresets() = send(JSONObject().put("action", "list_presets"))
 
     fun savePreset(name: String) = send(
@@ -572,6 +609,26 @@ object MixerClient {
                 meterSequence++
                 val sequence = meterSequence
                 onMain { listener?.onMeters(sequence, map) }
+            }
+
+            "custom_banks" -> {
+                val bankArr = json.getJSONArray("banks")
+                val banks = (0 until bankArr.length()).map {
+                    val o = bankArr.getJSONObject(it)
+                    val chArr = o.optJSONArray("channels") ?: JSONArray()
+                    CustomBank(
+                        name = o.getString("name"),
+                        channels = (0 until chArr.length()).map { i -> chArr.getInt(i) }
+                    )
+                }
+
+                val chanArr = json.optJSONArray("channels") ?: JSONArray()
+                val channels = (0 until chanArr.length()).map {
+                    val o = chanArr.getJSONObject(it)
+                    BankChannel(o.getInt("channel"), o.getString("name"))
+                }
+
+                onMain { listener?.onCustomBanks(banks, channels) }
             }
 
             "presets" -> {

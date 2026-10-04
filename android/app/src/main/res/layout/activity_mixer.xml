@@ -182,28 +182,185 @@
 
     </LinearLayout>
 
-    <!-- Landscape only. With the phone on its side the strips are short
-         and the bars either end cost most of the fader travel, so they
-         fold away and this brings them back on demand. It floats over
-         the strips rather than reserving a row of its own - reserving
-         one would give back the space hiding the bars just freed. -->
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/chrome_toggle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="12dp"
-        android:contentDescription="Show controls"
-        android:src="@drawable/ic_eye"
-        android:visibility="gone"
-        app:fabSize="mini"
-        app:shapeAppearanceOverlay="@style/ShapeAppearance.CLMix.Circle"
-        app:tint="@color/on_mute_inactive"
-        app:backgroundTint="@color/mute_inactive" />
+    <!-- Landscape only, and all of it on the edge the selfie camera is
+         on - which is the one strip of a landscape screen that was never
+         going to hold a fader anyway. The bars at top and bottom fold
+         away entirely with the phone on its side, so the strips get the
+         whole height, and everything those bars held moves here.
+
+         Which edge that is depends on which way the phone was turned,
+         so the gravity of all three of these and the direction of the
+         chevrons are set at runtime - see MixerActivity.applyOrientation. -->
+
+    <!-- Catches the tap that closes an open panel. Under the panel and
+         over the strips, so a tap anywhere on the mix dismisses it
+         without also moving a fader. -->
+    <View
+        android:id="@+id/landscape_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/landscape_panel"
+        android:layout_width="@dimen/landscape_panel_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:orientation="vertical"
+        android:background="?attr/colorSurface"
+        android:elevation="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/landscape_panel_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="14dp"
+            android:paddingBottom="8dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/on_surface_variant" />
+
+        <!-- Holds the drawer's own content while the phone is on its
+             side. Empty in portrait, where the menu lives in the
+             drawer as usual. -->
+        <FrameLayout
+            android:id="@+id/landscape_panel_menu_host"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:visibility="gone" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/landscape_panel_recycler"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingHorizontal="9dp"
+            android:paddingBottom="10dp" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/landscape_sidebar"
+        android:layout_width="@dimen/landscape_sidebar_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:orientation="vertical"
+        android:background="?attr/colorSurface"
+        android:elevation="12dp"
+        android:gravity="center_horizontal"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/sidebar_menu_button"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginTop="10dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Menu"
+            android:src="@drawable/ic_menu" />
+
+        <LinearLayout
+            android:id="@+id/sidebar_aux_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginTop="8dp"
+            android:paddingVertical="10dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/sidebar_aux_arrow"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_left"
+                app:tint="@color/primary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="AUX"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" />
+
+        </LinearLayout>
+
+        <!-- The whole middle of the strip, left empty on purpose: this
+             is the stretch the selfie camera and its surround sit in, so
+             putting a control there would be putting it under the glass.
+             AUX rides up against the menu and BANK down against Fine,
+             which also puts the two of them as far apart as the strip
+             allows - a thumb reaching for one mid-show cannot catch the
+             other. -->
+        <Space
+            android:layout_width="1dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:id="@+id/sidebar_bank_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingVertical="10dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/sidebar_bank_arrow"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_left"
+                app:tint="@color/primary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BANK"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" />
+
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/sidebar_smooth_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="48dp"
+            android:layout_height="38dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="12dp"
+            android:text="Fine"
+            android:textSize="11sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="0dp"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
+
+    </LinearLayout>
 
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
+    <!-- In landscape this is lifted out of the drawer and dropped into
+         the sidebar's panel instead - see MixerActivity.hostMenu. A
+         DrawerLayout drawer always slides to the screen's own edge,
+         which would bury the sidebar that opened it. -->
     <LinearLayout
+        android:id="@+id/menu_content"
         android:layout_width="280dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
@@ -213,7 +370,10 @@
 
         <!-- The aux list used to live here; it is now the bottom sheet,
              within thumb reach instead of behind a drawer. What is left
-             is the settings-ish actions that were always underneath it. -->
+             is the settings-ish actions that were always underneath it,
+             held down at the bottom where a thumb reaches them - in the
+             landscape panel just as much as in the drawer, since the
+             hand holding the phone is at the bottom either way. -->
         <Space
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -265,6 +425,24 @@
                 app:cornerRadius="10dp" />
 
         </LinearLayout>
+
+        <!-- Gone unless the account holds personalization, which is the
+             same permission personal channel names sit behind: both are
+             this account's own view of a shared console. Aux screens
+             only - Mixer Control shows the desk's own grouping, the way
+             it shows the desk's own names. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/custom_banks_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="14dp"
+            android:layout_marginTop="10dp"
+            android:text="Custom Banks"
+            android:visibility="gone"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
 
         <!-- Sits under Presets rather than in a settings screen of its
              own: this drawer is already where the mixer screen's

@@ -47,6 +47,13 @@ class UserStore:
     reading a name mid-rename either gets the old one or the new one.
     """
 
+    # Caps on what a phone may store here. Generous enough that no real
+    # rig meets them and small enough that nothing can run this file
+    # away with it.
+    MAX_CUSTOM_BANKS = 32
+    MAX_BANK_CHANNELS = 256
+    MAX_BANK_NAME = 32
+
     def __init__(self, path=USERS_PATH):
         self.path = path
         self._lock = threading.Lock()
@@ -220,6 +227,121 @@ class UserStore:
                 del names[snapshot]
 
             self._save()
+
+    def custom_banks(self, username):
+        """This account's own banks, or None if it has never had a set.
+
+        None and [] are deliberately different answers. None means the
+        account has not been given a set yet, and the caller should seed
+        one from whatever the console is reporting - that is how a new
+        account starts out holding the desk's own banks. [] means the
+        user deleted every one of them and wants no banks at all, which
+        has to survive a reconnect rather than being re-seeded.
+
+        Returns a list of {"name": str, "channels": [int]} in the order
+        the phone put them in.
+
+        Not keyed by snapshot, unlike personal_names: a bank is a
+        grouping of channel numbers, and the drums sit on the same
+        channels from one show to the next even when the instrument on
+        channel 12 does not.
+        """
+        record = self.users.get(username)
+
+        if not record:
+            return None
+
+        stored = record.get("custom_banks")
+
+        if not isinstance(stored, list):
+            return None
+
+        return self._clean_banks(stored)
+
+    def set_custom_banks(self, username, banks):
+        """Replace this account's whole set of banks.
+
+        Whole set rather than one at a time: add, remove, rename and
+        re-checking a bank's channels are all the same write from here,
+        so there is one path to get right instead of four, and the order
+        the phone shows them in is the order it sent.
+
+        Called from RemoteServer's event loop while the Accounts tab may
+        be saving from the Tkinter thread, hence the lock.
+        """
+        cleaned = self._clean_banks(banks)
+
+        with self._lock:
+            record = self.users.get(username)
+
+            if record is None:
+                return
+
+            record["custom_banks"] = cleaned
+            self._save()
+
+    def clear_custom_banks(self, username):
+        """Forget this account's set, so the next read seeds it from the
+        console again - what the phone's Reset does."""
+        with self._lock:
+            record = self.users.get(username)
+
+            if record is None or "custom_banks" not in record:
+                return
+
+            del record["custom_banks"]
+            self._save()
+
+    @classmethod
+    def _clean_banks(cls, banks):
+        """Whatever arrived, reduced to something this file can hold.
+
+        Everything here comes off a socket, so nothing is trusted: a
+        bank needs a name that is a non-empty string and a list of
+        channel numbers that are actually numbers. Duplicates within a
+        bank are dropped (keeping the first), and the caps are there so
+        a malformed or hostile client cannot grow the users file without
+        bound. A bank with no channels is kept - an empty bank the user
+        is part way through filling in is a legitimate thing to store.
+        """
+        cleaned = []
+
+        if not isinstance(banks, list):
+            return cleaned
+
+        for bank in banks[:cls.MAX_CUSTOM_BANKS]:
+            if not isinstance(bank, dict):
+                continue
+
+            name = bank.get("name")
+
+            if not isinstance(name, str) or not name.strip():
+                continue
+
+            channels = []
+            seen = set()
+
+            for channel in bank.get("channels") or []:
+                try:
+                    number = int(channel)
+                except (TypeError, ValueError):
+                    continue
+
+                if number in seen:
+                    continue
+
+                seen.add(number)
+                channels.append(number)
+
+                if len(channels) >= cls.MAX_BANK_CHANNELS:
+                    break
+
+            cleaned.append({
+                "name": name.strip()[:cls.MAX_BANK_NAME],
+                "channels": channels,
+            })
+
+        return cleaned
 
     @staticmethod
     def _hash(password, salt):

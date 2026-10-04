@@ -88,3 +88,29 @@ struct MeterLevels {
     let rightPeak: Double?
     let rightRms: Double?
 }
+
+/// One of this account's own banks: a name it chose and the channels it
+/// put under it. Nothing to do with the console's own banks beyond the
+/// fact that a new account's set is seeded from them - see
+/// RemoteServer._stored_banks.
+struct CustomBank: Identifiable, Equatable {
+    var name: String
+    var channels: [Int]
+
+    /// By name, since that is what the server keys a bank on and what
+    /// the picker shows. Renaming one is therefore a new identity, which
+    /// is right: the row has become a different bank as far as anything
+    /// watching the list is concerned.
+    var id: String { name }
+}
+
+/// A channel as the bank editor needs it: the number the desk calls it
+/// and whatever name is currently on it. Every channel on the console,
+/// not just the ones the current bank is pushing - picking from the lot
+/// is the whole point of the editor.
+struct BankChannel: Identifiable, Equatable {
+    let channel: Int
+    let name: String
+
+    var id: Int { channel }
+}

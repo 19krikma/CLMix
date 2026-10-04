@@ -17,6 +17,10 @@ protocol MixerClientDelegate: AnyObject {
     /// ballistics depend on that distinction (see ChannelMeterView).
     func mixerDidReceiveMeters(sequence: Int64, meters: [Int: MeterLevels])
     func mixerDidReceiveLevels(aux: Int, channels: [ChannelState])
+    /// This account's own banks, with the console's full channel list
+    /// to pick from. Both arrive together because the editor needs both
+    /// and neither is worth a round trip of its own.
+    func mixerDidReceiveCustomBanks(banks: [CustomBank], channels: [BankChannel])
     func mixerDidReceivePresets(_ names: [String])
     func mixerDidSavePreset(_ name: String)
     func mixerDidLoadPreset(_ name: String)
@@ -60,6 +64,9 @@ protocol MixerBackend: AnyObject {
     func setPhase(channel: Int, phase: Int)
     func setName(channel: Int, name: String)
     func setPersonalName(channel: Int, name: String)
+    func requestCustomBanks()
+    func saveCustomBanks(_ banks: [CustomBank])
+    func resetCustomBanks()
     func requestPresets()
     func savePreset(name: String)
     func loadPreset(name: String)
@@ -324,6 +331,35 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "set_personal_name", "channel": channel, "name": name])
     }
 
+    func requestCustomBanks()
+    func saveCustomBanks(_ banks: [CustomBank])
+    func resetCustomBanks()
+    /// This account's own banks and the channel list to build them
+    /// from. Behind the personalization permission, like personal
+    /// names and for the same reason: it is this account's view of a
+    /// console everyone else is sharing, and nothing it writes reaches
+    /// the desk.
+    func requestCustomBanks() {
+        send(["action": "list_custom_banks"])
+    }
+
+    /// Replaces the whole set. Whole set rather than one bank at a time
+    /// because add, remove, rename and re-checking a bank's channels
+    /// are then the same write, and the order sent is the order the
+    /// picker shows.
+    func saveCustomBanks(_ banks: [CustomBank]) {
+        send([
+            "action": "save_custom_banks",
+            "banks": banks.map { ["name": $0.name, "channels": $0.channels] },
+        ])
+    }
+
+    /// Throws this account's set away so the server seeds it from the
+    /// console's own banks again.
+    func resetCustomBanks() {
+        send(["action": "reset_custom_banks"])
+    }
+
     func requestPresets() {
         send(["action": "list_presets"])
     }
@@ -414,6 +450,25 @@ final class MixerClient: NSObject, MixerBackend {
 
             case "banks":
                 delegate?.mixerDidReceiveBanks(json["banks"] as? [String] ?? [])
+
+            case "custom_banks":
+                let banks = (json["banks"] as? [[String: Any]] ?? []).map { entry in
+                    CustomBank(
+                        name: entry["name"] as? String ?? "",
+                        channels: entry["channels"] as? [Int] ?? []
+                    )
+                }
+
+                let channels = (json["channels"] as? [[String: Any]] ?? []).compactMap {
+                    entry -> BankChannel? in
+                    guard let channel = entry["channel"] as? Int else { return nil }
+                    return BankChannel(
+                        channel: channel,
+                        name: entry["name"] as? String ?? "Ch \(channel)"
+                    )
+                }
+
+                delegate?.mixerDidReceiveCustomBanks(banks: banks, channels: channels)
 
             case "levels":
                 // Mixer-mode frames carry no bus - see mixerAux.

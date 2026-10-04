@@ -168,6 +168,10 @@ final class DemoMixer: MixerBackend {
     // modes are.
     private var mixerMode = false
     private var selectedBank: String?
+    // This account's own banks, once it has any. Nil until seeded from
+    // the catalog, exactly as the real server seeds from whatever the
+    // console reports - see RemoteServer._stored_banks.
+    private var customBanks: [CustomBank]?
     private var pushTimer: Timer?
     private var meterTimer: Timer?
     private var meterSequence: Int64 = 0
@@ -287,6 +291,7 @@ final class DemoMixer: MixerBackend {
         muteAllowed = true
         personalizationAllowed = false
         personalNames = [:]
+        customBanks = nil
         mixerControlAllowed = false
         selectedAux = nil
         mixerMode = false
@@ -324,7 +329,82 @@ final class DemoMixer: MixerBackend {
     }
 
     func requestBanks() {
-        Task { @MainActor in self.delegate?.mixerDidReceiveBanks(Self.banks) }
+        let names = bankNames()
+        Task { @MainActor in self.delegate?.mixerDidReceiveBanks(names) }
+    }
+
+    /// Custom names in aux mode, the console's own in mixer mode - the
+    /// same split the real server makes.
+    private func bankNames() -> [String] {
+        mixerMode ? Self.banks : storedBanks().map(\.name)
+    }
+
+    /// The account's own banks, seeded on first use from the grouping
+    /// this fake console reports - the demo account holds
+    /// personalization, so it has a set like any other such account.
+    private func storedBanks() -> [CustomBank] {
+        if let customBanks { return customBanks }
+
+        let seeded = Self.banks.map { bank in
+            CustomBank(
+                name: bank,
+                channels: Self.catalog.filter { $0.bank == bank }.map(\.channel)
+            )
+        }
+        customBanks = seeded
+
+        return seeded
+    }
+
+    func requestCustomBanks() {
+        let banks = storedBanks()
+        let channels = Self.catalog.map {
+            BankChannel(channel: $0.channel, name: personalNames[$0.channel] ?? $0.name)
+        }
+
+        Task { @MainActor in
+            self.delegate?.mixerDidReceiveCustomBanks(banks: banks, channels: channels)
+        }
+    }
+
+    func saveCustomBanks(_ banks: [CustomBank]) {
+        // The same cleaning the real server applies on the way in (see
+        // UserStore._clean_banks), so the demo cannot accept a set the
+        // desktop would have refused.
+        customBanks = banks.compactMap { bank in
+            let name = bank.name.trimmingCharacters(in: .whitespaces)
+
+            guard !name.isEmpty else { return nil }
+
+            var seen = Set<Int>()
+
+            return CustomBank(
+                name: String(name.prefix(32)),
+                channels: bank.channels.filter { seen.insert($0).inserted }
+            )
+        }
+        afterBanksChanged()
+    }
+
+    func resetCustomBanks() {
+        customBanks = nil
+        afterBanksChanged()
+    }
+
+    /// The set, the picker and the strips all follow a change to the
+    /// banks - and a bank the client was sitting on may have just been
+    /// renamed out from under it, in which case it falls back to the
+    /// whole desk.
+    private func afterBanksChanged() {
+        requestCustomBanks()
+
+        if let bank = selectedBank, !bankNames().contains(bank) {
+            selectedBank = nil
+        }
+
+        let names = bankNames()
+        Task { @MainActor in self.delegate?.mixerDidReceiveBanks(names) }
+        pushLevels()
     }
 
     func selectAux(_ aux: Int) {
@@ -507,7 +587,7 @@ final class DemoMixer: MixerBackend {
 
         guard let aux = selectedAux, let mix = sends[aux] else { return }
 
-        let visible = Self.catalog.filter { selectedBank == nil || $0.bank == selectedBank }
+        let visible = visibleCatalog()
         let channels = visible.compactMap { entry -> ChannelState? in
             guard let send = mix[entry.channel] else { return nil }
             return ChannelState(
@@ -532,7 +612,7 @@ final class DemoMixer: MixerBackend {
     /// the sentinel aux the real server sends in mixer mode, since no bus
     /// is being ridden.
     private func pushMixerLevels() {
-        let visible = Self.catalog.filter { selectedBank == nil || $0.bank == selectedBank }
+        let visible = visibleCatalog()
         let channels = visible.compactMap { entry -> ChannelState? in
             guard let strip = console[entry.channel] else { return nil }
             return ChannelState(
@@ -554,6 +634,23 @@ final class DemoMixer: MixerBackend {
                 aux: MixerClient.mixerAux, channels: channels
             )
         }
+    }
+
+    /// Which strips this socket is looking at. A bank is resolved
+    /// against the account's own set in aux mode and against the
+    /// console's grouping in mixer mode, the same split the real server
+    /// makes.
+    private func visibleCatalog() -> [DemoChannel] {
+        guard let bank = selectedBank else { return Self.catalog }
+
+        if !mixerMode {
+            guard let custom = storedBanks().first(where: { $0.name == bank }) else {
+                return []
+            }
+            return Self.catalog.filter { custom.channels.contains($0.channel) }
+        }
+
+        return Self.catalog.filter { $0.bank == bank }
     }
 
     // MARK: - Fabricated meters
@@ -584,7 +681,7 @@ final class DemoMixer: MixerBackend {
         }
 
         let now = Date.timeIntervalSinceReferenceDate
-        let visible = Self.catalog.filter { selectedBank == nil || $0.bank == selectedBank }
+        let visible = visibleCatalog()
         var frame = [Int: MeterLevels](minimumCapacity: visible.count)
 
         for entry in visible {

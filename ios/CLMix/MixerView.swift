@@ -21,6 +21,28 @@ struct MixerView: View {
     @State private var presetsExpanded = false
     @State private var showPresetSave = false
     @State private var showPresetLoad = false
+    @State private var showCustomBanks = false
+
+    /// Which side panel the landscape sidebar has out, if any.
+    @State private var openPanel: LandscapePanel?
+
+    private enum LandscapePanel { case menu, aux, bank }
+
+    /// Puts the menu away wherever it currently is - the sheet in
+    /// portrait, the sidebar's panel in landscape.
+    private func dismissMenu() {
+        showMenu = false
+        withAnimation(panelAnimation) { openPanel = nil }
+    }
+
+    /// The landscape control strip, and the panel that comes out from
+    /// under it. The strip is narrow on purpose: it lives on the edge
+    /// the selfie camera is on, which is dead screen with the phone on
+    /// its side, so it costs the faders nothing.
+    private static let sidebarWidth: CGFloat = 58
+    private static let panelWidth: CGFloat = 300
+
+    private let panelAnimation = Animation.easeOut(duration: 0.18)
 
     // Deliberately well under Android's own 200ms "short" duration: this
     // is a control being operated mid-show, not a screen transition, so
@@ -42,6 +64,47 @@ struct MixerView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
+            if geo.size.width > geo.size.height {
+                landscapeBody(geo)
+            } else {
+                portraitBody
+            }
+        }
+        // The fill ignores the safe area while the content above it does
+        // not: rotated, the inset the notch takes out of the leading edge
+        // would otherwise leave a bare strip down the side of the screen
+        // in whatever colour the window happens to be under this. Nothing
+        // moves - only the paint reaches further.
+        .background(Color.clmixBackground.ignoresSafeArea())
+        .navigationBarHidden(true)
+        .sheet(isPresented: $showMenu) { menuSheet }
+        .sheet(isPresented: $showPresetSave) {
+            PresetSaveSheet()
+                .presentationDetents([.height(260)])
+        }
+        .sheet(isPresented: $showPresetLoad) {
+            PresetLoadSheet()
+                .presentationDetents([.medium, .large])
+        }
+        // Full height, unlike the preset sheets: this one is a screen's
+        // worth of list - every channel on the desk, with a switch
+        // against each - rather than a short panel.
+        .sheet(isPresented: $showCustomBanks) {
+            CustomBanksView()
+        }
+        // Presets are per-aux-send, so a sheet left open from the
+        // previous aux would otherwise keep acting against the new one -
+        // mirrors Android's switchAux dismissing them. The pan sheet
+        // needs no equivalent: it belongs to a channel strip, and
+        // switching aux clears the strips out from under it.
+        .onChange(of: aux.index) { _, _ in
+            showPresetSave = false
+            showPresetLoad = false
+        }
+    }
+
+    private var portraitBody: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 topBar
@@ -78,31 +141,200 @@ struct MixerView: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The fill ignores the safe area while the content above it does
-        // not: rotated, the inset the notch takes out of the leading edge
-        // would otherwise leave a bare strip down the side of the screen
-        // in whatever colour the window happens to be under this. Nothing
-        // moves - only the paint reaches further.
-        .background(Color.clmixBackground.ignoresSafeArea())
-        .navigationBarHidden(true)
-        .sheet(isPresented: $showMenu) { menuSheet }
-        .sheet(isPresented: $showPresetSave) {
-            PresetSaveSheet()
-                .presentationDetents([.height(260)])
+    }
+
+    /// The sideways layout: no top bar and no aux sheet, because
+    /// everything they held now lives in the strip down the camera's
+    /// edge - and the strips get back the height those two were using,
+    /// which is what they were short of. Mirrors Android's
+    /// MixerActivity.applyOrientation.
+    private func landscapeBody(_ geo: GeometryProxy) -> some View {
+        // Whichever edge the notch eats into is the edge the camera is
+        // on. Read off the safe area rather than off the interface
+        // orientation: this is the measurement that actually says where
+        // the hardware is, and it is already to hand.
+        let cameraLeading = geo.safeAreaInsets.leading >= geo.safeAreaInsets.trailing
+        let edge: Edge.Set = cameraLeading ? .leading : .trailing
+
+        return ZStack(alignment: cameraLeading ? .leading : .trailing) {
+            // Stops at the sidebar rather than running under it: a fader
+            // half behind a button is one that cannot be grabbed by its
+            // bottom half.
+            channelGrid
+                .padding(edge, Self.sidebarWidth)
+
+            if openPanel != nil {
+                // Catches the tap that closes the panel, over the strips
+                // so dismissing it cannot also move a fader.
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                    .onTapGesture { withAnimation(panelAnimation) { openPanel = nil } }
+            }
+
+            if let panel = openPanel {
+                // Inset by the sidebar so it comes out beside it rather
+                // than under it - the sidebar is what closes the panel
+                // again, so it cannot be the thing the panel covers.
+                landscapePanel(panel)
+                    .padding(edge, Self.sidebarWidth)
+                    .transition(.move(edge: cameraLeading ? .leading : .trailing))
+            }
+
+            landscapeSidebar(cameraLeading: cameraLeading)
         }
-        .sheet(isPresented: $showPresetLoad) {
-            PresetLoadSheet()
-                .presentationDetents([.medium, .large])
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // With both bars gone the status bar's strip is the last thing
+        // between a fader and the top of the screen. The bottom is left
+        // alone: the Mute buttons are down there and the home indicator
+        // would sit on them.
+        .ignoresSafeArea(edges: .top)
+    }
+
+    private func landscapeSidebar(cameraLeading: Bool) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(panelAnimation) {
+                    openPanel = openPanel == .menu ? nil : .menu
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 20, weight: .medium))
+                    .frame(width: 44, height: 44)
+            }
+            .foregroundStyle(Color.primary)
+            .padding(.top, 10)
+
+            sidebarPanelButton("AUX", panel: .aux, cameraLeading: cameraLeading)
+                .padding(.top, 8)
+
+            // The whole middle of the strip, left empty on purpose:
+            // this is the stretch the camera and its surround sit in,
+            // so a control there would be a control under the glass.
+            // AUX rides up against the menu and BANK down against
+            // Fine, which also puts the two of them as far apart as
+            // the strip allows - a thumb reaching for one mid-show
+            // cannot catch the other.
+            Spacer()
+
+            sidebarPanelButton("BANK", panel: .bank, cameraLeading: cameraLeading)
+
+            Button {
+                model.fineMode.toggle()
+            } label: {
+                Text("Fine")
+                    .font(.system(size: 11))
+                    .frame(width: 48, height: 38)
+            }
+            .background(model.fineMode ? Color.clmixSecondary : Color.clmixMuteInactive)
+            .foregroundStyle(
+                model.fineMode ? Color.clmixOnSecondary : Color.clmixOnMuteInactive
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.top, 8)
+            .padding(.bottom, 12)
         }
-        // Presets are per-aux-send, so a sheet left open from the
-        // previous aux would otherwise keep acting against the new one -
-        // mirrors Android's switchAux dismissing them. The pan sheet
-        // needs no equivalent: it belongs to a channel strip, and
-        // switching aux clears the strips out from under it.
-        .onChange(of: aux.index) { _, _ in
-            showPresetSave = false
-            showPresetLoad = false
+        .frame(width: Self.sidebarWidth)
+        .frame(maxHeight: .infinity)
+        .background(Color.clmixSurface.ignoresSafeArea())
+    }
+
+    /// Chevron over label rather than beside it: 58pt has no room for
+    /// the two side by side, and the arrow is the part that says what
+    /// will happen. It points away from its own edge - the way the
+    /// panel will travel - so it flips with the phone.
+    private func sidebarPanelButton(
+        _ title: String, panel: LandscapePanel, cameraLeading: Bool
+    ) -> some View {
+        Button {
+            withAnimation(panelAnimation) {
+                openPanel = openPanel == panel ? nil : panel
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: cameraLeading ? "chevron.right" : "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.clmixPrimary)
+
+                Text(title)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color.primary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
         }
+    }
+
+    @ViewBuilder
+    private func landscapePanel(_ panel: LandscapePanel) -> some View {
+        if panel == .menu {
+            // The drawer's own content, slid out of the sidebar rather
+            // than presented over everything: it comes from the right
+            // edge and stops short of the strip, so the buttons that
+            // opened it stay on screen and can close it again.
+            VStack(alignment: .leading, spacing: 0) {
+                Text("MENU")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.clmixOnSurfaceVariant)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+
+                menuContent
+            }
+            .frame(width: Self.panelWidth)
+            .frame(maxHeight: .infinity)
+            .background(Color.clmixSurface.ignoresSafeArea())
+        } else {
+            auxOrBankPanel(panel)
+        }
+    }
+
+    private func auxOrBankPanel(_ panel: LandscapePanel) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(panel == .aux ? "AUX" : "BANK")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color.clmixOnSurfaceVariant)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    if panel == .aux {
+                        ForEach(model.auxes) { bus in
+                            panelRow(bus.name, selected: bus.index == aux.index) {
+                                withAnimation(panelAnimation) { openPanel = nil }
+                                model.switchAux(bus)
+                            }
+                        }
+                    } else {
+                        ForEach(model.banks, id: \.self) { bank in
+                            panelRow(bank, selected: bank == model.selectedBank) {
+                                withAnimation(panelAnimation) { openPanel = nil }
+                                model.selectBank(bank)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            }
+        }
+        .frame(width: Self.panelWidth)
+        .frame(maxHeight: .infinity)
+        .background(Color.clmixSurface.ignoresSafeArea())
+    }
+
+    private func panelRow(
+        _ title: String, selected: Bool, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+        }
+        .foregroundStyle(selected ? Color.clmixOnPrimary : Color.primary)
+        .background(selected ? Color.clmixPrimary : Color.clmixSurfaceVariant)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var channelGrid: some View {
@@ -228,7 +460,21 @@ struct MixerView: View {
     // and became the bottom sheet: the settings-ish actions that were
     // always underneath it.
     private var menuSheet: some View {
+        menuContent
+            .frame(maxWidth: .infinity)
+            .background(Color.clmixSurface)
+            .presentationDetents([.medium])
+    }
+
+    /// The menu itself, with no opinion about what is presenting it:
+    /// portrait puts it in a sheet, landscape slides it out of the
+    /// sidebar like the other two panels. One copy rather than two, so
+    /// a button added here cannot go missing from one of them.
+    private var menuContent: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Held down at the bottom, in thumb reach - in the landscape
+            // panel just as much as in the sheet, since the hand holding
+            // the phone is at the bottom either way.
             Spacer()
 
             // Only accounts with Preset Access (Setup > Accounts on
@@ -245,17 +491,31 @@ struct MixerView: View {
                 if presetsExpanded {
                     HStack(spacing: 12) {
                         tonalButton("Save") {
-                            showMenu = false
+                            dismissMenu()
                             showPresetSave = true
                         }
                         tonalButton("Load") {
-                            showMenu = false
+                            dismissMenu()
                             showPresetLoad = true
                         }
                     }
                     .padding(.horizontal, 14)
                     .padding(.top, 8)
                 }
+            }
+
+            // Behind the personalization permission, which is the same
+            // one personal channel names sit behind: both are this
+            // account's own view of a shared console. Aux screens only -
+            // Mixer Control shows the desk's own grouping, the way it
+            // shows the desk's own names.
+            if model.personalizationAllowed {
+                tonalButton("Custom Banks") {
+                    dismissMenu()
+                    showCustomBanks = true
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
             }
 
             Toggle("Dark mode", isOn: darkModeBinding)
@@ -276,7 +536,7 @@ struct MixerView: View {
             HStack(spacing: 12) {
                 if model.mixerControlAllowed {
                     Button {
-                        showMenu = false
+                        dismissMenu()
                         model.leaveAux()
                     } label: {
                         Text("Back")
@@ -289,7 +549,7 @@ struct MixerView: View {
                 }
 
                 Button {
-                    showMenu = false
+                    dismissMenu()
                     model.logout()
                 } label: {
                     Text("Log Out")
@@ -302,9 +562,6 @@ struct MixerView: View {
             }
             .padding(14)
         }
-        .frame(maxWidth: .infinity)
-        .background(Color.clmixSurface)
-        .presentationDetents([.medium])
     }
 
     private func tonalButton(_ title: String, action: @escaping () -> Void) -> some View {
