@@ -283,13 +283,39 @@
             android:saveEnabled="false"
             android:textColor="?attr/colorOnSurface" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/logout_button"
+        <!-- Back returns to the aux list, one step out the way this
+             screen was come into; Log Out ends the session outright.
+             Side by side because they are the same kind of action at
+             different depths - the same pair, in the same order, as the
+             mixer control screen's drawer. -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_margin="14dp"
-            android:text="Log Out"
-            app:cornerRadius="10dp" />
+            android:orientation="horizontal"
+            android:layout_margin="14dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/back_button"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:text="Back"
+                app:cornerRadius="10dp"
+                app:backgroundTint="@color/mute_inactive"
+                android:textColor="@color/on_mute_inactive" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/logout_button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="Log Out"
+                app:cornerRadius="10dp" />
+
+        </LinearLayout>
 
     </LinearLayout>
 

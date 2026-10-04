@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Mirrors Android's ThemeStore.kt: remembers whether the user has
 /// overridden the phone's own light/dark setting from the mixer screen,
@@ -32,6 +33,29 @@ final class ThemeStore: ObservableObject {
         } else {
             isDarkMode = nil
         }
+    }
+
+    /// Which of the two the app is actually in, for the connect
+    /// screen's sun/moon control to report. With nothing saved there is
+    /// no choice to read, so this falls back to what the phone itself is
+    /// set to and the control starts out agreeing with what the user
+    /// will see once they are past login.
+    var isDarkEffective: Bool {
+        if let isDarkMode { return isDarkMode }
+        return Self.systemIsDark
+    }
+
+    /// Deliberately not `UITraitCollection.current`: the connect screen
+    /// pins its window to dark whatever the theme says (the artwork
+    /// behind it is black), so the current traits there report dark for
+    /// every user. The scene's own traits are not what that override
+    /// changes, so they still carry the phone's setting. Unspecified
+    /// counts as dark, which is the app's own default look.
+    private static var systemIsDark: Bool {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+        return scene?.traitCollection.userInterfaceStyle != .light
     }
 
     /// Fed straight to `.preferredColorScheme` - nil there means "follow

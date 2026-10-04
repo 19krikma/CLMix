@@ -33,10 +33,16 @@ struct LoginBackgroundView: View {
 
     /// Fraction of the screen's height left clear above the form.
     /// ConnectView pads its content down by this and hands the same
-    /// number back as `bandTop`, so the two cannot drift apart. Roughly
-    /// where the old banner gave way to the form, so the form still
-    /// sits where a returning user expects it.
-    static let contentTopFraction: CGFloat = 0.19
+    /// number back as `bandTop`, so the two cannot drift apart.
+    ///
+    /// Lower than the old banner's give-way point, and deliberately:
+    /// with Manual and Demo Mode both showing, the form had grown to
+    /// where the Login button sat against the bottom of the screen with
+    /// a third of the artwork left empty above it. This is the same
+    /// number on both platforms, and the first box lands at exactly it
+    /// on each - so it is also the one number to change to move the
+    /// whole form up or down.
+    static let contentTopFraction: CGFloat = 0.20
 
     // MARK: - The frost's shape
     //

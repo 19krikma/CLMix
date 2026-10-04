@@ -262,17 +262,44 @@ struct MixerView: View {
                 .padding(.horizontal, 14)
                 .padding(.top, 16)
 
-            Button {
-                showMenu = false
-                model.logout()
-            } label: {
-                Text("Log Out")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+            // Back returns to the AUX Only / Mixer Control choice; Log
+            // Out ends the session outright. Side by side because they
+            // are the same kind of action at different depths - the
+            // same pair, in the same order, as the mixer control
+            // screen's own sheet.
+            //
+            // Back only exists for an account that was offered that
+            // choice: everyone else came straight here from login and
+            // has no second mode to cross to, so for them there is
+            // nothing behind this screen but the login form, and Log
+            // Out keeps the row to itself.
+            HStack(spacing: 12) {
+                if model.mixerControlAllowed {
+                    Button {
+                        showMenu = false
+                        model.leaveAux()
+                    } label: {
+                        Text("Back")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .foregroundStyle(Color.clmixOnMuteInactive)
+                    .background(Color.clmixMuteInactive)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                Button {
+                    showMenu = false
+                    model.logout()
+                } label: {
+                    Text("Log Out")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .foregroundStyle(Color.clmixOnPrimary)
+                .background(Color.clmixPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .foregroundStyle(Color.clmixOnPrimary)
-            .background(Color.clmixPrimary)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
             .padding(14)
         }
         .frame(maxWidth: .infinity)

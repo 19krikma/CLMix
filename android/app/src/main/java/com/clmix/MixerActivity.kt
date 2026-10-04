@@ -19,6 +19,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
+import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.core.view.WindowCompat
@@ -302,6 +303,28 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.chromeToggle.setOnClickListener {
             chromeVisible = !chromeVisible
             applyChrome()
+        }
+
+        // Back goes to the AUX Only / Mixer Control choice, which sits
+        // two down from here with the aux list in between - so it is
+        // CLEAR_TOP rather than finish(), which would only reach the
+        // list. SINGLE_TOP with it so the choice screen already down
+        // there is resumed rather than built again on top of itself.
+        //
+        // Only offered to an account that was shown that choice:
+        // everyone else came straight from login to the aux list, there
+        // is no choice screen in the stack for CLEAR_TOP to find, and
+        // this would put one there that the account is not entitled to.
+        // Gone rather than disabled, so Log Out simply has the row.
+        binding.backButton.isVisible = MixerClient.mixerControlAllowed
+        binding.backButton.setOnClickListener {
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            dismissPanSheet()
+            startActivity(
+                Intent(this, ControlChoiceActivity::class.java).addFlags(
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+            )
         }
 
         binding.logoutButton.setOnClickListener { logout() }

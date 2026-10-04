@@ -1,35 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- The wallpaper is a sibling *behind* the scrolling form rather than a
+     row inside it, so its frosted band stays where the controls are on
+     screen while the form scrolls through it - it marks the column the
+     controls occupy, not a place in the scrolling content. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:layout_height="match_parent">
 
-    <!-- The banner is a sibling *under* the content rather than the
-         content's first row: its fade has to run behind the Discovered
-         and Manual boxes, which only works if they're drawn on top of
-         it. Both scroll together, so the artwork stays pinned to the
-         top of the form rather than to the top of the window. -->
-    <FrameLayout
+    <com.clmix.LoginBackgroundView
+        android:id="@+id/login_background"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
 
-        <com.clmix.FadingBannerView
-            android:id="@+id/banner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top"
-            android:src="@drawable/clmix_feature_graphic"
-            android:importantForAccessibility="no" />
+    <ScrollView
+        android:id="@+id/form_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
 
+    <!-- No top padding and no vertical gravity: ConnectActivity sets the
+         top from CONTENT_TOP_FRACTION, and both of the things that used
+         to be here fought it. The 28dp was added on top of the fraction,
+         and center_vertical re-centred the whole form in the leftover
+         space whenever it was short of the viewport (which fillViewport
+         above stretches it to), so the form drifted back down by half of
+         whatever room it was not using. Between them the fraction decided
+         almost nothing, and this form sat lower than the iOS one off the
+         same number. -->
     <LinearLayout
         android:id="@+id/content"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="28dp"
-        android:gravity="center_vertical">
+        android:paddingStart="28dp"
+        android:paddingEnd="28dp"
+        android:paddingBottom="28dp">
 
         <LinearLayout
             android:id="@+id/discovered_container"
@@ -40,14 +48,49 @@
             android:padding="12dp"
             android:layout_marginBottom="18dp">
 
-            <TextView
-                android:id="@+id/discovered_label"
+            <!-- The refresh control sits over the title rather than
+                 beside it, so the title stays centred in the box whether
+                 or not anything is showing there and the header does not
+                 shift when a scan ends. -->
+            <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:gravity="center"
-                android:text="Discovered"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface" />
+                android:layout_height="52dp">
+
+                <TextView
+                    android:id="@+id/discovered_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="Discovered"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <!-- One slot, two states: while a scan window is open the
+                     phone is already doing what the button asks for, and a
+                     button that restarts a scan already running is a button
+                     that looks broken. -->
+                <ImageButton
+                    android:id="@+id/discovered_refresh"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="center_vertical|end"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_refresh"
+                    android:contentDescription="Search again" />
+
+                <com.google.android.material.progressindicator.CircularProgressIndicator
+                    android:id="@+id/discovered_progress"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical|end"
+                    android:layout_marginEnd="10dp"
+                    android:indeterminate="true"
+                    android:visibility="gone"
+                    app:indicatorColor="?attr/colorPrimary"
+                    app:indicatorSize="24dp"
+                    app:trackThickness="3dp" />
+
+            </FrameLayout>
 
             <LinearLayout
                 android:id="@+id/discovered_servers"
@@ -57,67 +100,124 @@
                 android:layout_marginTop="12dp"
                 android:visibility="gone" />
 
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/manual_container"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/manual_fields_border"
-            android:padding="12dp"
-            android:layout_marginBottom="18dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/manual_button"
+            <!-- Out to the box's own edges, against its 12dp padding: a
+                 rule that stopped short of them would read as another
+                 control rather than as the box dividing. -->
+            <View
+                android:id="@+id/manual_divider"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:text="Manual"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurface"
-                app:backgroundTint="@android:color/transparent"
-                app:rippleColor="?attr/colorControlHighlight"
-                app:elevation="0dp"
-                app:cornerRadius="8dp" />
+                android:layout_height="1dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginStart="-12dp"
+                android:layout_marginEnd="-12dp"
+                android:background="@color/outline"
+                android:visibility="gone" />
 
+            <!-- Typing an address is the fallback for a network where
+                 announcement does not work, not a second way of doing what
+                 the list above already does - so it lives inside this box
+                 rather than beside it, and stays gone until a whole scan
+                 has come back with nothing (see ConnectActivity). -->
             <LinearLayout
-                android:id="@+id/manual_fields"
+                android:id="@+id/manual_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:layout_marginTop="12dp"
                 android:visibility="gone">
 
-                <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/manual_button"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="Manual"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurface"
+                    app:backgroundTint="@android:color/transparent"
+                    app:rippleColor="?attr/colorControlHighlight"
+                    app:elevation="0dp"
+                    app:cornerRadius="8dp" />
+
+                <LinearLayout
+                    android:id="@+id/manual_fields"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Server Address"
-                    android:layout_marginBottom="14dp">
+                    android:orientation="vertical"
+                    android:layout_marginTop="12dp"
+                    android:visibility="gone">
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/host_input"
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="textNoSuggestions" />
+                        android:hint="Server Address"
+                        android:layout_marginBottom="14dp">
 
-                </com.google.android.material.textfield.TextInputLayout>
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/host_input"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textNoSuggestions" />
 
-                <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Port">
+                    </com.google.android.material.textfield.TextInputLayout>
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/port_input"
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="number" />
+                        android:hint="Port">
 
-                </com.google.android.material.textfield.TextInputLayout>
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/port_input"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                </LinearLayout>
 
             </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Deliberately needs no server, no credentials and no network:
+             App Review has no desktop app or console to connect to, and a
+             demo they cannot reach is what got the iOS build rejected
+             under Guideline 2.1. Sits below Discovered so it reads as the
+             way in that is left when neither announcement nor an address
+             gets you anywhere.
+
+             REMOVE WITH DEMO MODE. -->
+        <LinearLayout
+            android:id="@+id/demo_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:background="@drawable/manual_fields_border"
+            android:foreground="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:layout_marginBottom="18dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Demo Mode"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Explore CLMix without a mixer server"
+                android:textSize="12sp"
+                android:textColor="@color/on_surface_variant" />
 
         </LinearLayout>
 
@@ -216,6 +316,24 @@
 
     </LinearLayout>
 
-    </FrameLayout>
+    </ScrollView>
 
-</ScrollView>
+    <!-- Over the form rather than in it, so it keeps its corner whatever
+         the form is doing above it. Only the icon changes on this
+         screen: the connect screen is pinned to the dark palette
+         whatever the choice is (see ConnectActivity), and what the tap
+         sets is every screen past login. -->
+    <ImageButton
+        android:id="@+id/theme_toggle"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="20dp"
+        android:background="@drawable/login_circle_button"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
+        android:padding="12dp"
+        android:src="@drawable/ic_dark_mode"
+        android:tint="?attr/colorPrimary"
+        android:contentDescription="Switch between light and dark mode" />
+
+</FrameLayout>

@@ -303,6 +303,18 @@ final class AppModel: NSObject, ObservableObject {
         discoveredServers = []
     }
 
+    /// Browses again from nothing, for the connect screen's refresh.
+    /// The list is emptied rather than left to be topped up: a row for a
+    /// desktop that has since been shut down is exactly what a refresh
+    /// is there to clear, and mDNS only reports a service going away
+    /// while the browse that found it is still running.
+    func restartDiscovery() {
+        discoveredServers = []
+        // start() tears down any browse already running, so there is no
+        // stop() to pair with this.
+        mdnsDiscovery.start(delegate: self)
+    }
+
     /// "AUX Only" on the control choice: asks for the aux list and lets
     /// the reply carry the screen forward, exactly as login does for an
     /// account without Full Mixer Control.
@@ -325,6 +337,29 @@ final class AppModel: NSObject, ObservableObject {
     /// session stays up; only the screen ends - and nothing is selected
     /// again until the next choice is made.
     func leaveMixerControl() {
+        channels = []
+        banks = []
+        selectedBank = nil
+        MeterCenter.shared.clear()
+        screen = .controlChoice
+    }
+
+    /// Back out of one aux's mix to the AUX Only / Mixer Control
+    /// choice - the same place the mixer control screen's own Back
+    /// goes, so the two modes are one tap apart in both directions
+    /// rather than one of them being a dead end.
+    ///
+    /// Not the aux list, deliberately: picking a different aux does not
+    /// need it, since the mixer screen carries its own aux picker along
+    /// the bottom. The one thing the list offered that nothing else did
+    /// was the way across to the other mode, which is what this is.
+    ///
+    /// Only offered to an account that was shown the choice in the
+    /// first place - see MixerView - and like leaveMixerControl it
+    /// tells the backend nothing: the server keeps the aux selected and
+    /// keeps pushing it, exactly as it does while the choice screen is
+    /// up, and the next pick re-selects whatever was tapped.
+    func leaveAux() {
         channels = []
         banks = []
         selectedBank = nil

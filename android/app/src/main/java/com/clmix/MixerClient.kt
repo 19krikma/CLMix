@@ -67,6 +67,16 @@ object MixerClient {
     private var webSocket: WebSocket? = null
     private var appContext: Context? = null
 
+    // True while the demo console is standing in for a real server. It
+    // is checked in exactly three places - connect, disconnect and send
+    // - because the demo answers on the wire protocol rather than at
+    // this object's API: every reply it makes goes through
+    // handleMessage and the ordinary parse, permission and dispatch
+    // path, so nothing else in the app has to know it is on.
+    //
+    // REMOVE WITH DEMO MODE.
+    private var demoMode = false
+
     // Screens claim this on resume and release it on pause. It is a
     // stack rather than a single slot because a configuration change -
     // the drawer's Dark mode switch, or the phone's own switchover at
@@ -177,6 +187,18 @@ object MixerClient {
     fun connect(host: String, port: Int) {
         disconnect()
 
+        // REMOVE WITH DEMO MODE. No socket, and deliberately no
+        // foreground service either: that exists to keep a *live* socket
+        // alive through a screen lock, and there is nothing here for it
+        // to protect.
+        if (host == DemoMixer.HOST) {
+            demoMode = true
+            isConnected = true
+            DemoMixer.start()
+            onMain { listener?.onConnected() }
+            return
+        }
+
         val request = Request.Builder()
             .url("ws://$host:$port")
             .build()
@@ -213,6 +235,19 @@ object MixerClient {
     }
 
     fun disconnect() {
+        // REMOVE WITH DEMO MODE. Leaving the demo is the same act as
+        // closing a socket, so it runs the same teardown and reports
+        // itself the same way - the real path's onDisconnected arrives
+        // from the socket's own close callback, which there is none of
+        // here.
+        if (demoMode) {
+            demoMode = false
+            DemoMixer.stop()
+            releaseConnection()
+            onMain { listener?.onDisconnected() }
+            return
+        }
+
         webSocket?.close(1000, "bye")
         releaseConnection()
     }
@@ -428,7 +463,24 @@ object MixerClient {
     )
 
     private fun send(json: JSONObject) {
+        // REMOVE WITH DEMO MODE.
+        if (demoMode) {
+            DemoMixer.handle(json)
+            return
+        }
+
         webSocket?.send(json.toString())
+    }
+
+    /**
+     * The demo console's way back in: what it hands over is parsed by
+     * exactly the code a real server's reply is.
+     *
+     * REMOVE WITH DEMO MODE.
+     */
+    internal fun deliverDemoMessage(text: String) {
+        if (!demoMode) return
+        handleMessage(text)
     }
 
     private fun handleMessage(text: String) {

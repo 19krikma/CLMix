@@ -28,6 +28,7 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.animation.doOnEnd
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -86,6 +87,21 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     private val resultHandler = Handler(Looper.getMainLooper())
     private var showingButtonResult = false
 
+    // A scan window: open on arrival and again on every tap of the
+    // refresh control, closed SCAN_WINDOW_MS later. It is what the
+    // spinner reports and what decides whether Manual is ever offered -
+    // discovery itself keeps browsing underneath either way, so a server
+    // that announces itself late still turns up in the list.
+    private val scanHandler = Handler(Looper.getMainLooper())
+
+    // Set once a whole scan has gone by with nothing found. It is not
+    // the same thing as Manual being on screen - see
+    // updateManualVisibility - but it never goes back to false: having
+    // once had to fall back to typing an address is a fact about this
+    // network, and a user who is told the list is empty should not have
+    // to sit through another thirty seconds to be told it again.
+    private var scanCameBackEmpty = false
+
     // Guards the button while a login is in flight. The button stays
     // enabled (a disabled MaterialButton greys out, which looks wrong
     // under a spinner) so clicks are ignored here instead.
@@ -101,36 +117,49 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     // offset can be recomputed on a width change without waiting for another.
     private var statusBarInset = 0
 
-    // How far down the form has to start to clear the banner's wordmark: the
-    // artwork's height at this width, cut off where its artwork ends and its
-    // solid black tail begins. Not added to the status bar inset but maxed
-    // against it - the banner is drawn from y=0, status bar included, so the
-    // wordmark's bottom edge is already past it and adding the two would
-    // leave a bar-sized hole between the logo and the form.
-    private fun bannerOffsetFor(width: Int): Int {
-        if (width <= 0) return statusBarInset
-        val drawable = ContextCompat.getDrawable(this, R.drawable.clmix_feature_graphic)
-        val iw = drawable?.intrinsicWidth ?: 0
-        val ih = drawable?.intrinsicHeight ?: 0
-        if (iw <= 0 || ih <= 0) return statusBarInset
-        val bannerHeight = width.toFloat() * ih / iw
-        return max(statusBarInset, (bannerHeight * FadingBannerView.TAIL_START).toInt())
+    // How far down the form starts: a fixed share of the screen, which is the
+    // strip of wallpaper the form deliberately stays off - the hanging lights
+    // across the top. Off the screen's height rather than the artwork's own
+    // proportions, because the picture now fills the window instead of
+    // heading it, and the same number goes to the background, which starts
+    // its frost just above the form (see LoginBackgroundView).
+    //
+    // Not added to the status bar inset but maxed against it: the wallpaper
+    // is drawn from y=0, status bar included, so adding the two would leave a
+    // bar-sized hole above the form on a phone with a tall cutout.
+    private fun contentTopFor(screenHeight: Int): Int {
+        val height = if (screenHeight > 0) {
+            screenHeight
+        } else {
+            resources.displayMetrics.heightPixels
+        }
+        return max(
+            statusBarInset,
+            (height * LoginBackgroundView.CONTENT_TOP_FRACTION).toInt()
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Before super.onCreate, which is what keeps this from recreating the
+        // activity a frame later. The palette is pinned to its night values
+        // whatever the phone or the user's own theme choice says, because the
+        // wallpaper behind it is black and there is no light cut of it: in
+        // day mode colorOnSurface resolves to near-black and every label on
+        // this screen would disappear into the picture. Local to this
+        // activity - everything past login follows the theme as it always
+        // has.
+        delegate.localNightMode = AppCompatDelegate.MODE_NIGHT_YES
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         binding = ActivityConnectBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // The banner runs to the very top of the window, under the status
-        // bar, so what the icons sit on is the artwork rather than the
-        // window background - and there are two of those, picked by the
-        // night qualifier. banner_is_light is picked by that same qualifier
-        // (see values/bools.xml), which keeps the icons in step with
-        // whichever banner actually got inflated.
+        // The wallpaper runs to the very top of the window, under the status
+        // bar, so what the clock and icons sit on is the artwork rather than
+        // the window background. Always white over it: unlike the banner this
+        // replaced, the picture has no light variant to keep in step with.
         WindowCompat.getInsetsController(window, window.decorView)
-            .isAppearanceLightStatusBars = resources.getBoolean(R.bool.banner_is_light)
+            .isAppearanceLightStatusBars = false
 
         // Android 15+ (targetSdk 35+) draws this activity edge-to-edge by
         // default now - pad the scrolling content by the system bar insets
@@ -139,7 +168,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // The top inset is folded into the banner offset below rather than
         // applied here, because the banner is what actually sits under the
         // status bar.
-        val scrollBasePaddingBottom = binding.root.paddingBottom
+        val scrollBasePaddingBottom = binding.formScroll.paddingBottom
         val contentBasePadding = Rect(
             binding.content.paddingLeft, binding.content.paddingTop,
             binding.content.paddingRight, binding.content.paddingBottom
@@ -151,10 +180,21 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
 
             view.setPadding(
                 contentBasePadding.left + bars.left,
-                contentBasePadding.top + bannerOffsetFor(view.width),
+                contentBasePadding.top + contentTopFor(binding.loginBackground.height),
                 contentBasePadding.right + bars.right,
                 contentBasePadding.bottom + bars.bottom
             )
+
+            // The floating control is a child of the window-sized root,
+            // so nothing else has moved it clear of the gesture strip.
+            (binding.themeToggle.layoutParams as FrameLayout.LayoutParams).apply {
+                val base = dpToPx(20)
+                if (bottomMargin != base + bars.bottom || marginEnd != base + bars.right) {
+                    bottomMargin = base + bars.bottom
+                    marginEnd = base + bars.right
+                    binding.themeToggle.requestLayout()
+                }
+            }
 
             // The keyboard's height goes on the ScrollView, not on the
             // content inside it. This screen draws edge-to-edge, so the
@@ -165,10 +205,10 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
             // that its bottom 850px are behind the keyboard, which is
             // both what makes room and what makes requestRectangleOnScreen
             // below actually move.
-            binding.root.setPadding(
-                binding.root.paddingLeft,
-                binding.root.paddingTop,
-                binding.root.paddingRight,
+            binding.formScroll.setPadding(
+                binding.formScroll.paddingLeft,
+                binding.formScroll.paddingTop,
+                binding.formScroll.paddingRight,
                 scrollBasePaddingBottom + ime.bottom
             )
 
@@ -189,16 +229,18 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
             imeWasOpen = keyboardOpen
             insets
         }
-        // Width isn't known when the insets first arrive, and view.width is
-        // stale whenever insets land ahead of a layout at a new width. Locking
-        // and unlocking the phone can do this: the form came back pushed down
-        // by exactly the landscape/portrait ratio, i.e. the insets pass padded
-        // for a landscape-width banner and nothing ever put it back. So every layout checks the
-        // offset against the width it was actually laid out at, rather than
-        // only reacting when that width changes: setPadding is a no-op when
-        // nothing differs, so this settles after one extra pass at most.
-        binding.content.addOnLayoutChangeListener { view, l, _, r, _, _, _, _, _ ->
-            val expectedTop = contentBasePadding.top + bannerOffsetFor(r - l)
+        // The screen's height isn't known when the insets first arrive, and
+        // it is stale whenever insets land ahead of a layout at a new size.
+        // Locking and unlocking the phone can do this: the form came back
+        // pushed down by exactly the landscape/portrait ratio, i.e. the
+        // insets pass padded for a landscape-height screen and nothing ever
+        // put it back. So every layout checks the offset against the size the
+        // window was actually laid out at, rather than only reacting when it
+        // changes: setPadding is a no-op when nothing differs, so this
+        // settles after one extra pass at most.
+        binding.content.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+            val expectedTop =
+                contentBasePadding.top + contentTopFor(binding.loginBackground.height)
             if (view.paddingTop != expectedTop) {
                 view.setPadding(
                     view.paddingLeft,
@@ -207,15 +249,13 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
                     view.paddingBottom
                 )
             }
-            // The fade is pinned to the boxes it runs behind rather than to
-            // any fixed height: it starts where Discovered starts and has
-            // finished by the time Manual does. Both tops are already in the
-            // banner's own coordinates, since content and banner share a
-            // parent and content sits at its top-left.
-            binding.banner.setFadeBounds(
-                binding.discoveredContainer.top.toFloat(),
-                binding.manualContainer.top.toFloat()
-            )
+            // The band is pinned to the box it sits behind rather than to any
+            // fixed height. Discovered's top is already in the background's
+            // own coordinates: content and wallpaper share a parent, the
+            // content sits at its top-left, and the band is deliberately
+            // measured at rest - it marks where the controls are on screen,
+            // and stays put when the form scrolls through it.
+            binding.loginBackground.setBandTop(binding.discoveredContainer.top.toFloat())
         }
 
         prefs = getSharedPreferences("connection", MODE_PRIVATE)
@@ -230,6 +270,24 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // (manually or via discovery) - always, even for a returning user
         // with a remembered host, so Manual is never unexpectedly missing.
         setCredentialsEnabled(false)
+
+        binding.discoveredRefresh.setOnClickListener { rescan() }
+
+        // REMOVE WITH DEMO MODE.
+        binding.demoContainer.setOnClickListener { if (!loading) enterDemoMode() }
+
+        // The one place the theme can be set before there is a mixer
+        // screen to set it from - useful for a phone that has been
+        // handed to someone, or for an operator who wants the light
+        // palette up before the lights go down. Nothing on this screen
+        // changes with it but the icon; what it sets is everything past
+        // login. The drawer's switch stays as it is and the two agree,
+        // since both read and write ThemeStore.
+        updateThemeToggle()
+        binding.themeToggle.setOnClickListener {
+            ThemeStore.setDarkMode(this, !ThemeStore.isDarkMode(this))
+            updateThemeToggle()
+        }
 
         binding.manualButton.setOnClickListener {
             val expanding = binding.manualFields.visibility != View.VISIBLE
@@ -294,6 +352,9 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         if ((binding.manualFields.visibility == View.VISIBLE) == expanded) return
         TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
         binding.manualFields.visibility = if (expanded) View.VISIBLE else View.GONE
+        // Folding the fields away withdraws the one reason Manual stays
+        // on screen while a server is listed.
+        updateManualVisibility()
     }
 
     private fun setCredentialsEnabled(enabled: Boolean) {
@@ -507,12 +568,101 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         super.onResume()
         MixerClient.claimListener(this)
         mdnsDiscovery.start(this)
+        openScanWindow()
     }
 
     override fun onPause() {
         super.onPause()
         MixerClient.releaseListener(this)
         mdnsDiscovery.stop()
+        // The window closes with the browse that feeds it rather than
+        // running on in the background: a deadline that expired while
+        // the app was away would otherwise decide, on nothing, that the
+        // network has no servers on it.
+        scanHandler.removeCallbacksAndMessages(null)
+        setScanning(false)
+    }
+
+    /**
+     * Throws the list away and browses again from nothing, rather than
+     * leaving what is already there and waiting for more: a stale row for
+     * a desktop that has since been shut down is the one thing a refresh
+     * is for, and mDNS only reports a service going away while the browse
+     * that found it is still running.
+     *
+     * The selection goes with it - the row it pointed at is gone - but the
+     * host and port it filled in stay, so a login already set up is not
+     * undone by asking the network again.
+     */
+    private fun rescan() {
+        selectedRow = null
+        discoveredRows.clear()
+        TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
+        binding.discoveredServers.removeAllViews()
+        binding.discoveredServers.visibility = View.GONE
+        updateManualVisibility()
+
+        // start() tears down any browse already running, so there is no
+        // stop() to pair with this.
+        mdnsDiscovery.start(this)
+        openScanWindow()
+    }
+
+    /** Spinner on, deadline armed. Idempotent - every path that starts a
+     *  browse calls it, and a second call replaces the first's deadline
+     *  rather than leaving two of them to fire. */
+    private fun openScanWindow() {
+        scanHandler.removeCallbacksAndMessages(null)
+        setScanning(true)
+        scanHandler.postDelayed({ closeScanWindow() }, SCAN_WINDOW_MS)
+    }
+
+    private fun closeScanWindow() {
+        setScanning(false)
+        if (discoveredRows.isNotEmpty()) return
+
+        scanCameBackEmpty = true
+        updateManualVisibility()
+    }
+
+    /**
+     * Whether Manual is on screen at all. Typing an address is the
+     * fallback for a network where announcement does not work, not a
+     * second way of doing what the list above already does - so it
+     * appears only once a scan has come back with nothing, and goes away
+     * again the moment a server does turn up. Worked out from the two
+     * facts every time rather than latched on and off, so a server
+     * appearing, going away and coming back is handled by the same
+     * expression rather than by three separate edges.
+     *
+     * The exception is a user already typing into it: a form that
+     * vanishes mid-address because the desktop finally announced itself
+     * is worse than one that stays a moment too long. Picking a
+     * discovered server folds the fields away, which takes this with it.
+     */
+    private fun updateManualVisibility() {
+        val expanded = binding.manualFields.visibility == View.VISIBLE
+        val show = scanCameBackEmpty && (discoveredRows.isEmpty() || expanded)
+        val visibility = if (show) View.VISIBLE else View.GONE
+        if (binding.manualContainer.visibility == visibility) return
+
+        TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
+        binding.manualContainer.visibility = visibility
+        binding.manualDivider.visibility = visibility
+    }
+
+    private fun updateThemeToggle() {
+        val dark = ThemeStore.isDarkMode(this)
+        binding.themeToggle.setImageResource(
+            if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode
+        )
+        binding.themeToggle.contentDescription =
+            if (dark) "Switch to light mode" else "Switch to dark mode"
+    }
+
+    private fun setScanning(scanning: Boolean) {
+        binding.discoveredProgress.visibility = if (scanning) View.VISIBLE else View.GONE
+        binding.discoveredRefresh.visibility = if (scanning) View.GONE else View.VISIBLE
     }
 
     override fun onDestroy() {
@@ -520,6 +670,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // Nothing left to put back once this activity is gone, and the
         // posted callback would outlive it.
         resultHandler.removeCallbacksAndMessages(null)
+        scanHandler.removeCallbacksAndMessages(null)
     }
 
     /**
@@ -540,7 +691,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
 
     private fun scrollFocusedFieldIntoView() {
         val focused = currentFocus ?: return
-        val scroller = binding.root
+        val scroller = binding.formScroll
 
         // Worked out explicitly rather than left to
         // requestRectangleOnScreen: this window does not resize for the
@@ -598,6 +749,26 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         setLoading(true)
         showStatus("Connecting...")
         MixerClient.connect(host, port)
+    }
+
+    /**
+     * Starts a local demo session: no server, no console, no network.
+     * Goes through exactly the same connect -> login -> auxes sequence a
+     * real session does, so nothing downstream of here knows the
+     * difference - the demo answers on the wire protocol, in MixerClient
+     * (see DemoMixer).
+     *
+     * REMOVE WITH DEMO MODE.
+     */
+    private fun enterDemoMode() {
+        pendingUsername = "demo"
+        pendingPassword = "demo"
+        pendingToken = null
+
+        resetButton()
+        setLoading(true)
+        showStatus("Starting demo...")
+        MixerClient.connect(DemoMixer.HOST, 0)
     }
 
     override fun onConnected() {
@@ -763,6 +934,10 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         discoveredRows[server.name] = row
         binding.discoveredServers.addView(row)
         binding.discoveredServers.visibility = View.VISIBLE
+
+        // There is now something in the list, so the fallback under it
+        // has nothing to be a fallback for.
+        updateManualVisibility()
     }
 
     override fun onServerLost(name: String) {
@@ -776,6 +951,10 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         if (discoveredRows.isEmpty()) {
             binding.discoveredServers.visibility = View.GONE
         }
+
+        // The last server going away puts Manual back, if a scan had
+        // already come back empty once.
+        updateManualVisibility()
     }
 
     // Unselected: transparent fill with a plain outline, matching the
@@ -804,6 +983,17 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
 
     companion object {
+        /**
+         * How long a scan runs before it gives up and offers Manual.
+         * Announcement on a quiet network is usually answered inside a
+         * second or two; this is long enough that a phone which has just
+         * joined the Wi-Fi, or a desktop still starting up, is not
+         * written off, and short enough that somebody standing at the
+         * console with an address in their hand is not left waiting on
+         * it. Matches the iOS ConnectView's own scan window.
+         */
+        private const val SCAN_WINDOW_MS = 30_000L
+
         // How long a failure stays on the button before it turns back
         // into "Login".
         private const val RESULT_HOLD_MS = 5000L
