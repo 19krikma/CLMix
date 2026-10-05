@@ -28,6 +28,13 @@ struct MixerView: View {
 
     private enum LandscapePanel { case menu, aux, bank }
 
+    /// Which side of the screen the camera is on while the phone is on
+    /// its side. Held in state rather than worked out from the layout:
+    /// turning the phone end for end leaves the size and the safe area
+    /// exactly as they were (iOS reports the same inset on both sides in
+    /// landscape), so nothing the layout can measure says it happened.
+    @State private var cameraOnLeft = true
+
     /// Puts the menu away wherever it currently is - the sheet in
     /// portrait, the sidebar's panel in landscape.
     private func dismissMenu() {
@@ -68,7 +75,7 @@ struct MixerView: View {
             if geo.size.width > geo.size.height {
                 landscapeBody(geo)
             } else {
-                portraitBody
+                portraitBody(geo)
             }
         }
         // The fill ignores the safe area while the content above it does
@@ -102,12 +109,51 @@ struct MixerView: View {
             showPresetSave = false
             showPresetLoad = false
         }
+        .onAppear {
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+            readInterfaceOrientation()
+        }
+        .onDisappear {
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)
+        ) { _ in
+            // The device's own reading, not the interface's: this arrives
+            // before the interface has turned, so the interface would
+            // still be answering for the old way up. Face up, face down
+            // and portrait say nothing about which end the camera is, so
+            // they leave the last landscape answer standing. Note the
+            // device's names run opposite to the interface's: landscape
+            // left is the device turned left, which puts its top - and
+            // the camera - on the left.
+            switch UIDevice.current.orientation {
+            case .landscapeLeft: cameraOnLeft = true
+            case .landscapeRight: cameraOnLeft = false
+            default: break
+            }
+        }
     }
 
-    private var portraitBody: some View {
+    /// The starting answer, for a screen that opens with the phone
+    /// already sideways and so never sees it turn.
+    private func readInterfaceOrientation() {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+        switch scene?.effectiveGeometry.interfaceOrientation {
+        case .landscapeRight: cameraOnLeft = true
+        case .landscapeLeft: cameraOnLeft = false
+        default: break
+        }
+    }
+
+    private func portraitBody(_ geo: GeometryProxy) -> some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 topBar
+                    .frame(height: max(geo.safeAreaInsets.top, Self.topBarHeight))
+                    .background(Color.clmixSurface)
 
                 if banksExpanded {
                     BankPanelView(
@@ -141,7 +187,19 @@ struct MixerView: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Full screen hides the status bar, but the safe area still keeps
+        // the strip the camera sits in - and, at the bottom, the one the
+        // home indicator sits in. The top bar moves up into the camera's
+        // strip (its middle is a spacer, so the cutout lands on nothing),
+        // and the aux sheet runs to the bottom edge: its name sits well
+        // above where the indicator draws, and a tap on it never reaches
+        // the system's swipe.
+        .ignoresSafeArea(edges: [.top, .bottom])
     }
+
+    /// The top bar's own height when there is no camera strip to fill:
+    /// a 40pt button plus its padding.
+    private static let topBarHeight: CGFloat = 52
 
     /// The sideways layout: no top bar and no aux sheet, because
     /// everything they held now lives in the strip down the camera's
@@ -149,19 +207,23 @@ struct MixerView: View {
     /// which is what they were short of. Mirrors Android's
     /// MixerActivity.applyOrientation.
     private func landscapeBody(_ geo: GeometryProxy) -> some View {
-        // Whichever edge the notch eats into is the edge the camera is
-        // on. Read off the safe area rather than off the interface
-        // orientation: this is the measurement that actually says where
-        // the hardware is, and it is already to hand.
-        let cameraLeading = geo.safeAreaInsets.leading >= geo.safeAreaInsets.trailing
+        let cameraLeading = cameraOnLeft
         let edge: Edge.Set = cameraLeading ? .leading : .trailing
+
+        // The strip fills the camera's side of the safe area rather than
+        // sitting inside it: that band is otherwise bare background, and
+        // the camera only takes its middle, which the strip leaves empty
+        // anyway. Never narrower than the strip's own width, for phones
+        // with no cutout to fill.
+        let cameraInset = cameraLeading ? geo.safeAreaInsets.leading : geo.safeAreaInsets.trailing
+        let stripWidth = max(Self.sidebarWidth, cameraInset)
 
         return ZStack(alignment: cameraLeading ? .leading : .trailing) {
             // Stops at the sidebar rather than running under it: a fader
             // half behind a button is one that cannot be grabbed by its
             // bottom half.
             channelGrid
-                .padding(edge, Self.sidebarWidth)
+                .padding(edge, stripWidth)
 
             if openPanel != nil {
                 // Catches the tap that closes the panel, over the strips
@@ -176,18 +238,25 @@ struct MixerView: View {
                 // than under it - the sidebar is what closes the panel
                 // again, so it cannot be the thing the panel covers.
                 landscapePanel(panel)
-                    .padding(edge, Self.sidebarWidth)
+                    .padding(edge, stripWidth)
                     .transition(.move(edge: cameraLeading ? .leading : .trailing))
             }
 
             landscapeSidebar(cameraLeading: cameraLeading)
+                .frame(width: stripWidth)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // With both bars gone the status bar's strip is the last thing
-        // between a fader and the top of the screen. The bottom is left
-        // alone: the Mute buttons are down there and the home indicator
-        // would sit on them.
-        .ignoresSafeArea(edges: .top)
+        // The strips take the full height of the screen: full screen has
+        // hidden the status bar, and the home indicator is hidden too, so
+        // the bands the safe area keeps for them top and bottom are bare.
+        // The camera's side is the control strip's to fill - see
+        // stripWidth.
+        .ignoresSafeArea(edges: [.top, .bottom, edge])
+        // The Mute buttons now sit at the bottom edge, where a quick
+        // press or a fader pulled all the way down could otherwise be
+        // taken for the swipe home. Deferred, that swipe needs a second
+        // go - the first only brings the indicator back.
+        .defersSystemGestures(on: .bottom)
     }
 
     private func landscapeSidebar(cameraLeading: Bool) -> some View {
@@ -233,8 +302,7 @@ struct MixerView: View {
             .padding(.top, 8)
             .padding(.bottom, 12)
         }
-        .frame(width: Self.sidebarWidth)
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clmixSurface.ignoresSafeArea())
     }
 

@@ -32,7 +32,12 @@ struct BankPanelView: View {
         .padding(.top, 2)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity)
-        .background(Color.clmixSurface)
+        // Kept to the panel's own frame. A plain colour background
+        // otherwise reaches into any safe area the panel touches - and
+        // full screen puts the top bar inside the camera's safe area,
+        // so the panel's top edge sits right on it and the fill would
+        // paint straight over the bar.
+        .background(Color.clmixSurface, ignoresSafeAreaEdges: [])
     }
 
     private func bankButton(_ bank: String) -> some View {

@@ -6,6 +6,13 @@ struct CLMixApp: App {
     @StateObject private var model = AppModel()
     @StateObject private var themeStore = ThemeStore.shared
 
+    private var isChannelScreen: Bool {
+        switch model.screen {
+        case .mixer, .mixerControl: return true
+        default: return false
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             NavigationStack {
@@ -23,6 +30,13 @@ struct CLMixApp: App {
                         MixerControlView()
                     }
                 }
+                // The channel screens go full screen - mirrors Android's
+                // enterFullScreen(). The clock strip goes outright; the
+                // home indicator fades after a moment and comes back on
+                // a touch near the bottom edge, which is as far as iOS
+                // lets an app put it away.
+                .statusBarHidden(isChannelScreen)
+                .persistentSystemOverlays(isChannelScreen ? .hidden : .automatic)
             }
             .environmentObject(model)
             .environmentObject(themeStore)

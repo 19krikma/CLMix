@@ -331,9 +331,6 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "set_personal_name", "channel": channel, "name": name])
     }
 
-    func requestCustomBanks()
-    func saveCustomBanks(_ banks: [CustomBank])
-    func resetCustomBanks()
     /// This account's own banks and the channel list to build them
     /// from. Behind the personalization permission, like personal
     /// names and for the same reason: it is this account's view of a
