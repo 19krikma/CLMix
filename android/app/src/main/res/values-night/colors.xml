@@ -16,6 +16,11 @@
 
     <color name="track_background">#33363C</color>
 
+    <color name="login_control_fill">#B31B1D22</color>
+
+    <!-- The white the connect screen has always drawn its boxes in. -->
+    <color name="login_outline">#FFFFFF</color>
+
     <!-- Stays the white it has always been in dark mode. -->
     <color name="outline">#FFFFFF</color>
 </resources>

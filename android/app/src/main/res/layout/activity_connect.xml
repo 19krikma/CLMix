@@ -110,7 +110,7 @@
                 android:layout_marginTop="12dp"
                 android:layout_marginStart="-12dp"
                 android:layout_marginEnd="-12dp"
-                android:background="@color/outline"
+                android:background="@color/login_outline"
                 android:visibility="gone" />
 
             <!-- Typing an address is the fallback for a network where

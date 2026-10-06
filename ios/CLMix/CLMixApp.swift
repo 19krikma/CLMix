@@ -40,14 +40,15 @@ struct CLMixApp: App {
             }
             .environmentObject(model)
             .environmentObject(themeStore)
-            // The connect screen is dark whatever the theme says: it is
-            // drawn over black artwork with no light cut of it, so the
-            // window goes dark with it (ConnectView pins its own palette
-            // to match). Doing it here rather than inside ConnectView is
-            // what makes the status bar's clock and icons white over the
-            // picture - a .preferredColorScheme set deeper in the tree
-            // loses to this one, which sits above the whole switch.
-            .preferredColorScheme(model.screen == .connect ? .dark : themeStore.colorScheme)
+            // One choice for the whole app, the connect screen included:
+            // its wallpaper has a day cut now (see LoginBackgroundView),
+            // so nothing is left that has to be dark whatever the theme
+            // says. Above the switch rather than inside any one screen,
+            // which is what carries the choice to the status bar's clock
+            // and icons over the top of the artwork - a
+            // .preferredColorScheme set deeper in the tree loses to this
+            // one.
+            .preferredColorScheme(themeStore.colorScheme)
         }
     }
 }

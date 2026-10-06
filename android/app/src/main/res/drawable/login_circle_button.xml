@@ -1,14 +1,12 @@
-<!-- The connect screen's floating circular control. The fill is a
-     literal rather than ?attr/colorSurface at an alpha, which a shape
-     drawable cannot express: this screen is pinned to the dark palette
-     whatever the theme is (the artwork behind it is black), so there is
-     only ever one value for it to take - the night surface colour, let
-     down so the wallpaper reads through it the way the iOS control's
-     material does. -->
+<!-- The connect screen's floating circular control. The fill is its own
+     day/night colour rather than ?attr/colorSurface at an alpha, which a
+     shape drawable cannot express: it is the surface colour let down so
+     the wallpaper reads through it the way the iOS control's material
+     does, and both cuts of the wallpaper need one. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="#B31B1D22" />
+    <solid android:color="@color/login_control_fill" />
     <stroke
         android:width="1dp"
-        android:color="@color/outline" />
+        android:color="@color/login_outline" />
 </shape>

@@ -84,6 +84,18 @@ extension Color {
     // Discovered/Manual box borders and unselected server rows on
     // ConnectView - was hardcoded white on Android too until light mode
     // became reachable there; dark mode keeps the white it always had.
+    // The connect screen's own outline: its boxes, rows, rule, fields and
+    // the floating theme toggle. Near-black by day rather than the grey
+    // below, because they are drawn over the wallpaper's frosted band
+    // instead of over a flat surface - a grey line that reads cleanly on
+    // the background goes soft against a picture, however far the band has
+    // pushed it back. The same ink as the labels inside them, so the form
+    // reads as one drawing. White at night, which is what that screen has
+    // always drawn its boxes in.
+    static let clmixLoginOutline = Color(
+        light: UIColor(red: 0x1B / 255, green: 0x1D / 255, blue: 0x22 / 255, alpha: 1),
+        dark: UIColor(red: 0xFF / 255, green: 0xFF / 255, blue: 0xFF / 255, alpha: 1)
+    )
     static let clmixOutline = Color(
         light: UIColor(red: 0x9B / 255, green: 0xA0 / 255, blue: 0xA8 / 255, alpha: 1),
         dark: UIColor.white

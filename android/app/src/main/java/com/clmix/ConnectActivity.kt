@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.text.Editable
 import android.text.TextWatcher
 import android.graphics.Color
@@ -28,7 +29,6 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.animation.doOnEnd
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -140,15 +140,6 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Before super.onCreate, which is what keeps this from recreating the
-        // activity a frame later. The palette is pinned to its night values
-        // whatever the phone or the user's own theme choice says, because the
-        // wallpaper behind it is black and there is no light cut of it: in
-        // day mode colorOnSurface resolves to near-black and every label on
-        // this screen would disappear into the picture. Local to this
-        // activity - everything past login follows the theme as it always
-        // has.
-        delegate.localNightMode = AppCompatDelegate.MODE_NIGHT_YES
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         binding = ActivityConnectBinding.inflate(layoutInflater)
@@ -156,10 +147,11 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
 
         // The wallpaper runs to the very top of the window, under the status
         // bar, so what the clock and icons sit on is the artwork rather than
-        // the window background. Always white over it: unlike the banner this
-        // replaced, the picture has no light variant to keep in step with.
+        // the window background - and which artwork that is now follows the
+        // theme (see LoginBackgroundView), so they go dark over the day cut's
+        // pale wall and stay white over the night one.
         WindowCompat.getInsetsController(window, window.decorView)
-            .isAppearanceLightStatusBars = false
+            .isAppearanceLightStatusBars = !isNightMode()
 
         // Android 15+ (targetSdk 35+) draws this activity edge-to-edge by
         // default now - pad the scrolling content by the system bar insets
@@ -279,10 +271,12 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // The one place the theme can be set before there is a mixer
         // screen to set it from - useful for a phone that has been
         // handed to someone, or for an operator who wants the light
-        // palette up before the lights go down. Nothing on this screen
-        // changes with it but the icon; what it sets is everything past
-        // login. The drawer's switch stays as it is and the two agree,
-        // since both read and write ThemeStore.
+        // palette up before the lights go down. This screen now answers
+        // it too, wallpaper included, which costs the usual recreate:
+        // setDefaultNightMode rebuilds whatever is running, so the form
+        // comes back as it would on a fresh launch. The drawer's switch
+        // stays as it is and the two agree, since both read and write
+        // ThemeStore.
         updateThemeToggle()
         binding.themeToggle.setOnClickListener {
             ThemeStore.setDarkMode(this, !ThemeStore.isDarkMode(this))
@@ -973,7 +967,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         } else {
             row.strokeWidth = dpToPx(1)
             row.strokeColor = ColorStateList.valueOf(
-                ContextCompat.getColor(row.context, R.color.outline)
+                ContextCompat.getColor(row.context, R.color.login_outline)
             )
             row.backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
             row.setTextColor(ContextCompat.getColor(row.context, R.color.on_surface))
@@ -981,6 +975,14 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     }
 
     private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
+
+    // This activity's own configuration rather than ThemeStore's saved
+    // choice: with nothing saved the app follows the phone, and it is what
+    // the window was actually inflated against that the status bar icons
+    // have to agree with.
+    private fun isNightMode(): Boolean =
+        resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+            Configuration.UI_MODE_NIGHT_YES
 
     companion object {
         /**

@@ -134,17 +134,6 @@ struct ConnectView: View {
         // respects the home indicator's safe area at the bottom, same as
         // before, while the background reaches past it on its own.
         .ignoresSafeArea(edges: .top)
-        // The palette is pinned to its night values whatever the phone
-        // or the user's own theme choice says, because the artwork
-        // behind it is black and there is no light cut of it: in day
-        // mode `Color.primary` would resolve to near-black and every
-        // label on this screen would disappear into the picture. Only
-        // this screen - everything past login follows the theme as it
-        // always has. CLMixApp pins the window to match, which is what
-        // turns the status bar's own clock and icons white over the top
-        // of the artwork; this line is what the colours in here actually
-        // read, so the two are deliberately both present.
-        .environment(\.colorScheme, .dark)
         .onAppear {
             model.startDiscovery()
             model.resumeSessionIfPossible()
@@ -194,7 +183,7 @@ struct ConnectView: View {
                 // below: a rule that stopped short of them would read as
                 // another control rather than as the box dividing.
                 Rectangle()
-                    .fill(Color.clmixOutline)
+                    .fill(Color.clmixLoginOutline)
                     .frame(height: 1)
                     .padding(.horizontal, -12)
 
@@ -215,10 +204,10 @@ struct ConnectView: View {
     /// operator who wants the light palette up before the lights go
     /// down.
     ///
-    /// Only the icon changes here: the connect screen is pinned to the
-    /// dark palette whatever the choice is, because the artwork behind
-    /// it is black (see CLMixApp). What the tap sets is every screen
-    /// past login.
+    /// The whole screen answers the tap now that the wallpaper has a day
+    /// cut of its own (see LoginBackgroundView) - palette, status bar
+    /// and artwork swap together, where before only this icon changed
+    /// and what the tap set was every screen past login.
     private var themeToggle: some View {
         let dark = themeStore.isDarkEffective
 
@@ -232,7 +221,7 @@ struct ConnectView: View {
                 // wallpaper's own band is made of, so the control reads
                 // as sitting on the picture rather than punched into it.
                 .background(Circle().fill(.ultraThinMaterial))
-                .overlay(Circle().stroke(Color.clmixOutline, lineWidth: 1))
+                .overlay(Circle().stroke(Color.clmixLoginOutline, lineWidth: 1))
                 .contentShape(Circle())
         }
         .foregroundStyle(Color.clmixPrimary)
@@ -303,7 +292,7 @@ struct ConnectView: View {
         .background(selected ? Color.clmixPrimary : Color.clear)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(selected ? Color.clear : Color.clmixOutline, lineWidth: 1)
+                .stroke(selected ? Color.clear : Color.clmixLoginOutline, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
@@ -372,7 +361,7 @@ struct ConnectView: View {
     private func credentialField(
         _ title: String, text: Binding<String>, isSecure: Bool, field: Field
     ) -> some View {
-        let border = model.credentialsRejected ? Color.clmixMuteActive : Color.clmixOutline
+        let border = model.credentialsRejected ? Color.clmixMuteActive : Color.clmixLoginOutline
 
         // The focus binding has to sit on the field itself rather than on
         // anything wrapping it, which is why this doesn't go through
@@ -402,7 +391,7 @@ struct ConnectView: View {
 
     @ViewBuilder
     private func outlinedField(
-        _ title: String, text: Binding<String>, isSecure: Bool, borderColor: Color = .clmixOutline
+        _ title: String, text: Binding<String>, isSecure: Bool, borderColor: Color = .clmixLoginOutline
     ) -> some View {
         Group {
             if isSecure {
@@ -417,7 +406,7 @@ struct ConnectView: View {
     }
 
     private var boxBorder: some View {
-        RoundedRectangle(cornerRadius: 8).stroke(Color.clmixOutline, lineWidth: 1)
+        RoundedRectangle(cornerRadius: 8).stroke(Color.clmixLoginOutline, lineWidth: 1)
     }
 
     // The spinner replaces the label while a login is in flight; a

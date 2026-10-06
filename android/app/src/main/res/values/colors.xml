@@ -16,6 +16,21 @@
 
     <color name="track_background">#D3D6DC</color>
 
+    <!-- The fill of the connect screen's floating theme toggle: the
+         surface colour at 70%, so the wallpaper reads through it the way
+         the iOS control's material does. A literal because a shape
+         drawable cannot apply an alpha to ?attr/colorSurface itself. -->
+    <color name="login_control_fill">#B3FFFFFF</color>
+
+    <!-- The connect screen's own outline: its boxes, rows, rule, fields
+         and the floating theme toggle. Near-black by day rather than the
+         grey below, because they are drawn over the wallpaper's frosted
+         band instead of over a flat surface - a grey line that reads
+         cleanly on the background goes soft against a picture, however
+         far the band has pushed it back. The same ink as the labels
+         inside them, so the form reads as one drawing. -->
+    <color name="login_outline">#1B1D22</color>
+
     <!-- Outlines on the connect screen's Discovered/Manual boxes and its
          unselected server rows. Was hardcoded white, which vanished
          against the light background - now that light mode is reachable

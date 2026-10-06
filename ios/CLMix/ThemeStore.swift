@@ -45,12 +45,14 @@ final class ThemeStore: ObservableObject {
         return Self.systemIsDark
     }
 
-    /// Deliberately not `UITraitCollection.current`: the connect screen
-    /// pins its window to dark whatever the theme says (the artwork
-    /// behind it is black), so the current traits there report dark for
-    /// every user. The scene's own traits are not what that override
-    /// changes, so they still carry the phone's setting. Unspecified
-    /// counts as dark, which is the app's own default look.
+    /// Deliberately not `UITraitCollection.current`: that resolves
+    /// against whatever is being evaluated at the time, which the app's
+    /// own `.preferredColorScheme` can have overridden, where a scene's
+    /// traits carry the phone's setting whatever the app has asked for.
+    /// This is only read when nothing has been saved - so in practice
+    /// the two agree - but the scene is the one that answers the
+    /// question actually being asked. Unspecified counts as dark, which
+    /// is the app's own default look.
     private static var systemIsDark: Bool {
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }

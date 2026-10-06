@@ -52,12 +52,12 @@ object ThemeStore {
             return prefs.getBoolean(KEY_DARK_MODE, false)
         }
 
-        // The application's resources, not the caller's: the connect
-        // screen overrides its own night mode (its artwork is black, so
-        // it is dark whatever the theme says), and asking that activity
-        // what the phone is set to would get its own override back
-        // rather than the answer. An activity-level override does not
-        // reach the application context.
+        // The application's resources, not the caller's. No activity
+        // overrides its own night mode any more - the connect screen used
+        // to, there being no day cut of its artwork - but this is the one
+        // context an activity-level override cannot reach, so it answers
+        // what the phone is set to whatever any caller has done to
+        // itself.
         val nightFlags = context.applicationContext.resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK
 
