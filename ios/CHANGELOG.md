@@ -9,6 +9,33 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.4.0
+
+- **Custom Banks.** Group the desk's channels your own way. Banks start
+  from the console's own and can be edited from the phone, or reset back
+  to the desk's.
+- **Light and dark themes.** A sun/moon button on the login screen sets
+  the theme for the whole app, the login screen included.
+- **A reworked login screen.** New wallpaper, a refresh button and scan
+  spinner for discovered servers, and manual entry only when none are
+  found.
+- **Full-screen mixer.** The status bar hides and the home indicator
+  fades away, giving the faders the whole screen.
+- **Better landscape.** The controls move to the camera side and the
+  strips use the full height of the screen.
+- **Smoother scrolling.** A sideways swipe across the channels scrolls
+  them instead of moving a fader.
+- **Back from the aux mixer** to the AUX Only / Mixer Control choice,
+  for accounts that have both.
+
+## 1.3.0
+
+- **Personalization.** Accounts with permission can rename channels on
+  their own aux screens. The names are theirs alone and never change
+  the console.
+- **Landscape support** on every screen.
+- **A faster interface**, and faders that are easier to grab.
+
 ## 1.2.0
 
 Two corrections to the input stage, both from reading the console's own
