@@ -235,20 +235,17 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     private fun showChannelInputSheet(channel: ChannelState) {
         val sheet = ChannelInputBottomSheet(
             context = this,
-            channel = channel.channel,
-            channelName = channel.name,
-            gain = channel.gain,
-            trim = channel.trim,
-            phantom = channel.phantom,
-            phase = channel.phase,
+            initial = channel,
             gainRange = MixerClient.gainRange,
             trimRange = MixerClient.trimRange,
             onGainChanged = { ch, gain -> MixerClient.setGain(ch, gain) },
             onTrimChanged = { ch, trim -> MixerClient.setTrim(ch, trim) },
             onPhantomChanged = { ch, on -> MixerClient.setPhantom(ch, on) },
+            onAltGainChanged = { ch, gain -> MixerClient.setAltGain(ch, gain) },
+            onAltPhantomChanged = { ch, on -> MixerClient.setAltPhantom(ch, on) },
+            onAltInChanged = { ch, altIn -> MixerClient.setAltIn(ch, altIn) },
             onPhaseChanged = { ch, state -> MixerClient.setPhase(ch, state) },
-            onNameChanged = { ch, name -> MixerClient.setName(ch, name) },
-            onInputClicked = { showInputPicker() }
+            onNameChanged = { ch, name -> MixerClient.setName(ch, name) }
         )
 
         sheet.setOnDismissListener {
@@ -257,18 +254,6 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
         inputSheet = sheet
         sheet.show()
-    }
-
-    // The rack/port patch itself is not in the console's OSC address
-    // space as probed (see docs/mixer_protocol) - nothing under
-    // Channel_Input names a socket - so the button says so rather than
-    // pretending to route something.
-    private fun showInputPicker() {
-        Toast.makeText(
-            this,
-            "Input patching isn't available from the console yet",
-            Toast.LENGTH_SHORT
-        ).show()
     }
 
     private fun dismissInputSheet() {

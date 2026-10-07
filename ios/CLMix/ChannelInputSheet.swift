@@ -1,13 +1,20 @@
 import SwiftUI
 
-/// A channel's input stage: its name, which input feeds it, and the
-/// head-amp gain and digital trim, each on a dial.
+/// A channel's input stage: its name, and its two input slots side by
+/// side - Main and ALT - each with its own 48V and head-amp gain, plus the
+/// digital trim behind them, each on a dial.
 ///
 /// Opened from the channel number above the name on the Full Mixer
-/// Control strips. Both values are console-wide - a head amp feeds FOH,
-/// every monitor and the recording at once - which is why they live
-/// behind a sheet of their own rather than on the strip, and why the
-/// dials have to be held to move (see DialView).
+/// Control strips. All of it is console-wide - a head amp feeds FOH,
+/// every monitor and the recording at once - which is why it lives behind
+/// a sheet of its own rather than on the strip, and why the dials have to
+/// be held to move (see DialView).
+///
+/// The Main / ALT buttons pick which slot feeds the channel. The ALT
+/// column stays disabled until the console reports an alt route to switch
+/// to (ChannelState.altAvailable). Trim sits after that switch on the
+/// console, so there is only one: the Trim dial in each column is the
+/// same value, and turning either moves both.
 ///
 /// Mirrors Android's ChannelInputBottomSheet.kt.
 struct ChannelInputSheet: View {
@@ -17,6 +24,9 @@ struct ChannelInputSheet: View {
     let onGainChanged: (Int, Double) -> Void
     let onTrimChanged: (Int, Double) -> Void
     let onPhantomChanged: (Int, Bool) -> Void
+    let onAltGainChanged: (Int, Double) -> Void
+    let onAltPhantomChanged: (Int, Bool) -> Void
+    let onAltInChanged: (Int, Bool) -> Void
     let onPhaseChanged: (Int, Int) -> Void
     /// What each dial sweeps, in dB - one range per parameter, as the
     /// server states them at login (see MixerClient.gainRange).
@@ -28,39 +38,41 @@ struct ChannelInputSheet: View {
     // this channel, which is what the dials read as "nothing to show
     // yet" rather than as 0 dB.
     @State private var gainShown: Double?
+    @State private var altGainShown: Double?
     @State private var trimShown: Double?
 
-    // When each dial was last turned by hand. A push arriving right after
-    // a turn still carries the console's pre-turn value (it has to travel
-    // to the desk and back), and writing that into the dial would drag it
-    // backwards under the finger - so pushes are ignored briefly after a
-    // turn, the same bargain the channel strips strike for their faders.
+    // When each value was last turned by hand. A push arriving right
+    // after a turn still carries the console's pre-turn value (it has to
+    // travel to the desk and back), and writing that into the dial would
+    // drag it backwards under the finger - so pushes are ignored briefly
+    // after a turn, the same bargain the channel strips strike for their
+    // faders. One per console value, so the two Trim dials share theirs.
     @State private var gainTouchedAt = Date.distantPast
+    @State private var altGainTouchedAt = Date.distantPast
     @State private var trimTouchedAt = Date.distantPast
 
-    // When each dial last sent a write. A dial turns at the display's own
-    // rate, and sending every one of those frames would put ~60 writes a
-    // second per dial on the console for a gesture the operator
+    // When each value last sent a write. A dial turns at the display's
+    // own rate, and sending every one of those frames would put ~60
+    // writes a second per dial on the console for a gesture the operator
     // experiences as one move. Held to writeInterval while turning; the
     // value it settles on is always sent, so the console never ends up on
     // a rounded-off intermediate.
     @State private var gainSentAt = Date.distantPast
+    @State private var altGainSentAt = Date.distantPast
     @State private var trimSentAt = Date.distantPast
 
-    // What the 48V and polarity buttons are showing. Flipped on tap
-    // rather than waiting for the console's echo - the same bargain the
-    // strip's Mute button strikes - and pushes are ignored until they
-    // agree or flagConfirm passes, so a frame already in flight cannot
-    // flip one back.
-    @State private var phantomShown = false
-    @State private var phantomExpected: Bool?
-    @State private var phantomSentAt = Date.distantPast
+    // The toggles - 48V on each slot, which slot is live, and polarity -
+    // flipped on tap rather than waiting for the console's echo, the same
+    // bargain the strip's Mute button strikes. Pushes are ignored until
+    // they agree or flagConfirm passes, so a frame already in flight
+    // cannot flip one back.
+    @State private var phantom = Optimistic(false)
+    @State private var altPhantom = Optimistic(false)
+    @State private var altIn = Optimistic(false)
 
     // The polarity state being shown, as the console's own value rather
     // than a flag: 0 normal, 1...3 inverted (see ChannelState.phase).
-    @State private var phaseShown = PhaseState.normal
-    @State private var phaseExpected: Int?
-    @State private var phaseSentAt = Date.distantPast
+    @State private var phase = Optimistic(PhaseState.normal)
 
     // The inverted state to go back to when polarity is switched on again.
     // A stereo channel has three of them and this app cannot tell them
@@ -72,20 +84,18 @@ struct ChannelInputSheet: View {
     // A rename takes a moment to reach the console and come back. Until
     // it does, pushes still carry the old name, and writing that into the
     // box would undo what was just typed in front of the user.
-    @State private var nameShown = ""
-    @State private var nameExpected: String?
-    @State private var nameSentAt = Date.distantPast
+    @State private var name = Optimistic("")
 
-    @State private var renaming = false
+    // What the name box holds - the name, or what is being typed over it.
     @State private var draftName = ""
-    @State private var inputNote = false
+    @FocusState private var editingName: Bool
 
     var body: some View {
         // Scrolling, because the sheet does not always get the height
         // it asks for: in landscape the phone reports a compact
         // height, which makes every sheet full-screen and ignores the
         // detent below outright - and this content is taller than the
-        // screen is in that orientation, so the Trim dial at the bottom
+        // screen is in that orientation, so the Trim dials at the bottom
         // would simply be cut off. .scrollBounceBehavior(.basedOnSize)
         // keeps it feeling like a fixed panel wherever it does fit,
         // which is every portrait case.
@@ -106,41 +116,10 @@ struct ChannelInputSheet: View {
                 nameRow
                     .padding(.bottom, 16)
 
-                inputRow
-                    .padding(.bottom, 18)
-
-                dialRow(
-                    label: "Gain",
-                    value: gainShown,
-                    range: gainRange,
-                    onChanged: { value, force in
-                        gainTouchedAt = Date()
-                        let since = gainTouchedAt
-                            .timeIntervalSince(gainSentAt)
-                        if force || since >= Self.writeInterval {
-                            gainSentAt = gainTouchedAt
-                            onGainChanged(channel.channel, value)
-                        }
-                    },
-                    onShown: { gainShown = $0 }
-                )
-                .padding(.bottom, 14)
-
-                dialRow(
-                    label: "Trim",
-                    value: trimShown,
-                    range: trimRange,
-                    onChanged: { value, force in
-                        trimTouchedAt = Date()
-                        let since = trimTouchedAt
-                            .timeIntervalSince(trimSentAt)
-                        if force || since >= Self.writeInterval {
-                            trimSentAt = trimTouchedAt
-                            onTrimChanged(channel.channel, value)
-                        }
-                    },
-                    onShown: { trimShown = $0 }
-                )
+                HStack(alignment: .top, spacing: 16) {
+                    mainColumn
+                    altColumn
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 10)
@@ -148,40 +127,57 @@ struct ChannelInputSheet: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        .scrollDismissesKeyboard(.interactively)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clmixSurface)
         .onAppear(perform: seed)
         .onChange(of: channel) { _, state in fold(state) }
-        .alert("Rename channel \(channel.channel)", isPresented: $renaming) {
-            TextField("Name", text: $draftName)
-                .textInputAutocapitalization(.characters)
-            Button("Cancel", role: .cancel) {}
-            Button("Rename") { commitRename() }
+        .onChange(of: editingName) { _, editing in
+            if !editing { commitRename() }
+        }
+        // Closing the sheet mid-edit sends what was typed - it is what
+        // the operator meant.
+        .onDisappear {
+            if editingName { commitRename() }
         }
     }
 
     // MARK: - Name
 
     /// The name reads as a value the console holds, like gain and trim
-    /// below, rather than as a heading - so it wears the same readout
-    /// box. Hold it to rewrite it; a plain tap does nothing, since the
-    /// name is what the whole desk calls this channel and a stray touch
-    /// should not open it for editing.
+    /// below, so it wears the same readout box - and it is edited right
+    /// there: tap it, clear it (the x appears while typing), type the new
+    /// name, Done.
     private var nameRow: some View {
         HStack(spacing: 12) {
-            Text(nameShown)
+            TextField("Channel name", text: $draftName)
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(Color.clmixReadoutText)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity)
+                .multilineTextAlignment(.center)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($editingName)
+                .onSubmit { editingName = false }
+                .onChange(of: draftName) { _, typed in
+                    if typed.count > Self.maxNameLength {
+                        draftName = String(typed.prefix(Self.maxNameLength))
+                    }
+                }
                 .padding(.vertical, 12)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 30)
                 .background { readoutBox }
-                .contentShape(Rectangle())
-                .onLongPressGesture {
-                    draftName = nameShown
-                    renaming = true
+                .overlay(alignment: .trailing) {
+                    if editingName && !draftName.isEmpty {
+                        Button {
+                            draftName = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color.clmixOnSurfaceVariant)
+                                .padding(.trailing, 8)
+                        }
+                        .accessibilityLabel("Clear name")
+                    }
                 }
 
             phaseButton
@@ -197,13 +193,11 @@ struct ChannelInputSheet: View {
     /// established, so the button says "inverted" and the number is
     /// remembered rather than interpreted.
     private var phaseButton: some View {
-        let inverted = phaseShown != PhaseState.normal
+        let inverted = phase.shown != PhaseState.normal
 
         return Button {
             let target = inverted ? PhaseState.normal : phaseLastInverted
-            phaseExpected = target
-            phaseSentAt = Date()
-            phaseShown = target
+            phase.set(target)
             onPhaseChanged(channel.channel, target)
         } label: {
             PolaritySymbol()
@@ -219,60 +213,128 @@ struct ChannelInputSheet: View {
         .accessibilityLabel(inverted ? "Polarity inverted" : "Polarity normal")
     }
 
+    /// An empty box is not a name - it puts back the one the desk has.
     private func commitRename() {
-        let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name != nameShown else { return }
+        let typed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        nameExpected = name
-        nameSentAt = Date()
-        nameShown = name
-        onNameChanged(channel.channel, String(name.prefix(Self.maxNameLength)))
+        guard !typed.isEmpty, typed != name.shown else {
+            draftName = name.shown
+            return
+        }
+
+        let sent = String(typed.prefix(Self.maxNameLength))
+        name.set(sent)
+        draftName = sent
+        onNameChanged(channel.channel, sent)
     }
 
-    // MARK: - Input and 48V
+    // MARK: - Main and ALT
 
-    /// Input names where the channel listens; 48V feeds the mic sitting
-    /// there. They belong on one line because they are the same decision
-    /// made twice - what is plugged in, and whether it needs powering.
-    private var inputRow: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                tonalButton("Input") {
-                    withAnimation { inputNote = true }
+    private var mainColumn: some View {
+        inputColumn(
+            title: "Main",
+            live: !altIn.shown,
+            onSelect: { selectSource(alt: false) },
+            phantomOn: phantom.shown,
+            onPhantom: {
+                phantom.set(!phantom.shown)
+                onPhantomChanged(channel.channel, phantom.shown)
+            },
+            gain: gainShown,
+            onGain: { value, force in
+                gainShown = value
+                throttle(value, force, touched: &gainTouchedAt, sent: &gainSentAt) {
+                    onGainChanged(channel.channel, $0)
+                }
+            }
+        )
+    }
 
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        withAnimation { inputNote = false }
+    /// Greyed out and locked while the console reports no alt route.
+    private var altColumn: some View {
+        inputColumn(
+            title: "ALT",
+            live: altIn.shown,
+            onSelect: { selectSource(alt: true) },
+            phantomOn: altPhantom.shown,
+            onPhantom: {
+                altPhantom.set(!altPhantom.shown)
+                onAltPhantomChanged(channel.channel, altPhantom.shown)
+            },
+            gain: altGainShown,
+            onGain: { value, force in
+                altGainShown = value
+                throttle(value, force, touched: &altGainTouchedAt, sent: &altGainSentAt) {
+                    onAltGainChanged(channel.channel, $0)
+                }
+            }
+        )
+        .disabled(!channel.altAvailable)
+        .allowsHitTesting(channel.altAvailable)
+        .opacity(channel.altAvailable ? 1 : 0.4)
+    }
+
+    /// One input slot: the button that makes it live, its 48V as a small
+    /// square, its gain, and the shared trim.
+    private func inputColumn(
+        title: String,
+        live: Bool,
+        onSelect: @escaping () -> Void,
+        phantomOn: Bool,
+        onPhantom: @escaping () -> Void,
+        gain: Double?,
+        onGain: @escaping (Double, Bool) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onSelect) {
+                Text(title)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
+            .foregroundStyle(live ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
+            .background(live ? Color.clmixPrimary : Color.clmixMuteInactive)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            // 48V on reads as the console's own warning colour, not the
+            // app's accent: it is the one control on this sheet that can
+            // damage a source (ribbon mics especially), so it should look
+            // like a live state rather than a selected option.
+            Button(action: onPhantom) {
+                Text("48V")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .foregroundStyle(phantomOn ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
+            .background(phantomOn ? Color.clmixMuteActive : Color.clmixMuteInactive)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .accessibilityLabel(phantomOn ? "48V on" : "48V off")
+            .padding(.top, 6)
+            .padding(.bottom, 12)
+
+            dialRow(label: "Gain", value: gain, range: gainRange, onChanged: onGain)
+                .padding(.bottom, 12)
+
+            dialRow(
+                label: "Trim",
+                value: trimShown,
+                range: trimRange,
+                onChanged: { value, force in
+                    trimShown = value
+                    throttle(value, force, touched: &trimTouchedAt, sent: &trimSentAt) {
+                        onTrimChanged(channel.channel, $0)
                     }
                 }
-
-                // 48V on reads as the console's own warning colour, not
-                // the app's accent: it is the one control on this sheet
-                // that can damage a source (ribbon mics especially), so
-                // it should look like a live state rather than a
-                // selected option.
-                tonalButton("48V", active: phantomShown, activeFill: .clmixMuteActive) {
-                    let target = !phantomShown
-                    phantomExpected = target
-                    phantomSentAt = Date()
-                    phantomShown = target
-                    onPhantomChanged(channel.channel, target)
-                }
-                .accessibilityLabel(phantomShown ? "48V on" : "48V off")
-            }
-
-            // The rack/port patch itself is not in the console's control
-            // surface as probed (see docs/mixer_protocol) - nothing under
-            // the channel input names a socket - so the button says so
-            // rather than pretending to route something.
-            if inputNote {
-                Text("Input patching isn't available from the console yet")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.clmixOnSurfaceVariant)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity)
-            }
+            )
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func selectSource(alt: Bool) {
+        guard alt != altIn.shown else { return }
+        guard !alt || channel.altAvailable else { return }
+
+        altIn.set(alt)
+        onAltInChanged(channel.channel, alt)
     }
 
     // MARK: - Dials
@@ -283,26 +345,17 @@ struct ChannelInputSheet: View {
         label: String,
         value: Double?,
         range: ClosedRange<Double>,
-        onChanged: @escaping (Double, Bool) -> Void,
-        onShown: @escaping (Double) -> Void
+        onChanged: @escaping (Double, Bool) -> Void
     ) -> some View {
-        HStack(spacing: 16) {
-            Spacer(minLength: 0)
-
+        HStack(spacing: 8) {
             DialView(
                 value: value ?? range.lowerBound,
                 range: range,
                 hasValue: value != nil,
-                onValueChanged: { turned in
-                    onShown(turned)
-                    onChanged(turned, false)
-                },
+                onValueChanged: { onChanged($0, false) },
                 // Always sent, throttling or not: this is the value the
                 // operator actually chose.
-                onTurnFinished: { settled in
-                    onShown(settled)
-                    onChanged(settled, true)
-                }
+                onTurnFinished: { onChanged($0, true) }
             )
 
             VStack(spacing: 3) {
@@ -313,10 +366,26 @@ struct ChannelInputSheet: View {
                 Text(Self.formatDb(value))
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color.clmixReadoutText)
-                    .frame(width: 86)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                     .background { readoutBox }
             }
+        }
+    }
+
+    /// Notes the turn, and sends it unless one went out within
+    /// writeInterval - the settled value always goes.
+    private func throttle(
+        _ value: Double, _ force: Bool,
+        touched: inout Date, sent: inout Date,
+        send: (Double) -> Void
+    ) {
+        touched = Date()
+
+        if force || touched.timeIntervalSince(sent) >= Self.writeInterval {
+            sent = touched
+            send(value)
         }
     }
 
@@ -324,11 +393,15 @@ struct ChannelInputSheet: View {
 
     private func seed() {
         gainShown = channel.gain
+        altGainShown = channel.altGain
         trimShown = channel.trim
-        phantomShown = channel.phantom
-        phaseShown = channel.phase
+        phantom = Optimistic(channel.phantom)
+        altPhantom = Optimistic(channel.altPhantom)
+        altIn = Optimistic(channel.altIn)
+        phase = Optimistic(channel.phase)
         if channel.phase != PhaseState.normal { phaseLastInverted = channel.phase }
-        nameShown = channel.name
+        name = Optimistic(channel.name)
+        draftName = channel.name
     }
 
     /// Folds in a push from the server, unless that control has just been
@@ -336,13 +409,8 @@ struct ChannelInputSheet: View {
     private func fold(_ state: ChannelState) {
         let now = Date()
 
-        if let pending = nameExpected,
-           state.name == pending || now.timeIntervalSince(nameSentAt) > Self.nameConfirm {
-            nameExpected = nil
-        }
-
-        if nameExpected == nil, nameShown != state.name {
-            nameShown = state.name
+        if name.reconcile(state.name, confirm: Self.nameConfirm), !editingName {
+            draftName = name.shown
         }
 
         if let gain = state.gain, now.timeIntervalSince(gainTouchedAt) > Self.settle,
@@ -350,30 +418,20 @@ struct ChannelInputSheet: View {
             gainShown = gain
         }
 
+        if let altGain = state.altGain, now.timeIntervalSince(altGainTouchedAt) > Self.settle,
+           differs(altGainShown, altGain) {
+            altGainShown = altGain
+        }
+
         if let trim = state.trim, now.timeIntervalSince(trimTouchedAt) > Self.settle,
            differs(trimShown, trim) {
             trimShown = trim
         }
 
-        // Settled once the console agrees, or given up on if it never
-        // does - at which point the console's own state wins.
-        if let expected = phantomExpected,
-           state.phantom == expected || now.timeIntervalSince(phantomSentAt) > Self.flagConfirm {
-            phantomExpected = nil
-        }
-
-        if phantomExpected == nil, state.phantom != phantomShown {
-            phantomShown = state.phantom
-        }
-
-        if let expected = phaseExpected,
-           state.phase == expected || now.timeIntervalSince(phaseSentAt) > Self.flagConfirm {
-            phaseExpected = nil
-        }
-
-        if phaseExpected == nil, state.phase != phaseShown {
-            phaseShown = state.phase
-        }
+        phantom.reconcile(state.phantom, confirm: Self.flagConfirm)
+        altPhantom.reconcile(state.altPhantom, confirm: Self.flagConfirm)
+        altIn.reconcile(state.altIn, confirm: Self.flagConfirm)
+        phase.reconcile(state.phase, confirm: Self.flagConfirm)
 
         if state.phase != PhaseState.normal { phaseLastInverted = state.phase }
     }
@@ -394,32 +452,17 @@ struct ChannelInputSheet: View {
             )
     }
 
-    private func tonalButton(
-        _ title: String, active: Bool = false, activeFill: Color = .clmixPrimary,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-        }
-        .foregroundStyle(active ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
-        .background(active ? activeFill : Color.clmixMuteInactive)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
     // The dials' ranges are no longer constants here: each sweeps its own
     // parameter's range, which the server states at login and
     // HeadAmpRange defaults for. They used to share one span, the union
     // -40...+60, which gave gain 20 dB of travel the desk only ever clamps
     // away.
 
-
     // How long after a turn to keep ignoring pushes for that dial.
     private static let settle: TimeInterval = 0.7
 
-    // How long a tapped 48V or polarity button holds its own state
-    // before deferring to the console again.
+    // How long a tapped 48V, polarity or Main/ALT button holds its own
+    // state before deferring to the console again.
     private static let flagConfirm: TimeInterval = 2
 
     // A rename travels further than a flag - through the desktop's cache
@@ -439,6 +482,40 @@ struct ChannelInputSheet: View {
 
         let rounded = (value * 10).rounded() / 10
         return rounded > 0 ? String(format: "+%.1f", rounded) : String(format: "%.1f", rounded)
+    }
+}
+
+/// A value changed on tap rather than waiting for the console's echo.
+/// Pushes are ignored until they agree or the confirm window passes, so a
+/// frame already in flight cannot flip it back; after that the console's
+/// state wins. Mirrors ChannelInputBottomSheet.Optimistic on Android.
+private struct Optimistic<Value: Equatable> {
+    private(set) var shown: Value
+    private var expected: Value?
+    private var sentAt = Date.distantPast
+
+    init(_ value: Value) {
+        shown = value
+    }
+
+    mutating func set(_ value: Value) {
+        expected = value
+        sentAt = Date()
+        shown = value
+    }
+
+    /// Takes a pushed value; true if what is shown changed.
+    @discardableResult
+    mutating func reconcile(_ incoming: Value, confirm: TimeInterval) -> Bool {
+        if let expected,
+           incoming == expected || Date().timeIntervalSince(sentAt) > confirm {
+            self.expected = nil
+        }
+
+        guard expected == nil, incoming != shown else { return false }
+
+        shown = incoming
+        return true
     }
 }
 

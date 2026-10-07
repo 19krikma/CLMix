@@ -74,6 +74,20 @@ struct ChannelState: Identifiable, Hashable {
     // reported it, the same reading as phantom above.
     var phase: Int = PhaseState.normal
 
+    // The alternate input slot: its own head-amp gain (nil until the
+    // console answers) and 48V. There is no alt trim - the trim sits
+    // after the main/alt switch, so `trim` above covers both.
+    var altGain: Double? = nil
+    var altPhantom: Bool = false
+
+    // Whether the channel is running on its alt input rather than main.
+    var altIn: Bool = false
+
+    // Whether there is an alt route patched to switch to at all - the
+    // server works this out (see _alt_available in remote_server.py).
+    // The alt controls stay disabled until it is.
+    var altAvailable: Bool = false
+
     var phaseInverted: Bool { phase != PhaseState.normal }
 
     var id: Int { channel }

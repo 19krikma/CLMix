@@ -71,7 +71,21 @@ data class ChannelState(
     // polarity off and on again restores the state the desk had, instead
     // of flattening a stereo channel to 1. 0 when the console has not
     // reported it, the same reading as phantom above.
-    val phase: Int = PHASE_NORMAL
+    val phase: Int = PHASE_NORMAL,
+
+    // The alternate input slot: its own head-amp gain (null until the
+    // console answers) and 48V. There is no alt trim - the trim sits
+    // after the main/alt switch, so `trim` above covers both.
+    val altGain: Double? = null,
+    val altPhantom: Boolean = false,
+
+    // Whether the channel is running on its alt input rather than main.
+    val altIn: Boolean = false,
+
+    // Whether there is an alt route patched to switch to at all - the
+    // server works this out (see _alt_available in remote_server.py).
+    // The alt controls stay disabled until it is.
+    val altAvailable: Boolean = false
 ) {
     val phaseInverted: Boolean get() = phase != PHASE_NORMAL
 }

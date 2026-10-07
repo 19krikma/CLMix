@@ -61,6 +61,9 @@ protocol MixerBackend: AnyObject {
     func setGain(channel: Int, gain: Double)
     func setTrim(channel: Int, trim: Double)
     func setPhantom(channel: Int, phantom: Bool)
+    func setAltGain(channel: Int, gain: Double)
+    func setAltPhantom(channel: Int, phantom: Bool)
+    func setAltIn(channel: Int, altIn: Bool)
     func setPhase(channel: Int, phase: Int)
     func setName(channel: Int, name: String)
     func setPersonalName(channel: Int, name: String)
@@ -76,7 +79,8 @@ protocol MixerBackend: AnyObject {
 /// (services/remote_server.py) over a WebSocket, using the same JSON
 /// protocol the Android app's MixerClient.kt speaks: login/logout/
 /// list_auxes/list_banks/select_aux/select_mixer/select_bank/set_level/
-/// set_pan/set_mute/set_gain/set_trim/set_phantom/set_phase/set_name/
+/// set_pan/set_mute/set_gain/set_trim/set_phantom/set_alt_gain/
+/// set_alt_phantom/set_alt_in/set_phase/set_name/
 /// set_personal_name/
 /// list_presets/save_preset/load_preset out, login_result/auxes/banks/
 /// levels/meters/presets/preset_saved/preset_loaded/error in.
@@ -306,6 +310,21 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "set_phantom", "channel": channel, "phantom": phantom])
     }
 
+    /// The alternate input's own head amp. Trim has no alt twin -
+    /// setTrim covers whichever input is live.
+    func setAltGain(channel: Int, gain: Double) {
+        send(["action": "set_alt_gain", "channel": channel, "gain": gain])
+    }
+
+    func setAltPhantom(channel: Int, phantom: Bool) {
+        send(["action": "set_alt_phantom", "channel": channel, "phantom": phantom])
+    }
+
+    /// Switches the channel between its main (false) and alt (true) input.
+    func setAltIn(channel: Int, altIn: Bool) {
+        send(["action": "set_alt_in", "channel": channel, "alt_in": altIn])
+    }
+
     /// `phase` is the console's own enum, not a flag - 0 normal, 1...3 the
     /// inverted states a stereo channel has (see ChannelState.phase). The
     /// number is sent so a state the desk already holds is written back
@@ -497,7 +516,11 @@ final class MixerClient: NSObject, MixerBackend {
                         // button, which is what that server could do too.
                         phase: entry["phase_state"] as? Int
                             ?? ((entry["phase"] as? Bool ?? false)
-                                ? PhaseState.inverted : PhaseState.normal)
+                                ? PhaseState.inverted : PhaseState.normal),
+                        altGain: entry["alt_gain"] as? Double,
+                        altPhantom: entry["alt_phantom"] as? Bool ?? false,
+                        altIn: entry["alt_in"] as? Bool ?? false,
+                        altAvailable: entry["alt_available"] as? Bool ?? false
                     )
                 }
                 delegate?.mixerDidReceiveLevels(aux: aux, channels: channels)

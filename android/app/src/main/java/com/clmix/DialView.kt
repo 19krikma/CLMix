@@ -4,28 +4,28 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.content.ContextCompat
-import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.max
+import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * A round dial that is turned by holding it and sliding sideways.
+ * A round dial that is turned by holding it and dragging.
  *
  * Deliberately not a slider: gain and trim are set in small deliberate
  * steps on a console, and a strip on a phone screen is far too short to
- * put 60 dB on. So the finger's distance from where it landed sets a
- * *rate* rather than a position - hold a little to the right and the
- * value climbs slowly, push further and it spins up, and the same to the
- * left brings it down. Nothing moves until a touch lands on the dial and
- * everything stops the moment it lifts, which is what keeps a pocket or a
- * stray brush from moving a head amp.
+ * put 60 dB on. So the value follows the finger's *movement* - dragging
+ * right turns it up and left turns it down, dragging up or down does the
+ * same at half the rate for finer work, and a finger held still leaves it
+ * exactly where it is. How far each bit of movement turns it scales with
+ * how fast the finger is going: a slow drag creeps for fine work, a quick
+ * swipe covers the range. Nothing moves until a touch lands on the dial
+ * and everything stops the moment it lifts, which is what keeps a pocket
+ * or a stray brush from moving a head amp.
  *
  * The ring around the dial fills with the value's position between [min]
  * and [max], and the pointer turns with it, so where the value sits is
@@ -63,9 +63,18 @@ class DialView @JvmOverloads constructor(
         }
 
     private var engaged = false
+
+    // Past the slop yet - until then a resting thumb's wobble is ignored.
+    private var dragging = false
     private var touchStartX = 0f
+    private var touchStartY = 0f
     private var lastX = 0f
-    private var lastTickAt = 0L
+    private var lastY = 0f
+    private var lastEventAt = 0L
+
+    // Finger speed in dp/s, smoothed: per-event speeds jitter a lot at
+    // 120 Hz, and that jitter would otherwise show as a lumpy turn.
+    private var speed = 0.0
 
     private val density = resources.displayMetrics.density
 
@@ -94,42 +103,28 @@ class DialView @JvmOverloads constructor(
 
     private val arcBounds = RectF()
 
-    // Runs while the dial is held, turning the finger's offset into
-    // movement. A tick rather than a per-MotionEvent change because the
-    // finger can be held perfectly still and still be asking the dial to
-    // keep turning - there are no move events in that case.
-    private val ticker = object : Runnable {
-        override fun run() {
-            if (!engaged) return
+    /** Turns the dial by one step of finger movement. */
+    private fun moveTo(x: Float, y: Float, eventTime: Long) {
+        val dx = (x - lastX) / density
+        val dy = (y - lastY) / density
+        val millis = (eventTime - lastEventAt).coerceAtLeast(1L)
 
-            val now = SystemClock.uptimeMillis()
-            val seconds = (now - lastTickAt) / 1000.0
-            lastTickAt = now
+        lastX = x
+        lastY = y
+        lastEventAt = eventTime
 
-            val offset = lastX - touchStartX
-            val deadZone = DEAD_ZONE_DP * density
+        val instant = hypot(dx, dy) * 1000.0 / millis
+        speed += (instant - speed) * SPEED_SMOOTHING
 
-            if (abs(offset) > deadZone) {
-                val direction = if (offset > 0) 1.0 else -1.0
-                val travel = (abs(offset) - deadZone) / density
+        val unitsPerDp = min(MAX_UNITS_PER_DP, BASE_UNITS_PER_DP + ACCEL_UNITS_PER_DP * speed)
 
-                // Squared so a small hold creeps for fine work while a
-                // big one spins - linear made the far end unusably slow
-                // for 60 dB of range.
-                val perSecond = min(
-                    MAX_UNITS_PER_SECOND,
-                    UNITS_PER_SECOND_AT_1DP * travel * travel
-                )
+        // Screen y grows downward, so up (negative dy) turns the value up.
+        val travel = dx - dy * VERTICAL_RATE
 
-                val next = value + direction * perSecond * seconds
-
-                if (next != value) {
-                    value = next
-                    onValueChanged?.invoke(value)
-                }
-            }
-
-            postDelayed(this, TICK_MS)
+        val next = value + travel * unitsPerDp
+        if (next.coerceIn(min, max) != value) {
+            value = next
+            onValueChanged?.invoke(value)
         }
     }
 
@@ -144,31 +139,42 @@ class DialView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (!hasValue) return false
+                // Disabled: the ALT column's dials with no alt route.
+                if (!hasValue || !isEnabled) return false
 
                 engaged = true
+                dragging = false
                 touchStartX = event.x
-                lastX = event.x
-                lastTickAt = SystemClock.uptimeMillis()
+                touchStartY = event.y
+                speed = 0.0
 
-                // The sheet this lives in scrolls, and a sideways drag
-                // starting on a dial is meant for the dial.
+                // The sheet this lives in scrolls, and a drag starting on
+                // a dial is meant for the dial.
                 parent?.requestDisallowInterceptTouchEvent(true)
 
                 invalidate()
-                postDelayed(ticker, TICK_MS)
                 return true
             }
 
             MotionEvent.ACTION_MOVE -> {
-                lastX = event.x
+                if (!engaged) return true
+
+                // Batched samples first, so a fast swipe is turned by the
+                // path it actually took and its speed read off each step.
+                for (i in 0 until event.historySize) {
+                    feed(
+                        event.getHistoricalX(i),
+                        event.getHistoricalY(i),
+                        event.getHistoricalEventTime(i)
+                    )
+                }
+                feed(event.x, event.y, event.eventTime)
                 return true
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (engaged) {
                     engaged = false
-                    removeCallbacks(ticker)
                     parent?.requestDisallowInterceptTouchEvent(false)
                     invalidate()
                     onTurnFinished?.invoke(value)
@@ -183,7 +189,23 @@ class DialView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         engaged = false
-        removeCallbacks(ticker)
+    }
+
+    private fun feed(x: Float, y: Float, eventTime: Long) {
+        if (!dragging) {
+            val fromStart = hypot(x - touchStartX, y - touchStartY) / density
+            if (fromStart < SLOP_DP) return
+
+            // Counted from here, not from touch-down, so crossing the
+            // slop doesn't land as one jump.
+            dragging = true
+            lastX = x
+            lastY = y
+            lastEventAt = eventTime
+            return
+        }
+
+        moveTo(x, y, eventTime)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -251,12 +273,18 @@ class DialView @JvmOverloads constructor(
 
         // How far the finger travels before anything moves, so resting a
         // thumb on the dial doesn't drift it.
-        private const val DEAD_ZONE_DP = 6f
+        private const val SLOP_DP = 6f
 
-        private const val TICK_MS = 16L
+        // Per dp of finger travel: BASE when crawling, rising with speed
+        // to MAX, so ~20dp is 1 dB done slowly and a quick swipe across
+        // the sheet covers the whole 60 dB.
+        private const val BASE_UNITS_PER_DP = 0.05
+        private const val ACCEL_UNITS_PER_DP = 0.00025
+        private const val MAX_UNITS_PER_DP = 0.5
 
-        // At 1dp past the dead zone; squared with distance from there.
-        private const val UNITS_PER_SECOND_AT_1DP = 0.06
-        private const val MAX_UNITS_PER_SECOND = 40.0
+        // Up/down turns at this fraction of the sideways rate.
+        private const val VERTICAL_RATE = 0.5f
+
+        private const val SPEED_SMOOTHING = 0.3
     }
 }

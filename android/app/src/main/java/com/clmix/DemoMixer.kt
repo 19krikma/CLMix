@@ -121,7 +121,11 @@ object DemoMixer {
         var trim: Double?,
         var phantom: Boolean,
         // The console's own enum, 0..3 - see ChannelState.phase.
-        var phase: Int
+        var phase: Int,
+        // The alternate input slot. Null gain means no alt route patched.
+        var altGain: Double? = null,
+        var altPhantom: Boolean = false,
+        var altIn: Boolean = false
     )
 
     // [aux index: [channel number: send]]
@@ -243,7 +247,15 @@ object DemoMixer {
                 gain = if (reported) (18 + (entry.channel * 7) % 34).toDouble() else null,
                 trim = if (reported) ((entry.channel * 3) % 9).toDouble() - 4 else null,
                 phantom = needsPhantom,
-                phase = phaseForStagePicture(entry.name)
+                phase = phaseForStagePicture(entry.name),
+                // A spare vocal mic on the vocal channels, so the Alt
+                // section has something to show; the rest have none.
+                altGain = if (entry.name == "Lead Vox" || entry.name.startsWith("BV")) {
+                    (30 + entry.channel % 11).toDouble()
+                } else {
+                    null
+                },
+                altPhantom = entry.name.startsWith("BV")
             )
         }
 
@@ -377,6 +389,26 @@ object DemoMixer {
 
             "set_phantom" -> if (mixerMode) {
                 console[message.optInt("channel")]?.phantom = message.optBoolean("phantom")
+            }
+
+            "set_alt_gain" -> if (mixerMode) {
+                console[message.optInt("channel")]?.let { strip ->
+                    if (strip.altGain != null) strip.altGain = message.optDouble("gain")
+                }
+            }
+
+            "set_alt_phantom" -> if (mixerMode) {
+                console[message.optInt("channel")]?.let { strip ->
+                    if (strip.altGain != null) strip.altPhantom = message.optBoolean("phantom")
+                }
+            }
+
+            "set_alt_in" -> if (mixerMode) {
+                // Refused onto an empty alt slot, as the real server does.
+                console[message.optInt("channel")]?.let { strip ->
+                    val wanted = message.optBoolean("alt_in")
+                    if (!wanted || strip.altGain != null) strip.altIn = wanted
+                }
             }
 
             "set_phase" -> if (mixerMode) {
@@ -619,6 +651,10 @@ object DemoMixer {
                         .put("trim", strip.trim ?: JSONObject.NULL)
                         .put("phantom", strip.phantom)
                         .put("phase_state", strip.phase)
+                        .put("alt_gain", strip.altGain ?: JSONObject.NULL)
+                        .put("alt_phantom", strip.altPhantom)
+                        .put("alt_in", strip.altIn)
+                        .put("alt_available", strip.altGain != null)
                 )
             }
             deliver(levelsMessage(MixerClient.MIXER_AUX, channels))

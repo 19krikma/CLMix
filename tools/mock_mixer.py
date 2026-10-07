@@ -615,6 +615,15 @@ class MockMixer:
             # switched off and on again. If phase ever turns out to be a
             # plain flag after all, this seed is the thing to drop.
             put(f"{prefix}/Channel_Input/phase", float(PHASE_SEED.get(channel, 0)))
+            # An alt route on every fourth channel - a spare mic, say - at
+            # its own gain, and empty (0 dB, 48V off, as a real desk
+            # reports it) everywhere else. Channel 8 starts on its alt.
+            has_alt = channel % 4 == 0
+            put(f"{prefix}/Channel_Input/alt_analog_gain",
+                float(30 + channel % 11) if has_alt else 0.0)
+            put(f"{prefix}/Channel_Input/alt_phantom",
+                float(has_alt and channel % 8 == 0))
+            put(f"{prefix}/Channel_Input/main/alt_in", float(channel == 8))
 
             for aux in range(1, self.counts["Aux_Outputs"] + 1):
                 put(f"{prefix}/Aux_Send/{aux}/send_level", -10.0)

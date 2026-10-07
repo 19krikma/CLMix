@@ -4,77 +4,73 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.os.SystemClock
 import android.text.InputFilter
-import android.text.InputType
-import android.widget.EditText
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
-import androidx.appcompat.app.AlertDialog
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.clmix.databinding.BottomSheetChannelInputBinding
+import com.clmix.databinding.ChannelInputColumnBinding
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.R as MaterialR
 import kotlin.math.abs
 
 /**
- * A channel's input stage: its name, which input feeds it, and the
- * head-amp gain and digital trim, each on a dial.
+ * A channel's input stage: its name, and its two input slots side by
+ * side - Main and ALT - each with its own 48V and head-amp gain, plus the
+ * digital trim behind them, each on a dial.
  *
  * Opened from the channel number above the name on the Full Mixer Control
- * strips. Both values are console-wide - a head amp feeds FOH, every
- * monitor and the recording at once - which is why they live behind a
- * sheet of their own rather than on the strip, and why the dials have to
- * be held to move (see DialView).
+ * strips. All of it is console-wide - a head amp feeds FOH, every monitor
+ * and the recording at once - which is why it lives behind a sheet of its
+ * own rather than on the strip, and why the dials have to be held to move
+ * (see DialView).
+ *
+ * The Main / ALT buttons pick which slot feeds the channel. The ALT
+ * column stays disabled until the console reports an alt route to switch
+ * to (ChannelState.altAvailable). Trim sits after that switch on the
+ * console, so there is only one: the Trim dial in each column is the same
+ * value, and turning either moves both.
  */
 class ChannelInputBottomSheet(
     context: Context,
-    val channel: Int,
-    channelName: String,
-    gain: Double?,
-    trim: Double?,
-    phantom: Boolean,
-    phase: Int,
+    initial: ChannelState,
     private val gainRange: ClosedFloatingPointRange<Double>,
     private val trimRange: ClosedFloatingPointRange<Double>,
     private val onGainChanged: (Int, Double) -> Unit,
     private val onTrimChanged: (Int, Double) -> Unit,
     private val onPhantomChanged: (Int, Boolean) -> Unit,
+    private val onAltGainChanged: (Int, Double) -> Unit,
+    private val onAltPhantomChanged: (Int, Boolean) -> Unit,
+    private val onAltInChanged: (Int, Boolean) -> Unit,
     private val onPhaseChanged: (Int, Int) -> Unit,
-    private val onNameChanged: (Int, String) -> Unit,
-    private val onInputClicked: (Int) -> Unit
+    private val onNameChanged: (Int, String) -> Unit
 ) {
+    val channel: Int = initial.channel
+
     private val dialog = BottomSheetDialog(context)
     private val binding = BottomSheetChannelInputBinding.inflate(dialog.layoutInflater)
+    private val main: ChannelInputColumnBinding = binding.mainColumn
+    private val alt: ChannelInputColumnBinding = binding.altColumn
 
-    // When each dial was last turned by hand. A push arriving right after
-    // a turn still carries the console's pre-turn value (it has to travel
-    // to the desk and back), and writing that into the dial would drag it
-    // backwards under the finger - so pushes are ignored briefly after a
-    // turn, the same bargain the channel strips strike for their faders.
-    private var gainTouchedAt = 0L
-    private var trimTouchedAt = 0L
+    // One per value the console holds, not per dial: the two Trim dials
+    // share a throttle, since they are one parameter on the desk.
+    private val gainWrites = Throttle { onGainChanged(channel, it) }
+    private val altGainWrites = Throttle { onAltGainChanged(channel, it) }
+    private val trimWrites = Throttle { onTrimChanged(channel, it) }
 
-    // When each dial last sent a write. A dial turns at the display's own
-    // rate, and sending every one of those frames would put ~60 OSC
-    // writes a second per dial on the console for a gesture the operator
-    // experiences as one move. Held to WRITE_INTERVAL_MS while turning;
-    // the value it settles on is always sent, so the console never ends
-    // up on a rounded-off intermediate.
-    private var gainSentAt = 0L
-    private var trimSentAt = 0L
-
-    // What the 48V button is showing. Flipped on tap rather than waiting
-    // for the console's echo - the same bargain the strip's Mute button
-    // strikes - and pushes are ignored until they agree or PHANTOM_
-    // CONFIRM_MS passes, so a frame already in flight cannot flip it back.
-    private var phantomShown = phantom
-    private var phantomExpected: Boolean? = null
-    private var phantomSentAt = 0L
+    // The toggles - flipped on tap ahead of the console's echo, see
+    // Optimistic.
+    private val phantom = Optimistic(initial.phantom)
+    private val altPhantom = Optimistic(initial.altPhantom)
+    private val altIn = Optimistic(initial.altIn)
 
     // The polarity state being shown, as the console's own value rather
     // than a flag: 0 normal, 1..3 inverted (see ChannelState.phase).
-    private var phaseShown = phase
-    private var phaseExpected: Int? = null
-    private var phaseSentAt = 0L
+    private val phase = Optimistic(initial.phase)
 
     // The inverted state to go back to when polarity is switched on
     // again. A stereo channel has three of them and this app cannot tell
@@ -82,16 +78,24 @@ class ChannelInputBottomSheet(
     // assuming PHASE_INVERTED - otherwise tapping polarity off and on
     // would quietly move which leg is inverted.
     private var phaseLastInverted =
-        if (phase != PHASE_NORMAL) phase else PHASE_INVERTED
+        if (initial.phase != PHASE_NORMAL) initial.phase else PHASE_INVERTED
 
     // A rename takes a moment to reach the console and come back. Until
     // it does, pushes still carry the old name, and writing that into the
     // box would undo what was just typed in front of the user.
-    private var nameExpected: String? = null
-    private var nameSentAt = 0L
+    private val name = Optimistic(initial.name)
+
+    private var altAvailable = initial.altAvailable
 
     init {
         dialog.setContentView(binding.root)
+
+        // The name box is the first focusable thing on the sheet, and
+        // would otherwise take focus - and the keyboard - the moment it
+        // opens. The root holds focus instead until the box is tapped.
+        binding.root.isFocusableInTouchMode = true
+        binding.root.requestFocus()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
 
         // As PanBottomSheet: in landscape the default peek height cuts
         // the content off, so the sheet opens fully expanded.
@@ -104,174 +108,191 @@ class ChannelInputBottomSheet(
             }
         }
 
-        binding.inputChannelName.text = channelName
         binding.inputChannelNumber.text = "Channel $channel"
+        setUpNameBox()
 
-        // Hold, not tap: renaming changes what every surface in the
-        // building calls this channel.
-        binding.inputChannelName.setOnLongClickListener {
-            promptForName(binding.inputChannelName.text.toString())
-            true
-        }
+        main.sourceButton.text = "Main"
+        alt.sourceButton.text = "ALT"
 
-        binding.inputButton.setOnClickListener { onInputClicked(channel) }
-
-        applyPhantom(phantomShown)
-        applyPhase(phaseShown)
+        main.sourceButton.setOnClickListener { selectSource(alt = false) }
+        alt.sourceButton.setOnClickListener { selectSource(alt = true) }
 
         binding.phaseButton.setOnClickListener {
-            val target = if (phaseShown != PHASE_NORMAL) {
+            val target = if (phase.shown != PHASE_NORMAL) {
                 PHASE_NORMAL
             } else {
                 phaseLastInverted
             }
 
-            phaseExpected = target
-            phaseSentAt = SystemClock.uptimeMillis()
-            applyPhase(target)
-
+            phase.set(target)
+            applyPhase()
             onPhaseChanged(channel, target)
         }
 
-        binding.phantomButton.setOnClickListener {
-            val target = !phantomShown
-
-            phantomExpected = target
-            phantomSentAt = SystemClock.uptimeMillis()
-            applyPhantom(target)
-
-            onPhantomChanged(channel, target)
+        main.phantomButton.setOnClickListener {
+            phantom.set(!phantom.shown)
+            applyPhantom(main.phantomButton, phantom.shown)
+            onPhantomChanged(channel, phantom.shown)
         }
 
-        setUpDial(
-            dial = binding.gainDial,
-            min = gainRange.start,
-            max = gainRange.endInclusive,
-            initial = gain,
-            format = { binding.gainValue.text = formatDb(it) },
-            onChanged = { value, force ->
-                gainTouchedAt = SystemClock.uptimeMillis()
+        alt.phantomButton.setOnClickListener {
+            altPhantom.set(!altPhantom.shown)
+            applyPhantom(alt.phantomButton, altPhantom.shown)
+            onAltPhantomChanged(channel, altPhantom.shown)
+        }
 
-                if (force || gainTouchedAt - gainSentAt >= WRITE_INTERVAL_MS) {
-                    gainSentAt = gainTouchedAt
-                    onGainChanged(channel, value)
-                }
-            }
-        )
+        setUpDial(main.gainDial, main.gainValue, gainRange, initial.gain, gainWrites)
+        setUpDial(alt.gainDial, alt.gainValue, gainRange, initial.altGain, altGainWrites)
+        setUpDial(main.trimDial, main.trimValue, trimRange, initial.trim, trimWrites, mirror = alt)
+        setUpDial(alt.trimDial, alt.trimValue, trimRange, initial.trim, trimWrites, mirror = main)
 
-        setUpDial(
-            dial = binding.trimDial,
-            min = trimRange.start,
-            max = trimRange.endInclusive,
-            initial = trim,
-            format = { binding.trimValue.text = formatDb(it) },
-            onChanged = { value, force ->
-                trimTouchedAt = SystemClock.uptimeMillis()
-
-                if (force || trimTouchedAt - trimSentAt >= WRITE_INTERVAL_MS) {
-                    trimSentAt = trimTouchedAt
-                    onTrimChanged(channel, value)
-                }
-            }
-        )
+        applyPhantom(main.phantomButton, phantom.shown)
+        applyPhantom(alt.phantomButton, altPhantom.shown)
+        applyPhase()
+        applySource()
+        applyAltAvailable()
     }
 
     private fun setUpDial(
         dial: DialView,
-        min: Double,
-        max: Double,
+        readout: TextView,
+        range: ClosedFloatingPointRange<Double>,
         initial: Double?,
-        format: (Double) -> Unit,
-        onChanged: (Double, Boolean) -> Unit
+        writes: Throttle,
+        mirror: ChannelInputColumnBinding? = null
     ) {
-        dial.min = min
-        dial.max = max
+        dial.min = range.start
+        dial.max = range.endInclusive
         dial.hasValue = initial != null
-        dial.value = initial ?: min
-
-        format(dial.value)
-        if (initial == null) dialPlaceholder(dial, format)
+        // Nothing reported for this channel yet - the dial greys out and
+        // the readout shows its floor rather than a number the console
+        // never sent as if it had.
+        dial.value = initial ?: range.start
+        readout.text = formatDb(dial.value)
 
         dial.onValueChanged = { value ->
-            format(value)
-            onChanged(value, false)
+            readout.text = formatDb(value)
+            mirrorTrim(mirror, value)
+            writes.turned(value, force = false)
         }
 
         // Always sent, throttling or not: this is the value the operator
         // actually chose, and the console has to end up on it.
-        dial.onTurnFinished = { value -> onChanged(value, true) }
+        dial.onTurnFinished = { value -> writes.turned(value, force = true) }
     }
 
-    private fun dialPlaceholder(dial: DialView, format: (Double) -> Unit) {
-        // Nothing reported for this channel yet - show a dash rather than
-        // a number the console never sent.
-        format(dial.value)
+    /** Keeps the other column's Trim dial on the one being turned. */
+    private fun mirrorTrim(other: ChannelInputColumnBinding?, value: Double) {
+        other ?: return
+        other.trimDial.hasValue = true
+        other.trimDial.value = value
+        other.trimValue.text = formatDb(other.trimDial.value)
     }
 
     /**
-     * Folds in a push from the server, unless that dial has just been
-     * turned by hand.
+     * The name box is edited in place: tap it and the current name is
+     * selected, so typing replaces it (or it can be cleared and retyped),
+     * and Done sends it. Closing the sheet mid-edit sends it too - what
+     * was typed is what the operator meant.
+     */
+    private fun setUpNameBox() {
+        val box = binding.inputChannelName
+
+        box.setText(name.shown)
+        box.filters = arrayOf(InputFilter.LengthFilter(MAX_NAME_LENGTH))
+
+        box.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                finishRename()
+                true
+            } else {
+                false
+            }
+        }
+
+        box.setOnFocusChangeListener { _, focused -> if (!focused) commitName() }
+    }
+
+    private fun finishRename() {
+        val box = binding.inputChannelName
+        commitName()
+        box.clearFocus()
+
+        val keyboard = box.context.getSystemService(InputMethodManager::class.java)
+        keyboard?.hideSoftInputFromWindow(box.windowToken, 0)
+    }
+
+    private fun commitName() {
+        val box = binding.inputChannelName
+        val typed = box.text.toString().trim()
+
+        // An empty box is not a name - put back the one the desk has.
+        if (typed.isEmpty() || typed == name.shown) {
+            box.setText(name.shown)
+            return
+        }
+
+        name.set(typed)
+        box.setText(typed)
+        onNameChanged(channel, typed)
+    }
+
+    private fun selectSource(alt: Boolean) {
+        if (alt == altIn.shown) return
+        if (alt && !altAvailable) return
+
+        altIn.set(alt)
+        applySource()
+        onAltInChanged(channel, alt)
+    }
+
+    /**
+     * Folds in a push from the server, unless that control has just been
+     * changed by hand.
      */
     fun update(state: ChannelState) {
         if (state.channel != channel) return
 
-        val pendingName = nameExpected
-
-        if (pendingName != null &&
-            (state.name == pendingName ||
-                SystemClock.uptimeMillis() - nameSentAt > NAME_CONFIRM_MS)
-        ) {
-            nameExpected = null
+        val box = binding.inputChannelName
+        if (name.reconcile(state.name, NAME_CONFIRM_MS) && !box.hasFocus()) {
+            box.setText(name.shown)
         }
 
-        if (nameExpected == null && binding.inputChannelName.text != state.name) {
-            binding.inputChannelName.text = state.name
+        foldDial(main.gainDial, main.gainValue, state.gain, gainWrites)
+        foldDial(alt.gainDial, alt.gainValue, state.altGain, altGainWrites)
+        foldDial(main.trimDial, main.trimValue, state.trim, trimWrites)
+        foldDial(alt.trimDial, alt.trimValue, state.trim, trimWrites)
+
+        if (phantom.reconcile(state.phantom, TOGGLE_CONFIRM_MS)) {
+            applyPhantom(main.phantomButton, phantom.shown)
         }
 
-        state.gain?.let { gain ->
-            if (idle(gainTouchedAt) && differs(binding.gainDial.value, gain)) {
-                binding.gainDial.hasValue = true
-                binding.gainDial.value = gain
-                binding.gainValue.text = formatDb(binding.gainDial.value)
-            }
+        if (altPhantom.reconcile(state.altPhantom, TOGGLE_CONFIRM_MS)) {
+            applyPhantom(alt.phantomButton, altPhantom.shown)
         }
 
-        state.trim?.let { trim ->
-            if (idle(trimTouchedAt) && differs(binding.trimDial.value, trim)) {
-                binding.trimDial.hasValue = true
-                binding.trimDial.value = trim
-                binding.trimValue.text = formatDb(binding.trimDial.value)
-            }
+        if (phase.reconcile(state.phase, TOGGLE_CONFIRM_MS)) applyPhase()
+
+        if (altIn.reconcile(state.altIn, TOGGLE_CONFIRM_MS)) applySource()
+
+        if (state.altAvailable != altAvailable) {
+            altAvailable = state.altAvailable
+            applyAltAvailable()
         }
+    }
 
-        val expected = phantomExpected
+    private fun foldDial(
+        dial: DialView,
+        readout: TextView,
+        incoming: Double?,
+        writes: Throttle
+    ) {
+        incoming ?: return
 
-        if (expected != null) {
-            // Settled once the console agrees, or given up on if it never
-            // does - at which point the console's own state wins.
-            if (state.phantom == expected ||
-                SystemClock.uptimeMillis() - phantomSentAt > PHANTOM_CONFIRM_MS
-            ) {
-                phantomExpected = null
-            }
-        }
-
-        if (phantomExpected == null && state.phantom != phantomShown) {
-            applyPhantom(state.phantom)
-        }
-
-        val phaseWanted = phaseExpected
-
-        if (phaseWanted != null) {
-            if (state.phase == phaseWanted ||
-                SystemClock.uptimeMillis() - phaseSentAt > PHANTOM_CONFIRM_MS
-            ) {
-                phaseExpected = null
-            }
-        }
-
-        if (phaseExpected == null && state.phase != phaseShown) {
-            applyPhase(state.phase)
+        if (writes.idle && (!dial.hasValue || abs(dial.value - incoming) >= 0.05)) {
+            dial.hasValue = true
+            dial.value = incoming
+            readout.text = formatDb(dial.value)
         }
     }
 
@@ -281,18 +302,39 @@ class ChannelInputBottomSheet(
      * source (ribbon mics especially), so it should look like a live
      * state rather than a selected option.
      */
-    private fun applyPhantom(on: Boolean) {
-        phantomShown = on
-
-        val context = binding.phantomButton.context
+    private fun applyPhantom(button: MaterialButton, on: Boolean) {
         val background = if (on) R.color.mute_active else R.color.mute_inactive
         val text = if (on) R.color.on_primary else R.color.on_mute_inactive
 
-        binding.phantomButton.backgroundTintList =
-            ColorStateList.valueOf(ContextCompat.getColor(context, background))
-        binding.phantomButton.setTextColor(ContextCompat.getColor(context, text))
-        binding.phantomButton.contentDescription =
-            if (on) "48V on" else "48V off"
+        tint(button, background, text)
+        button.contentDescription = if (on) "48V on" else "48V off"
+    }
+
+    /** The live input's button fills with the accent; the other does not. */
+    private fun applySource() {
+        val onAlt = altIn.shown
+
+        tint(
+            main.sourceButton,
+            if (onAlt) R.color.mute_inactive else R.color.primary,
+            if (onAlt) R.color.on_mute_inactive else R.color.on_primary
+        )
+        tint(
+            alt.sourceButton,
+            if (onAlt) R.color.primary else R.color.mute_inactive,
+            if (onAlt) R.color.on_primary else R.color.on_mute_inactive
+        )
+    }
+
+    /** Greys out and locks the whole ALT column while there is no route. */
+    private fun applyAltAvailable() {
+        val enabled = altAvailable
+
+        alt.root.alpha = if (enabled) 1f else DISABLED_ALPHA
+        alt.sourceButton.isEnabled = enabled
+        alt.phantomButton.isEnabled = enabled
+        alt.gainDial.isEnabled = enabled
+        alt.trimDial.isEnabled = enabled
     }
 
     /**
@@ -306,8 +348,8 @@ class ChannelInputBottomSheet(
      * button says "inverted" and the number is remembered rather than
      * interpreted.
      */
-    private fun applyPhase(state: Int) {
-        phaseShown = state
+    private fun applyPhase() {
+        val state = phase.shown
 
         if (state != PHASE_NORMAL) phaseLastInverted = state
 
@@ -324,53 +366,83 @@ class ChannelInputBottomSheet(
             if (on) "Polarity inverted" else "Polarity normal"
     }
 
-    private fun promptForName(current: String) {
-        val context = binding.root.context
-
-        val field = EditText(context).apply {
-            setText(current)
-            setSelection(text.length)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-            filters = arrayOf(InputFilter.LengthFilter(MAX_NAME_LENGTH))
-        }
-
-        // Padding so the field is not flush against the dialog's edges;
-        // AlertDialog gives a custom view none of its own.
-        val padding = (context.resources.displayMetrics.density * 20).toInt()
-        val frame = FrameLayout(context).apply {
-            setPadding(padding, padding / 2, padding, 0)
-            addView(field)
-        }
-
-        AlertDialog.Builder(context)
-            .setTitle("Rename channel $channel")
-            .setView(frame)
-            .setPositiveButton("Rename") { _, _ ->
-                val name = field.text.toString().trim()
-
-                if (name.isNotEmpty() && name != current) {
-                    nameExpected = name
-                    nameSentAt = SystemClock.uptimeMillis()
-                    binding.inputChannelName.text = name
-                    onNameChanged(channel, name)
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+    private fun tint(button: MaterialButton, background: Int, text: Int) {
+        val context = button.context
+        button.backgroundTintList =
+            ColorStateList.valueOf(ContextCompat.getColor(context, background))
+        button.setTextColor(ContextCompat.getColor(context, text))
     }
-
-    private fun idle(touchedAt: Long): Boolean =
-        SystemClock.uptimeMillis() - touchedAt > SETTLE_MS
-
-    private fun differs(shown: Double, incoming: Double): Boolean =
-        abs(shown - incoming) >= 0.05
 
     fun show() = dialog.show()
 
     fun dismiss() = dialog.dismiss()
 
     fun setOnDismissListener(action: () -> Unit) {
-        dialog.setOnDismissListener { action() }
+        dialog.setOnDismissListener {
+            if (binding.inputChannelName.hasFocus()) commitName()
+            action()
+        }
+    }
+
+    /**
+     * Writes for one dial-driven value. A dial turns at the display's own
+     * rate, and sending every one of those frames would put ~60 OSC writes
+     * a second per dial on the console for a gesture the operator
+     * experiences as one move - so writes are held to WRITE_INTERVAL_MS
+     * while turning, and the value it settles on is always sent.
+     *
+     * It also remembers when the value was last turned by hand: a push
+     * arriving right after a turn still carries the console's pre-turn
+     * value (it has to travel to the desk and back), and writing that
+     * into the dial would drag it backwards under the finger - so pushes
+     * are ignored for SETTLE_MS after a turn, the same bargain the channel
+     * strips strike for their faders.
+     */
+    private class Throttle(private val send: (Double) -> Unit) {
+        private var touchedAt = 0L
+        private var sentAt = 0L
+
+        val idle: Boolean get() = SystemClock.uptimeMillis() - touchedAt > SETTLE_MS
+
+        fun turned(value: Double, force: Boolean) {
+            touchedAt = SystemClock.uptimeMillis()
+
+            if (force || touchedAt - sentAt >= WRITE_INTERVAL_MS) {
+                sentAt = touchedAt
+                send(value)
+            }
+        }
+    }
+
+    /**
+     * A value changed on tap rather than waiting for the console's echo -
+     * the same bargain the strip's Mute button strikes. Pushes are ignored
+     * until they agree or the confirm window passes, so a frame already in
+     * flight cannot flip it back; after that the console's state wins.
+     */
+    private class Optimistic<T>(var shown: T) {
+        private var expected: T? = null
+        private var sentAt = 0L
+
+        fun set(value: T) {
+            expected = value
+            sentAt = SystemClock.uptimeMillis()
+            shown = value
+        }
+
+        /** Takes a pushed value; true if what is shown changed. */
+        fun reconcile(incoming: T, confirmMs: Long): Boolean {
+            if (expected != null &&
+                (incoming == expected || SystemClock.uptimeMillis() - sentAt > confirmMs)
+            ) {
+                expected = null
+            }
+
+            if (expected != null || incoming == shown) return false
+
+            shown = incoming
+            return true
+        }
     }
 
     companion object {
@@ -383,9 +455,9 @@ class ChannelInputBottomSheet(
         // How long after a turn to keep ignoring pushes for that dial.
         private const val SETTLE_MS = 700L
 
-        // How long a tapped 48V or polarity button holds its own state
-        // before deferring to the console again.
-        private const val PHANTOM_CONFIRM_MS = 2000L
+        // How long a tapped 48V, polarity or Main/ALT button holds its own
+        // state before deferring to the console again.
+        private const val TOGGLE_CONFIRM_MS = 2000L
 
         // A rename travels further than a flag - through the desktop's
         // cache and back out on the next push - so it is given longer.
@@ -397,6 +469,8 @@ class ChannelInputBottomSheet(
         // Fast enough that the desk visibly tracks the dial, far below
         // the ~60 a second the turn itself generates.
         private const val WRITE_INTERVAL_MS = 50L
+
+        private const val DISABLED_ALPHA = 0.4f
 
         fun formatDb(value: Double): String {
             val rounded = Math.round(value * 10.0) / 10.0

@@ -96,6 +96,11 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/Channel_Input/trim$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/phantom$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/phase$"),
+
+    # The alternate input slot and the switch between it and the main.
+    re.compile(r"^/Input_Channels/\d+/Channel_Input/alt_analog_gain$"),
+    re.compile(r"^/Input_Channels/\d+/Channel_Input/alt_phantom$"),
+    re.compile(r"^/Input_Channels/\d+/Channel_Input/main/alt_in$"),
 ]
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")

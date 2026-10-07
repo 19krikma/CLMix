@@ -439,6 +439,18 @@ final class AppModel: NSObject, ObservableObject {
         backend.setPhantom(channel: channel, phantom: phantom)
     }
 
+    func setAltGain(channel: Int, gain: Double) {
+        backend.setAltGain(channel: channel, gain: gain)
+    }
+
+    func setAltPhantom(channel: Int, phantom: Bool) {
+        backend.setAltPhantom(channel: channel, phantom: phantom)
+    }
+
+    func setAltIn(channel: Int, altIn: Bool) {
+        backend.setAltIn(channel: channel, altIn: altIn)
+    }
+
     func setPhase(channel: Int, phase: Int) {
         backend.setPhase(channel: channel, phase: phase)
     }

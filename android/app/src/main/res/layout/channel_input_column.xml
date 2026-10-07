@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One input slot on the channel input sheet - Main or ALT. Included
+     twice by bottom_sheet_channel_input.xml; ChannelInputBottomSheet
+     fills in the source button's label. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Picks this slot as the channel's live input. -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/source_button"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:cornerRadius="10dp"
+        app:backgroundTint="@color/mute_inactive"
+        android:textColor="@color/on_mute_inactive"
+        tools:text="Main" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/phantom_button"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="12dp"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:padding="0dp"
+        android:text="48V"
+        android:textSize="11sp"
+        app:cornerRadius="8dp"
+        app:backgroundTint="@color/mute_inactive"
+        android:textColor="@color/on_mute_inactive" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <com.clmix.DialView
+            android:id="@+id/gain_dial"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:contentDescription="Gain dial - hold and drag" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="8dp">
+
+            <TextView
+                android:id="@+id/gain_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="3dp"
+                android:gravity="center"
+                android:text="Gain"
+                android:textSize="12sp"
+                android:textColor="@color/on_surface_variant" />
+
+            <TextView
+                android:id="@+id/gain_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/value_box"
+                android:gravity="center"
+                android:paddingVertical="8dp"
+                android:maxLines="1"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#F2F4F8"
+                tools:text="+20.0" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <com.clmix.DialView
+            android:id="@+id/trim_dial"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:contentDescription="Trim dial - hold and drag" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="8dp">
+
+            <TextView
+                android:id="@+id/trim_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="3dp"
+                android:gravity="center"
+                android:text="Trim"
+                android:textSize="12sp"
+                android:textColor="@color/on_surface_variant" />
+
+            <TextView
+                android:id="@+id/trim_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/value_box"
+                android:gravity="center"
+                android:paddingVertical="8dp"
+                android:maxLines="1"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#F2F4F8"
+                tools:text="-2.0" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>

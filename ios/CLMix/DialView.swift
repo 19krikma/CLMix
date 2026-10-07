@@ -1,15 +1,17 @@
 import SwiftUI
 
-/// A round dial that is turned by holding it and sliding sideways.
+/// A round dial that is turned by holding it and dragging.
 ///
 /// Deliberately not a slider: gain and trim are set in small deliberate
 /// steps on a console, and a strip on a phone screen is far too short to
-/// put 60 dB on. So the finger's distance from where it landed sets a
-/// *rate* rather than a position - hold a little to the right and the
-/// value climbs slowly, push further and it spins up, and the same to the
-/// left brings it down. Nothing moves until a touch lands on the dial and
-/// everything stops the moment it lifts, which is what keeps a pocket or
-/// a stray brush from moving a head amp.
+/// put 60 dB on. So the value follows the finger's *movement* - dragging
+/// right turns it up and left turns it down, dragging up or down does
+/// the same at half the rate for finer work, and a finger held still
+/// leaves it exactly where it is. How far each bit of movement turns it
+/// scales with how fast the finger is going: a slow drag creeps for fine
+/// work, a quick swipe covers the range. Nothing moves until a touch
+/// lands on the dial and everything stops the moment it lifts, which is
+/// what keeps a pocket or a stray brush from moving a head amp.
 ///
 /// The ring around the dial fills with the value's position between the
 /// ends of `range`, and the pointer turns with it, so where the value
@@ -91,15 +93,15 @@ struct DialView: View {
         .frame(width: Self.size, height: Self.size)
         .opacity(hasValue ? 1 : 0.45)
         .accessibilityAddTraits(.isButton)
-        // A sheet dismissed mid-turn would otherwise leave the ticker
-        // running against a view that is no longer on screen.
+        // A sheet dismissed mid-turn never delivers onEnded, which would
+        // leave the dial stuck engaged.
         .onDisappear { turn.cancel() }
     }
 
     private var dragGesture: some Gesture {
-        // minimumDistance 0 so the dial engages on touch-down: the whole
-        // gesture is "hold here and lean", and waiting for travel would
-        // mean the first thing the finger did was already spent.
+        // minimumDistance 0 so the dial engages (and brightens) on
+        // touch-down, and claims the touch before the sheet's scroll can;
+        // DialTurn applies its own slop before anything moves.
         DragGesture(minimumDistance: 0)
             .onChanged { gesture in
                 guard hasValue else { return }
@@ -108,7 +110,7 @@ struct DialView: View {
                     turn.begin(from: value, within: range, onChanged: onValueChanged)
                 }
 
-                turn.offset = gesture.translation.width
+                turn.move(to: gesture.translation, at: gesture.time)
             }
             .onEnded { _ in
                 guard turn.engaged, let settled = turn.end() else { return }
@@ -153,34 +155,30 @@ struct DialView: View {
     private static let pointerWidth: CGFloat = 2.5
 }
 
-/// The turn itself: how far the finger is leaning, and the value that
-/// lean is winding out.
+/// The turn itself: where the finger last was, and the value its
+/// movement is winding out.
 ///
-/// A reference type rather than a pile of @State on the view because the
-/// turning is driven off a ticker, not off drag callbacks - the finger
-/// can be held perfectly still and still be asking the dial to keep
-/// turning, and there are no move events at all in that case. A timer
-/// block reading and writing the view struct's own state would be
-/// reaching through a captured copy of it; here it has one object to talk
-/// to for the whole gesture.
+/// A reference type rather than a pile of @State on the view so the
+/// gesture has one object to talk to for its whole length, rather than
+/// reading and writing view state through a captured copy of the struct.
 ///
 /// Everything in it runs on the main thread - the gesture callbacks
-/// arrive there, and the ticker is scheduled on the main run loop - so
-/// it is deliberately not actor-isolated, the same way DemoMixer drives
-/// its own timers.
+/// arrive there - so it is deliberately not actor-isolated.
 final class DialTurn: ObservableObject {
     @Published private(set) var engaged = false
     @Published private(set) var value: Double = 0
 
-    /// How far the finger has travelled from where it landed, which is
-    /// what sets the rate. Not @Published: it changes with every drag
-    /// event and nothing is drawn from it directly.
-    var offset: CGFloat = 0
-
     private var range: ClosedRange<Double> = 0...1
     private var onChanged: ((Double) -> Void)?
-    private var lastTickAt = Date.distantPast
-    private var ticker: Timer?
+
+    // Past the slop yet - until then a resting thumb's wobble is ignored.
+    private var dragging = false
+    private var last = CGSize.zero
+    private var lastMoveAt = Date.distantPast
+
+    // Finger speed in points/s, smoothed: per-event speeds jitter a lot
+    // at 120 Hz, and that jitter would otherwise show as a lumpy turn.
+    private var speed: Double = 0
 
     func begin(
         from start: Double, within range: ClosedRange<Double>,
@@ -189,76 +187,47 @@ final class DialTurn: ObservableObject {
         self.range = range
         self.onChanged = onChanged
         value = min(range.upperBound, max(range.lowerBound, start))
-        offset = 0
-        lastTickAt = Date()
+        dragging = false
+        speed = 0
         engaged = true
-
-        stopTicking()
-
-        // .common rather than scheduledTimer's default mode, which is
-        // suspended for the whole length of a touch - which is exactly
-        // when this has to run.
-        let timer = Timer(timeInterval: Self.tickSeconds, repeats: true) { [weak self] _ in
-            // Timers added to the main run loop fire on the main thread,
-            // which is where every other part of this object is driven
-            // from too.
-            self?.tick()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        ticker = timer
     }
 
-    /// Ends the turn, returning the value it settled on.
-    func end() -> Double? {
-        guard engaged else { return nil }
-
-        stopTicking()
-        engaged = false
-        offset = 0
-        return value
-    }
-
-    /// Ends it without reporting anything - the dial went away mid-turn.
-    func cancel() {
-        stopTicking()
-        engaged = false
-        offset = 0
-    }
-
-    private func stopTicking() {
-        ticker?.invalidate()
-        ticker = nil
-    }
-
-    // The run loop holds the timer, not this object, so one left running
-    // would outlive the dial it belongs to - firing against a nil weak
-    // self forever rather than stopping.
-    deinit {
-        ticker?.invalidate()
-    }
-
-    private func tick() {
+    /// Turns the dial by however far the finger moved since the last
+    /// call. `translation` is from where the touch landed.
+    func move(to translation: CGSize, at time: Date) {
         guard engaged else { return }
 
-        let now = Date()
-        let seconds = now.timeIntervalSince(lastTickAt)
-        lastTickAt = now
+        if !dragging {
+            guard hypot(translation.width, translation.height) >= Self.slop else { return }
 
-        guard abs(offset) > Self.deadZone else { return }
+            // Counted from here, not from touch-down, so crossing the
+            // slop doesn't land as one jump.
+            dragging = true
+            last = translation
+            lastMoveAt = time
+            return
+        }
 
-        let direction: Double = offset > 0 ? 1 : -1
-        let travel = Double(abs(offset) - Self.deadZone)
+        let dx = Double(translation.width - last.width)
+        let dy = Double(translation.height - last.height)
+        let seconds = max(0.001, time.timeIntervalSince(lastMoveAt))
 
-        // Squared so a small hold creeps for fine work while a big one
-        // spins - linear made the far end unusably slow for 60 dB of
-        // range.
-        let perSecond = min(
-            Self.maxUnitsPerSecond, Self.unitsPerSecondAtOnePoint * travel * travel
+        last = translation
+        lastMoveAt = time
+
+        let instant = hypot(dx, dy) / seconds
+        speed += (instant - speed) * Self.speedSmoothing
+
+        let unitsPerPoint = min(
+            Self.maxUnitsPerPoint, Self.baseUnitsPerPoint + Self.accelUnitsPerPoint * speed
         )
+
+        // Screen y grows downward, so up (negative dy) turns the value up.
+        let travel = dx - dy * Self.verticalRate
 
         let next = min(
             range.upperBound,
-            max(range.lowerBound, value + direction * perSecond * seconds)
+            max(range.lowerBound, value + travel * unitsPerPoint)
         )
 
         guard next != value else { return }
@@ -267,17 +236,36 @@ final class DialTurn: ObservableObject {
         onChanged?(next)
     }
 
+    /// Ends the turn, returning the value it settled on.
+    func end() -> Double? {
+        guard engaged else { return nil }
+
+        engaged = false
+        return value
+    }
+
+    /// Ends it without reporting anything - the dial went away mid-turn.
+    func cancel() {
+        engaged = false
+    }
+
     // Opens at the lower left and sweeps to the lower right.
     static let sweepStart = 135.0
     static let sweepDegrees = 270.0
 
     // How far the finger travels before anything moves, so resting a
     // thumb on the dial doesn't drift it.
-    private static let deadZone: CGFloat = 6
+    private static let slop: CGFloat = 6
 
-    private static let tickSeconds = 1.0 / 60
+    // Per point of finger travel: base when crawling, rising with speed
+    // to max, so ~20pt is 1 dB done slowly and a quick swipe across the
+    // sheet covers the whole 60 dB.
+    private static let baseUnitsPerPoint = 0.05
+    private static let accelUnitsPerPoint = 0.00025
+    private static let maxUnitsPerPoint = 0.5
 
-    // At one point past the dead zone; squared with distance from there.
-    private static let unitsPerSecondAtOnePoint = 0.06
-    private static let maxUnitsPerSecond = 40.0
+    // Up/down turns at this fraction of the sideways rate.
+    private static let verticalRate = 0.5
+
+    private static let speedSmoothing = 0.3
 }

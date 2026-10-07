@@ -597,7 +597,8 @@ class RemoteServer:
             self._set_pan(state, msg.get("channel"), msg.get("pan"))
 
         elif action in ("set_gain", "set_trim", "set_phantom", "set_phase",
-                        "set_name"):
+                        "set_name", "set_alt_gain", "set_alt_phantom",
+                        "set_alt_in"):
             # The head amp and its trim belong to the channel, not to any
             # one mix: turning a preamp down changes what FOH, every
             # monitor and the recording hear at once. So unlike level/pan/
@@ -623,6 +624,14 @@ class RemoteServer:
             elif action == "set_phase":
                 self._set_phase(state, worker, msg.get("channel"),
                                 msg.get("phase"))
+            elif action == "set_alt_gain":
+                self._set_alt_gain(state, msg.get("channel"), msg.get("gain"))
+            elif action == "set_alt_phantom":
+                self._set_alt_phantom(state, msg.get("channel"),
+                                      msg.get("phantom"))
+            elif action == "set_alt_in":
+                self._set_alt_in(state, worker, msg.get("channel"),
+                                 msg.get("alt_in"))
             else:
                 self._set_name(state, msg.get("channel"), msg.get("name"))
 
@@ -1151,6 +1160,16 @@ class RemoteServer:
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/phase/?"
                 )
+                # The alternate input slot, and which of the two is live.
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Channel_Input/alt_analog_gain/?"
+                )
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Channel_Input/alt_phantom/?"
+                )
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Channel_Input/main/alt_in/?"
+                )
 
             return
 
@@ -1245,6 +1264,73 @@ class RemoteServer:
             f"/Input_Channels/{channel}/Channel_Input/phantom "
             f"{1.0 if phantom else 0.0}"
         )
+
+    # The alternate input's own head amp. There is no alt trim: the trim
+    # sits after the main/alt switch, so set_trim covers both.
+    def _set_alt_gain(self, state, channel, gain):
+        if channel is None or gain is None:
+            return
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Input/alt_analog_gain "
+            f"{round(float(gain), 2)}"
+        )
+
+    def _set_alt_phantom(self, state, channel, phantom):
+        if channel is None or phantom is None:
+            return
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Input/alt_phantom "
+            f"{1.0 if phantom else 0.0}"
+        )
+
+    # Which input feeds the channel. Switching to alt is refused unless
+    # the console reports an alt route there (see _alt_available) -
+    # flipping a live channel onto an empty socket silences it.
+    def _set_alt_in(self, state, worker, channel, alt_in):
+        if channel is None or alt_in is None:
+            return
+
+        if alt_in and not self._alt_available(worker, channel):
+            log("info", f"Refused set_alt_in on channel {channel}: "
+                        f"no alt route reported")
+            return
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Input/main/alt_in "
+            f"{1.0 if alt_in else 0.0}"
+        )
+
+    @staticmethod
+    def _alt_available(worker, channel):
+        """Whether the channel has an alt route patched on the console.
+
+        No address says so outright - input_type tracks the main slot only
+        (PROTOCOL.md, "Input patching"). An empty slot reports 0 dB and 48V
+        off, the same as an empty main does, so anything else - or the
+        channel already running on alt - is taken as a route being there.
+        A patched alt sitting at exactly 0 dB with 48V off reads as absent;
+        this wants confirming against a live capture of an alt patch.
+        """
+        if worker is None:
+            return False
+
+        prefix = f"/Input_Channels/{channel}/Channel_Input"
+
+        def cached(suffix):
+            args = worker.cache.get(f"{prefix}/{suffix}")
+            try:
+                return float(args[0]) if args else None
+            except (TypeError, ValueError):
+                return None
+
+        alt_in = cached("main/alt_in")
+        alt_gain = cached("alt_analog_gain")
+        alt_phantom = cached("alt_phantom")
+
+        return bool(alt_in) or bool(alt_phantom) or \
+            (alt_gain is not None and alt_gain != 0.0)
 
     # phase is an enum over 0..3, not a flag - see PHASE_MAX. Two client
     # shapes are accepted, because the wire has carried both:
@@ -1766,12 +1852,26 @@ class RemoteServer:
             trim = round(worker.cache[trim_key][0], 2) \
                 if trim_key in worker.cache else None
 
-            # 48V on the channel's main input. The console keeps a second
-            # one for the alternate input (alt_phantom); this follows the
-            # main, which is what main/alt_in leaves live by default.
+            # 48V on the channel's main input. The alternate input's own
+            # is alt_phantom, below.
             phantom_key = f"/Input_Channels/{channel}/Channel_Input/phantom"
             phantom = bool(worker.cache[phantom_key][0]) \
                 if phantom_key in worker.cache else False
+
+            # The alternate input slot: its own head amp and 48V (trim is
+            # shared - it sits after the switch), which slot is live, and
+            # whether there is an alt route at all to switch to.
+            alt_gain_key = f"/Input_Channels/{channel}/Channel_Input/alt_analog_gain"
+            alt_gain = round(worker.cache[alt_gain_key][0], 2) \
+                if alt_gain_key in worker.cache else None
+
+            alt_phantom_key = f"/Input_Channels/{channel}/Channel_Input/alt_phantom"
+            alt_phantom = bool(worker.cache[alt_phantom_key][0]) \
+                if alt_phantom_key in worker.cache else False
+
+            alt_in_key = f"/Input_Channels/{channel}/Channel_Input/main/alt_in"
+            alt_in = bool(worker.cache[alt_in_key][0]) \
+                if alt_in_key in worker.cache else False
 
             # Both shapes go out: "phase_state" is the console's own value
             # (0..3, see PHASE_MAX) and is what a phone should read and
@@ -1792,6 +1892,10 @@ class RemoteServer:
                 "phantom": phantom,
                 "phase": phase_state != PHASE_NORMAL,
                 "phase_state": phase_state,
+                "alt_gain": alt_gain,
+                "alt_phantom": alt_phantom,
+                "alt_in": alt_in,
+                "alt_available": cls._alt_available(worker, channel),
                 "stereo": worker.channel_is_stereo(channel),
             })
 

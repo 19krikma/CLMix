@@ -154,6 +154,10 @@ final class DemoMixer: MixerBackend {
         var phantom: Bool
         // The console's own enum, 0..3 - see ChannelState.phase.
         var phase: Int
+        // The alternate input slot. Nil gain means no alt route patched.
+        var altGain: Double? = nil
+        var altPhantom: Bool = false
+        var altIn: Bool = false
     }
 
     // [aux index: [channel number: send]]
@@ -238,7 +242,12 @@ final class DemoMixer: MixerBackend {
                 // One inverted mono channel, and one stereo channel on a
                 // state a boolean could not have carried - which is the
                 // case the demo exists to show working.
-                phase: phaseForStagePicture(entry.name)
+                phase: phaseForStagePicture(entry.name),
+                // A spare vocal mic on the vocal channels, so the Alt
+                // section has something to show; the rest have none.
+                altGain: entry.name == "Lead Vox" || entry.name.hasPrefix("BV")
+                    ? Double(30 + entry.channel % 11) : nil,
+                altPhantom: entry.name.hasPrefix("BV")
             )
         }
 
@@ -498,6 +507,23 @@ final class DemoMixer: MixerBackend {
         console[channel]?.phantom = phantom
     }
 
+    func setAltGain(channel: Int, gain: Double) {
+        guard mixerMode, console[channel]?.altGain != nil else { return }
+        console[channel]?.altGain = gain
+    }
+
+    func setAltPhantom(channel: Int, phantom: Bool) {
+        guard mixerMode, console[channel]?.altGain != nil else { return }
+        console[channel]?.altPhantom = phantom
+    }
+
+    /// Refused onto an empty alt slot, as the real server does.
+    func setAltIn(channel: Int, altIn: Bool) {
+        guard mixerMode else { return }
+        guard !altIn || console[channel]?.altGain != nil else { return }
+        console[channel]?.altIn = altIn
+    }
+
     func setPhase(channel: Int, phase: Int) {
         guard mixerMode else { return }
         console[channel]?.phase = phase
@@ -625,7 +651,11 @@ final class DemoMixer: MixerBackend {
                 gain: strip.gain,
                 trim: strip.trim,
                 phantom: strip.phantom,
-                phase: strip.phase
+                phase: strip.phase,
+                altGain: strip.altGain,
+                altPhantom: strip.altPhantom,
+                altIn: strip.altIn,
+                altAvailable: strip.altGain != nil
             )
         }
 

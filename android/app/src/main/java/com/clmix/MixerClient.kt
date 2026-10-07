@@ -419,6 +419,30 @@ object MixerClient {
             .put("phantom", phantom)
     )
 
+    // The alternate input's own head amp. Trim has no alt twin - setTrim
+    // covers whichever input is live.
+    fun setAltGain(channel: Int, gain: Double) = send(
+        JSONObject()
+            .put("action", "set_alt_gain")
+            .put("channel", channel)
+            .put("gain", gain)
+    )
+
+    fun setAltPhantom(channel: Int, phantom: Boolean) = send(
+        JSONObject()
+            .put("action", "set_alt_phantom")
+            .put("channel", channel)
+            .put("phantom", phantom)
+    )
+
+    /** Switches the channel between its main (false) and alt (true) input. */
+    fun setAltIn(channel: Int, altIn: Boolean) = send(
+        JSONObject()
+            .put("action", "set_alt_in")
+            .put("channel", channel)
+            .put("alt_in", altIn)
+    )
+
     // phase is the console's own enum, not a flag - 0 normal, 1..3 the
     // inverted states a stereo channel has (see ChannelState.phase). The
     // number is sent so a state the desk already holds is written back
@@ -572,6 +596,10 @@ object MixerClient {
                         gain = if (o.isNull("gain")) null else o.optDouble("gain"),
                         trim = if (o.isNull("trim")) null else o.optDouble("trim"),
                         phantom = o.optBoolean("phantom", false),
+                        altGain = if (o.isNull("alt_gain")) null else o.optDouble("alt_gain"),
+                        altPhantom = o.optBoolean("alt_phantom", false),
+                        altIn = o.optBoolean("alt_in", false),
+                        altAvailable = o.optBoolean("alt_available", false),
                         // phase_state is the console's value, 0..3. An
                         // older server sends only the "phase" bool, which
                         // cannot tell 3 from 1 - falling back to it loses
