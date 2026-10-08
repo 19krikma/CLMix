@@ -25,15 +25,11 @@ class LogsWindow:
     REFRESH_MS = 500
     SEARCH_DEBOUNCE_MS = 200
 
-    # Opening size; widened in _fit_to_toolbar if the top bar needs more.
-    DEFAULT_WIDTH = 720
-    DEFAULT_HEIGHT = 460
-
     def __init__(self, master):
-        self.window = tk.Toplevel(master)
-        self.window.title("Logs")
-        self.window.geometry(f"{self.DEFAULT_WIDTH}x{self.DEFAULT_HEIGHT}")
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        # A page inside the main window, not a window of its own -
+        # MainWindow packs this frame into its page area and calls
+        # close() when the operator leaves it.
+        self.window = ttk.Frame(master)
 
         self.filter_var = tk.StringVar(value="Info")
         self.meters_var = tk.BooleanVar(value=capture.meters)
@@ -43,27 +39,8 @@ class LogsWindow:
         self._search_job = None
 
         self.build_ui()
-        self._fit_to_toolbar()
         self.render_full()
         self.refresh()
-
-    def _fit_to_toolbar(self):
-        """Open wide enough for every control in the top bar, and never
-        let the window be dragged narrower than that.
-
-        Measured rather than hardcoded: the bar's width depends on the
-        platform's UI font, so a fixed size that fits here can still
-        push "Clear" off the edge on Windows. Height stays as set above.
-        """
-        # Requested sizes, not winfo_width(): the window is not on screen
-        # yet, and an unmapped window reports its size as 1x1.
-        self.window.update_idletasks()
-        needed = self.toolbar.winfo_reqwidth()
-
-        self.window.minsize(needed, 300)
-        self.window.geometry(
-            f"{max(self.DEFAULT_WIDTH, needed)}x{self.DEFAULT_HEIGHT}"
-        )
 
     def build_ui(self):
         bar = ttk.Frame(self.window, padding=10)
@@ -98,8 +75,12 @@ class LogsWindow:
         file_bar = ttk.Frame(self.window, padding=(10, 0))
         file_bar.pack(fill="x")
 
-        self.file_label = ttk.Label(file_bar, foreground="#888888")
-        self.file_label.pack(side="left")
+        # width=1: the path takes whatever room the row has left and is
+        # cut off past it, rather than asking for its full length - a long
+        # home folder would otherwise widen the page, and the main window
+        # is sized to its widest page.
+        self.file_label = ttk.Label(file_bar, foreground="#888888", width=1)
+        self.file_label.pack(side="left", fill="x", expand=True)
 
         self.write_error_label = ttk.Label(file_bar, foreground="#e5473f")
         self.write_error_label.pack(side="right")

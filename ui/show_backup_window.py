@@ -31,11 +31,10 @@ class ShowBackupWindow:
         self._notes_shown = 0
         self._poll_job = None
 
-        self.window = tk.Toplevel(master)
-        self.window.title("Mixer Backup")
-        self.window.geometry("900x640")
-        self.window.minsize(760, 520)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        # A page inside the main window, not a window of its own -
+        # MainWindow packs this frame into its page area, asks
+        # confirm_close() when the operator leaves it, and then close().
+        self.window = ttk.Frame(master)
 
         self.build_ui()
         self.refresh_list()
@@ -47,8 +46,15 @@ class ShowBackupWindow:
         top.pack(fill="x")
 
         ttk.Label(top, text="Folder:").pack(side="left")
-        self.folder_label = ttk.Label(top, text="", foreground="#888888")
-        self.folder_label.pack(side="left", padx=(6, 0))
+        # width=1: the path takes whatever room the row has left and is
+        # cut off past it, rather than asking for its full length - a long
+        # folder would otherwise widen the page, and the main window is
+        # sized to its widest page.
+        self.folder_label = ttk.Label(
+            top, text="", foreground="#888888", width=1
+        )
+        self.folder_label.pack(side="left", fill="x", expand=True,
+                               padx=(6, 0))
         ttk.Button(top, text="Open Folder", command=self.open_folder
                    ).pack(side="right")
         ttk.Button(top, text="Change", command=self.change_folder
@@ -466,9 +472,6 @@ class ShowBackupWindow:
                 style="Accent.TButton" if choice == "Continue" else "TButton"
             ).pack(side="left", padx=(8, 0))
 
-        # A prompt is the job waiting on the operator - make sure they see it.
-        self.window.deiconify()
-        self.window.lift()
 
     def _set_notes(self, text):
         self.notes.configure(state="normal")
@@ -485,16 +488,22 @@ class ShowBackupWindow:
 
     # --------------------------------------------------------------- close
 
-    def close(self):
+    def confirm_close(self):
+        """Whether the page may be left, cancelling a running job if the
+        operator agrees to. Asked before the page slides away, so a "no"
+        leaves it on screen exactly as it was."""
         if self.job is not None and not self.job.finished:
             if not messagebox.askyesno(
                 "Mixer Backup",
                 "A backup or restore is still running. Stop it and close?",
                 icon="warning", parent=self.window
             ):
-                return
+                return False
             self.job.cancel()
 
+        return True
+
+    def close(self):
         if self._poll_job is not None:
             self.window.after_cancel(self._poll_job)
 

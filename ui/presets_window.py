@@ -1,4 +1,3 @@
-import tkinter as tk
 from tkinter import messagebox, ttk
 
 
@@ -12,9 +11,9 @@ class PresetsWindow:
     def __init__(self, master, preset_store):
         self.preset_store = preset_store
 
-        self.window = tk.Toplevel(master)
-        self.window.title("Presets")
-        self.window.geometry("360x360")
+        # A page inside the main window, not a window of its own -
+        # MainWindow packs this frame into its page area.
+        self.window = ttk.Frame(master)
 
         self.build_ui()
         self.refresh_list()

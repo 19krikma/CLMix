@@ -1,4 +1,3 @@
-import tkinter as tk
 from tkinter import messagebox, ttk
 
 REFRESH_MS = 2000
@@ -54,32 +53,26 @@ class PhonesWindow:
         ("connected", "Connected", 80, 70, "center", False),
     )
 
-    # What the list can be squeezed to before the window stops shrinking -
-    # a few readable rows rather than nothing.
-    MIN_LIST_HEIGHT = 110
-
     def __init__(self, master, get_clients, is_running=None, on_kick=None):
         self.get_clients = get_clients
         self.is_running = is_running or (lambda: True)
         self.on_kick = on_kick
 
-        self.window = tk.Toplevel(master)
-        self.window.title("Phone List")
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        # A page inside the main window, not a window of its own -
+        # MainWindow packs this frame into its page area and calls
+        # close() when the operator leaves it.
+        self.window = ttk.Frame(master)
 
         self._refresh_job = None
 
         self.build_ui()
-        self._size_to_contents()
         self.refresh_list()
 
     def build_ui(self):
         # The footer is packed before the list, from the bottom up. pack
         # hands out space in the order widgets are added, so a list packed
-        # first with expand=True takes the whole window and leaves nothing
-        # for what follows - which is exactly what happened here: at the
-        # old fixed 520x320 the Refresh button was never mapped at all and
-        # the status line was clipped to 6px.
+        # first with expand=True takes the whole page and leaves nothing
+        # for what follows - the Refresh button would never be mapped.
         btn_bar = ttk.Frame(self.window, padding=(10, 0, 10, 10))
         btn_bar.pack(side="bottom", fill="x")
 
@@ -153,27 +146,6 @@ class PhonesWindow:
 
         self.on_kick(iid)
         self.refresh_list()
-
-    def _size_to_contents(self):
-        """Opens at whatever the contents actually need.
-
-        Measured rather than hard-coded: a fixed size is only ever right
-        for the font it was picked against, and the column widths, the
-        row height and the button all scale with the user's.
-        """
-        self.window.update_idletasks()
-
-        width = self.window.winfo_reqwidth()
-        height = self.window.winfo_reqheight()
-
-        self.window.geometry(f"{width}x{height}")
-
-        # The list is the only part that can usefully give up space, so
-        # the floor is everything else plus a few rows of it. Resizing is
-        # left on: a long aux name is worth being able to widen for.
-        self.window.minsize(
-            width, height - self.tree.winfo_reqheight() + self.MIN_LIST_HEIGHT
-        )
 
     def refresh_list(self):
         """Redraws the list and books the next redraw.

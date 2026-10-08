@@ -7,6 +7,7 @@ import threading
 import queue
 import re
 import socket
+import sys
 import json
 import math
 import time
@@ -22,7 +23,7 @@ from pythonosc.parsing import osc_types
 from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
-from services.log_store import capture, log
+from services.log_store import capture, log, log_store
 from services.network_info import list_ipv4_interfaces
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
@@ -54,7 +55,10 @@ SETTINGS_PATH = Path.home() / ".clmix.json"
 WM_CLASS_NAME = "CLMix"
 
 # Startup window size, and also its minimum - see MainWindow.__init__.
-WINDOW_WIDTH = 800
+# Only a placeholder until MainWindow._fit_window_size measures the real
+# size from the info bar, the sidebar and the biggest page. The height is
+# also a floor for the mixer's shortest fader.
+WINDOW_WIDTH = 990
 WINDOW_HEIGHT = 500
 
 # How long after launch the update check fires. Late enough to stay out of
@@ -1246,6 +1250,25 @@ def build_aux_list(worker, hidden=None):
     return aux_list
 
 
+def is_mouse_back_button(event):
+    """Whether a button press is the mouse's side "back" button.
+
+    Tk 9 numbers the side buttons 8 (back) and 9 (forward) on every
+    platform, and so does Tk 8.6 on X11 - where 4 and 5 are the scroll
+    wheel. Tk 8.6 on Windows numbers back 4 instead (its wheel is a
+    MouseWheel event, not a button), so 4 only counts there: anywhere
+    else it would close a page on every scroll up.
+
+    Checked on a catch-all <ButtonPress> rather than bound as
+    "<Button-8>", because Tk 8.6 rejects any button number above 5 in a
+    binding even though it delivers the press itself.
+    """
+    if event.num == 8:
+        return True
+
+    return event.num == 4 and sys.platform == "win32" and tk.TkVersion < 9
+
+
 def panel_bg(widget):
     # sv_ttk themes ttk widgets automatically, but plain tk widgets
     # (Canvas, Scale) need their background matched by hand so they
@@ -1312,6 +1335,16 @@ def configure_section_styles(widget):
 
     style.configure("Section.TFrame", background=section)
     style.configure("Section.TSeparator", background=section)
+
+
+def _blend_hex(color, toward, amount):
+    """color moved amount (0..1) of the way toward another "#rrggbb" -
+    how a shade is faked on a Tk canvas, which has no transparency."""
+    a = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(toward[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(
+        f"{round(x + (y - x) * amount):02x}" for x, y in zip(a, b)
+    )
 
 
 def accent_color(widget):
@@ -1747,6 +1780,15 @@ class AuxLevelsPanel:
     # on a mono aux doesn't leave the button sticking out past the row.
     MUTE_WIDTH = 62
     MUTE_HEIGHT = 24
+
+    # The pan slider's length - the widest thing in a strip, and so also
+    # where a channel name wraps rather than widening the strip past it.
+    PAN_LENGTH = 90
+
+    # Lines every channel name gets, used or not. The same on every strip
+    # so a two-line name doesn't push its fader below its neighbours',
+    # and so _strip_chrome_height can read the height off any one label.
+    NAME_LINES = 2
 
     # pady the pan slider and the Mute button are packed with. Counted
     # again in _strip_chrome_height, so the two have to agree.
@@ -2386,7 +2428,11 @@ class AuxLevelsPanel:
             column.pack(side="left", fill="y")
             self.channel_columns[i] = column
 
-            name_label = tk.Label(column.inner, text=name, bg=column_bg, fg=fg)
+            name_label = tk.Label(
+                column.inner, text=name, bg=column_bg, fg=fg,
+                wraplength=self.PAN_LENGTH, justify="center",
+                height=self.NAME_LINES
+            )
             name_label.pack()
             self.channel_name_labels[i] = name_label
 
@@ -2457,7 +2503,7 @@ class AuxLevelsPanel:
                 orient="horizontal",
                 from_=-1.0,
                 to=1.0,
-                length=90,
+                length=self.PAN_LENGTH,
                 bg=column_bg,
                 troughcolor=track_color,
                 thumb_color=accent,
@@ -3064,11 +3110,8 @@ class MainWindow:
         self.root.title("CLMix")
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
 
-        # The startup size is also the floor. The channel strips stretch
-        # to fill whatever height the window has, and LEVEL_LENGTH is the
-        # shortest fader worth showing - so rather than letting the strips
-        # be squashed below that, the window itself refuses to go under
-        # the size that produces it. Growing is unrestricted.
+        # The startup size is also the floor - see _fit_window_size, which
+        # raises both once the sidebar exists to be measured.
         self.root.minsize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
         # Keep a reference on root itself - iconphoto doesn't retain the
@@ -3136,8 +3179,19 @@ class MainWindow:
         self._palette_recolor_hooked = False
         self.apply_theme(self.settings["theme"], persist=False)
         self.build_ui()
+        self._fit_window_size()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        # Escape backs out of a page the same as the sidebar's Back, and
+        # so does a mouse's side back button, wherever the pointer is in
+        # the window. Bound on the root, whose tag every widget in it
+        # carries, so a click on any of them reaches it.
+        self.root.bind("<Escape>", lambda event: self.close_page())
+        self.root.bind(
+            "<ButtonPress>",
+            lambda event: self.close_page() if is_mouse_back_button(event)
+            else None
+        )
 
         # Now, not during the update itself: this is the one moment the
         # installer downloaded last time is guaranteed not to be running,
@@ -3149,88 +3203,465 @@ class MainWindow:
         self.root.after(CONNECT_ON_LAUNCH_MS, self._connect_on_launch)
         self.root.after(STARTUP_UPDATE_CHECK_MS, self._start_update_check)
 
-    def build_menu_bar(self):
-        menu_bar = tk.Menu(self.root)
+    # Sidebar width in pixels. Fixed rather than sized to its contents so
+    # the "update available" relabel of About can't make the whole mixer
+    # area jump sideways.
+    SIDEBAR_WIDTH = 170
 
-        self.preference_menu = tk.Menu(menu_bar, tearoff=False)
-        self.preference_menu.add_command(
-            label="Setup\u2026", command=self.open_setup_window
-        )
-        menu_bar.add_cascade(label="Setup", menu=self.preference_menu)
+    # The About entry's label while a newer release is waiting.
+    ABOUT_UPDATE_LABEL = "About  •  Update"
 
-        self.theme_var = tk.StringVar(value=self.settings["theme"])
-        self.view_menu = tk.Menu(menu_bar, tearoff=False)
-        self.view_menu.add_radiobutton(
-            label="Light", variable=self.theme_var, value="light",
-            command=lambda: self.apply_theme(self.theme_var.get())
-        )
-        self.view_menu.add_radiobutton(
-            label="Dark", variable=self.theme_var, value="dark",
-            command=lambda: self.apply_theme(self.theme_var.get())
-        )
-        menu_bar.add_cascade(label="View", menu=self.view_menu)
+    def build_sidebar(self, parent):
+        """The column down the left edge.
 
-        self.mixer_menu = tk.Menu(menu_bar, tearoff=False)
-        self.mixer_menu.add_command(
-            label="Mixer Backup", command=self.open_show_backup_window
-        )
-        self.mixer_menu.add_command(
-            label="Copy To\u2026", command=self.open_copy_to_window
-        )
-        menu_bar.add_cascade(label="Mixer", menu=self.mixer_menu)
+        Replaces what used to be the menu bar and the control bar above
+        the mixer. From the top: Connect, then the pages; Backup, About
+        and the light/dark switch are pinned to the bottom so they stay
+        put however many pages get added above.
+        """
+        # Fixed size, with its two panels placed inside it rather than
+        # packed, so they can slide past each other - the menu below, and
+        # the Back panel shown while a page is open (build_back_panel).
+        self.sidebar = ttk.Frame(parent, width=self.SIDEBAR_WIDTH)
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
 
-        self.help_menu = tk.Menu(menu_bar, tearoff=False)
-        self.help_menu.add_command(label="Logs", command=self.open_logs_window)
-        self.help_menu.add_command(label="CLMix Backup", command=self.open_backup_window)
-        self.help_menu.add_command(label="About", command=self.open_about_window)
-        # Kept so the startup check can relabel this one entry - looking it
-        # up by its current label would stop working the moment it changes.
-        self.about_menu_index = self.help_menu.index("end")
-        menu_bar.add_cascade(label="Help", menu=self.help_menu)
+        self.sidebar_separator = ttk.Separator(parent, orient="vertical")
+        self.sidebar_separator.pack(side="left", fill="y")
 
-        self.root.config(menu=menu_bar)
+        self._configure_sidebar_styles()
 
-    def build_ui(self):
+        self.sidebar_menu = sidebar = ttk.Frame(self.sidebar, padding=(8, 10))
+        sidebar.place(x=0, y=0, relwidth=1, relheight=1)
 
-        self.build_menu_bar()
+        self.build_back_panel()
 
-        top_bar = ttk.Frame(self.root, padding=(15, 10))
-        top_bar.pack(fill="x")
+        def entry(text, command, side="top"):
+            button = ttk.Button(
+                sidebar, text=text, style="Sidebar.Toolbutton",
+                command=command
+            )
+            button.pack(side=side, fill="x", pady=1)
+            return button
+
+        def divider(side="top"):
+            ttk.Separator(sidebar).pack(side=side, fill="x", pady=6)
 
         self.connect_btn = ttk.Button(
-            top_bar,
-            text="Connect",
+            sidebar, text="Connect", style="Accent.TButton",
             command=self.on_connect_button
         )
-        self.connect_btn.pack(side="left")
+        self.connect_btn.pack(fill="x", pady=(0, 6))
 
-        ttk.Button(
-            top_bar,
-            text="Presets",
-            command=self.open_presets_window
-        ).pack(side="left", padx=(8, 0))
+        entry("Presets", self.open_presets_window)
+        divider()
+        entry("Settings", self.open_settings_window)
+        entry("Accounts", self.open_accounts_window)
+        divider()
+        entry("Mixer Backup", self.open_show_backup_window)
+        entry("Copy To…", self.open_copy_to_window)
 
-        ttk.Button(
-            top_bar,
-            text="Phone List",
-            command=self.open_phones_window
-        ).pack(side="left", padx=(8, 0))
+        # Packed bottom-up, so in reverse of how they read on screen.
+        self.dark_mode_var = tk.BooleanVar(
+            value=self.settings["theme"] == "dark"
+        )
+        ttk.Checkbutton(
+            sidebar, text="Dark Mode", style="Switch.TCheckbutton",
+            variable=self.dark_mode_var,
+            command=lambda: self.apply_theme(
+                "dark" if self.dark_mode_var.get() else "light"
+            )
+        ).pack(side="bottom", fill="x", padx=8, pady=(6, 2))
 
-        ttk.Separator(top_bar, orient="vertical").pack(
-            side="left", fill="y", padx=15
+        divider(side="bottom")
+        # Kept so the startup update check can relabel it.
+        self.about_button = entry("About", self.open_about_window, side="bottom")
+        entry("Backup", self.open_backup_window, side="bottom")
+
+    def build_back_panel(self):
+        """What the sidebar shows while a page is open: the way back to
+        the mixer, the name of the page being looked at, and the page's
+        own sections if it has any. Parked off the sidebar's right edge
+        until _slide brings it in."""
+        # No right padding: the section tabs below run to the sidebar's
+        # edge so the selected one can join the page. Everything else
+        # keeps the usual margin with its own padx.
+        self.sidebar_back = panel = ttk.Frame(
+            self.sidebar, padding=(8, 10, 0, 10)
         )
 
-        status_frame = ttk.Frame(top_bar)
-        status_frame.pack(side="left")
+        ttk.Button(
+            panel, text="\u2190  Back", style="Accent.TButton",
+            command=self.close_page
+        ).pack(fill="x", padx=(0, 8), pady=(0, 10))
 
-        mixer_row = ttk.Frame(status_frame)
-        mixer_row.pack(side="top", anchor="w")
+        self.page_title_label = ttk.Label(
+            panel, text="", font=("TkDefaultFont", 11, "bold"),
+            padding=(4, 0)
+        )
+        self.page_title_label.pack(fill="x", padx=(0, 8))
 
-        ttk.Label(mixer_row, text="Status:").pack(side="left", padx=(0, 6))
+        # The open page's sections, drawn by _draw_sections. A canvas
+        # rather than buttons: the selected one is a tab outline open on
+        # its right, which no ttk button can be drawn as.
+        self.sections_canvas = tk.Canvas(
+            panel, highlightthickness=0, borderwidth=0, height=0,
+            bg=panel_bg(panel), cursor="hand2"
+        )
+        self.sections_canvas.pack(fill="x", pady=(8, 0))
+        self.sections_canvas.bind("<Button-1>", self._on_section_click)
+        # The tab's top and bottom lines run to the canvas's right edge,
+        # which is only known once it is laid out.
+        self.sections_canvas.bind(
+            "<Configure>", lambda event: self._draw_sections()
+        )
 
+        # Covers the stretch of the sidebar's separator beside the
+        # selected tab, which is what makes the tab open into the page.
+        # A child of the root, placed over the separator - see
+        # _place_tab_gap.
+        self.tab_gap = tk.Frame(self.root, bg=panel_bg(self.root))
+
+        self._sections = []
+        self._selected_section = None
+
+        self._place_sidebar_panels(0)
+
+    # Height of one section row in the sidebar, and the radius of the
+    # selected tab's corners.
+    SECTION_ROW_HEIGHT = 34
+    SECTION_TAB_RADIUS = 6
+
+    # The soft shadow around the selected tab: how strongly each 1px ring
+    # outward from the outline is darkened toward black, nearest first.
+    # Light needs far less than dark to read as the same depth.
+    SECTION_SHADOW = {
+        "dark": (0.45, 0.25, 0.1),
+        "light": (0.10, 0.05, 0.02),
+    }
+
+    def _show_page_sections(self, sections):
+        """List a page's sections under its title in the Back panel.
+
+        sections is [(label, select)] - select shows that section and is
+        handed the label. Empty for a page with none. The first section
+        is the one shown on opening.
+        """
+        self._sections = list(sections)
+        self._selected_section = None
+        # Room above the first row and below the last for the shadow.
+        self.sections_canvas.configure(
+            height=len(self._sections) * self.SECTION_ROW_HEIGHT
+            + 2 * self._shadow_size()
+        )
+
+        if self._sections:
+            label, select = self._sections[0]
+            select(label)
+        else:
+            self._draw_sections()
+
+    def _mark_section(self, label):
+        """Show which of the open page's sections is on screen."""
+        self._selected_section = label
+        self._draw_sections()
+
+    def _shadow_size(self):
+        return len(self.SECTION_SHADOW["dark"])
+
+    def _on_section_click(self, event):
+        index = (event.y - self._shadow_size()) // self.SECTION_ROW_HEIGHT
+
+        if 0 <= index < len(self._sections):
+            label, select = self._sections[index]
+
+            if label != self._selected_section:
+                select(label)
+
+    def _separator_color(self):
+        # sv_ttk draws separators from a one-colour image rather than a
+        # style colour, so the colour is read off the image itself.
+        name = "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
+        image = self.root.tk.eval(f"set ttk::theme::{name}::I(sep)")
+        red, green, blue = (
+            int(part) for part in self.root.tk.eval(f"{image} get 0 0").split()
+        )
+        return f"#{red:02x}{green:02x}{blue:02x}"
+
+    def _draw_sections(self):
+        """Draw the section rows, the selected one as a tab.
+
+        The tab is an outline in the separator's colour - across the top,
+        down the left with rounded corners, back along the bottom - left
+        open on the right where it meets the page, with a soft shadow
+        just outside it to lift it off the sidebar. Every label is the
+        same colour; the tab alone marks the selection.
+        """
+        canvas = self.sections_canvas
+        canvas.delete("all")
+        background = panel_bg(canvas)
+        canvas.configure(bg=background)
+
+        row = self.SECTION_ROW_HEIGHT
+        shadow = self._shadow_size()
+        right = canvas.winfo_width()
+        font = ttk.Style().lookup("TLabel", "font") or "TkDefaultFont"
+
+        for index, (label, _select) in enumerate(self._sections):
+            top = shadow + index * row
+            # Inset by one so the bottom edge stays inside its row.
+            bottom = top + row - 1
+
+            if label == self._selected_section:
+                # Outermost ring first, so each nearer one draws over it.
+                strengths = self.SECTION_SHADOW[sv_ttk.get_theme()]
+                for ring in range(len(strengths), 0, -1):
+                    self._draw_tab_outline(
+                        shadow, top, bottom, right, ring,
+                        _blend_hex(background, "#000000", strengths[ring - 1])
+                    )
+
+                self._draw_tab_outline(
+                    shadow, top, bottom, right, 0, self._separator_color()
+                )
+
+            canvas.create_text(
+                shadow + 14, top + row // 2, text=label, anchor="w",
+                fill=panel_fg(canvas), font=font
+            )
+
+        self._place_tab_gap()
+
+    def _draw_tab_outline(self, left, top, bottom, right, grow, color):
+        """One tab outline, grown outward by grow pixels on its top, left
+        and bottom - the outline itself at 0, shadow rings beyond it. The
+        corners grow with it, so every ring stays parallel to the edge."""
+        canvas = self.sections_canvas
+        radius = self.SECTION_TAB_RADIUS + grow
+        left -= grow
+        top -= grow
+        bottom += grow
+        diameter = 2 * radius
+
+        canvas.create_line(right, top, left + radius, top, fill=color)
+        canvas.create_arc(
+            left, top, left + diameter, top + diameter,
+            start=90, extent=90, style="arc", outline=color
+        )
+        canvas.create_line(left, top + radius, left, bottom - radius,
+                           fill=color)
+        canvas.create_arc(
+            left, bottom - diameter, left + diameter, bottom,
+            start=180, extent=90, style="arc", outline=color
+        )
+        canvas.create_line(left + radius, bottom, right, bottom, fill=color)
+
+    def _place_tab_gap(self):
+        """Open the sidebar's separator beside the selected tab, or close
+        it again. Only while the Back panel is fully in: mid-slide the tab
+        is somewhere else, and the gap would be a hole in the line."""
+        index = next(
+            (i for i, (label, _) in enumerate(self._sections)
+             if label == self._selected_section), None
+        )
+
+        if index is None or self._page is None or self._slide_job is not None:
+            self.tab_gap.place_forget()
+            return
+
+        separator = self.sidebar_separator
+        top = (self.sections_canvas.winfo_rooty() - self.root.winfo_rooty()
+               + self._shadow_size() + index * self.SECTION_ROW_HEIGHT)
+
+        # Between the tab's top and bottom lines, so both still meet the
+        # separator and the outline reads as one continuous stroke.
+        self.tab_gap.configure(bg=panel_bg(self.root))
+        self.tab_gap.place(
+            x=separator.winfo_x(), y=top + 1,
+            width=max(separator.winfo_width(), 1),
+            height=self.SECTION_ROW_HEIGHT - 2
+        )
+        self.tab_gap.lift()
+
+    def _set_snapshot_text(self, text):
+        """Show text on the snapshot line, cut short with an ellipsis past
+        SNAPSHOT_MAX_WIDTH - a long name must not crowd the info bar's
+        counters off its right end."""
+        label = self.snapshot_label
+        # The theme's label font, which under sv_ttk is its own
+        # SunValleyBodyFont rather than TkDefaultFont. Measured through
+        # Tk directly: tkfont.nametofont() refuses a font that tkinter
+        # itself didn't create.
+        font = ttk.Style().lookup("TLabel", "font") or "TkDefaultFont"
+
+        def measure(value):
+            return int(label.tk.call("font", "measure", font, value))
+
+        room = self.SNAPSHOT_MAX_WIDTH
+
+        if measure(text) > room:
+            while text and measure(text + "\u2026") > room:
+                text = text[:-1]
+            text = text.rstrip() + "\u2026"
+
+        self.snapshot_label.config(text=text)
+
+    # How wide the snapshot name may get in the info bar before it is
+    # elided, and the status line _fit_window_size sizes the bar for - a
+    # failure plus the retry countdown, the longest it routinely gets.
+    SNAPSHOT_MAX_WIDTH = 200
+    WIDEST_STATUS_TEXT = "Connection failed - trying again in 5s"
+
+    def _fit_window_size(self):
+        """Size the window, and its floor, to fit everything it shows: the
+        sidebar, the info bar, and the biggest of the pages - so opening
+        one never has to resize the window.
+
+        The width is whatever the info bar needs with every part of it at
+        its routine widest - the longest status line, a snapshot name at
+        SNAPSHOT_MAX_WIDTH, the capture note showing - so nothing on it
+        ever has to be clipped as the connection comes and goes. Laid out
+        once that way to be measured, then put back.
+
+        The channel strips stretch to fill whatever height the window has,
+        and LEVEL_LENGTH is the shortest fader worth showing - so the
+        window refuses to go under WINDOW_HEIGHT rather than squash them.
+        The sidebar is a fixed column that cannot scroll, so it sets a
+        floor of its own: measured rather than assumed, since its height
+        follows the platform's font and display scaling. Growing is
+        unrestricted either way.
+        """
+        self.status_label.config(text=self.WIDEST_STATUS_TEXT)
+        self._set_snapshot_text("Snapshot: " + "W" * 40)
+        self.capture_banner.pack(side="left")
+        self.root.update_idletasks()
+
+        width = self.info_bar.winfo_reqwidth()
+
+        page_width, page_height = self._largest_page_size()
+        # Everything that is not the page area: the sidebar and its
+        # separator beside it, the info bar and its separator below.
+        beside = self.SIDEBAR_WIDTH + self.sidebar_separator.winfo_reqwidth()
+        below = (self.info_bar.winfo_reqheight()
+                 + self.info_bar_separator.winfo_reqheight())
+        width = max(width, beside + page_width)
+
+        self._render_status()
+        self._set_snapshot_text("Snapshot: --")
+        self._refresh_capture_banner()
+
+        # Nothing in the sidebar menu wraps or comes and goes, so what it
+        # asks for at startup is what it will always need. The menu, not
+        # the sidebar: that is a fixed frame its panels are placed in,
+        # and asks for nothing of its own.
+        height = max(
+            WINDOW_HEIGHT,
+            self.sidebar_menu.winfo_reqheight() + below,
+            page_height + below,
+        )
+        # A small screen gets as much as it has; pages then fit as best
+        # they can rather than the window opening off the bottom edge.
+        height = min(
+            height, self.root.winfo_screenheight() - self.SCREEN_HEIGHT_RESERVE
+        )
+
+        self.root.minsize(width, height)
+        self.root.geometry(f"{width}x{height}")
+
+    def _configure_sidebar_styles(self):
+        # Re-run on every theme change: each sv_ttk theme is its own ttk
+        # theme, and a style configured under one doesn't carry over.
+        style = ttk.Style()
+        style.configure("Sidebar.Toolbutton", anchor="w", padding=(10, 3))
+        # Squeezed so the info bar stays a single text line tall.
+        style.configure("InfoBar.Toolbutton", padding=(6, 0))
+
+    # How often the info bar's phone and log counts repaint, and how often
+    # its adapter list is re-read. Adapters change rarely and enumerating
+    # them asks the OS, so they get the slower of the two.
+    INFO_BAR_TICK_MS = 1000
+    INFO_BAR_NIC_EVERY_TICKS = 5
+
+    def build_info_bar(self, parent):
+        """The strip along the bottom of the window.
+
+        Left: connection status, the current snapshot, and a note while a
+        DiGiCo App Capture runs. Right: connected phones with the way into
+        the Phone List, the log count with the way into the Logs window,
+        and this machine's network adapters - the address a phone needs
+        is right there. The status line changes
+        length all the time (loading stages, the retry countdown), so it
+        sits where it grows into empty space rather than shoving the
+        counters along with it.
+        """
+        self.info_bar = bar = ttk.Frame(parent, padding=(10, 1))
+        bar.pack(side="bottom", fill="x")
+        # side="bottom" stacks upward, so this lands on top of the bar.
+        self.info_bar_separator = ttk.Separator(parent, orient="horizontal")
+        self.info_bar_separator.pack(side="bottom", fill="x")
+
+        def divider(container, side="left"):
+            ttk.Separator(container, orient="vertical").pack(
+                side=side, fill="y", padx=10, pady=3
+            )
+
+        # Right-hand group first: when the bar is too narrow, pack
+        # squeezes whatever was packed last, and the counters matter more
+        # than the end of a long status line. Packed from the right edge
+        # inward, so in reverse of how it reads.
+        self.nic_label = ttk.Label(bar, text="", anchor="e")
+        self.nic_label.pack(side="right")
+
+        ttk.Label(bar, text="Network:").pack(side="right", padx=(0, 6))
+
+        divider(bar, side="right")
+
+        ttk.Button(
+            bar, text="View Logs", style="InfoBar.Toolbutton",
+            command=self.open_logs_window
+        ).pack(side="right", padx=(6, 0))
+
+        self.logs_count_label = ttk.Label(bar, text="Logs: 0")
+        self.logs_count_label.pack(side="right")
+
+        divider(bar, side="right")
+
+        ttk.Button(
+            bar, text="List", style="InfoBar.Toolbutton",
+            command=self.open_phones_window
+        ).pack(side="right", padx=(6, 0))
+
+        self.phones_count_label = ttk.Label(bar, text="Phones: 0")
+        self.phones_count_label.pack(side="right")
+
+        self.build_connection_status(bar)
+        divider(bar)
+
+        self.snapshot_label = ttk.Label(bar, text="Snapshot: --")
+        self.snapshot_label.pack(side="left")
+
+        # Shown only while a capture runs with CLMix still usable: the
+        # blocking overlay is what says so in the locked mode, and
+        # without it nothing else on this screen would. Its own frame,
+        # so showing it again lands it back in the same place rather
+        # than at the end of the row.
+        capture_slot = ttk.Frame(bar)
+        capture_slot.pack(side="left")
+        self.capture_banner = ttk.Frame(capture_slot)
+        divider(self.capture_banner)
+        ttk.Label(
+            self.capture_banner, text="DiGiCo App Capture running",
+            foreground="#e5a33f"
+        ).pack(side="left")
+
+        self._info_bar_ticks = 0
+        self._tick_info_bar()
+
+    def build_connection_status(self, bar):
+        """Connection light and status line, at the info bar's left end."""
         self.indicator = tk.Canvas(
-            mixer_row, width=16, height=16, highlightthickness=0,
-            bg=panel_bg(top_bar)
+            bar, width=16, height=16, highlightthickness=0,
+            bg=panel_bg(bar)
         )
         self.indicator.pack(side="left")
         self.light = self.indicator.create_oval(2, 2, 14, 14, fill="red")
@@ -3246,31 +3677,43 @@ class MainWindow:
         )
 
         self.status_label = ttk.Label(
-            mixer_row, text="Disconnected", font=("TkDefaultFont", 10, "bold")
+            bar, text="Disconnected", font=("TkDefaultFont", 10, "bold")
         )
         self.status_label.pack(side="left", padx=(6, 0))
 
-        snapshot_row = ttk.Frame(status_frame)
-        snapshot_row.pack(side="top", anchor="w", pady=(4, 0))
-
-        self.snapshot_label = ttk.Label(snapshot_row, text="Snapshot: --")
-        self.snapshot_label.pack(side="left")
-
-        # Shown only while a capture runs with CLMix still usable: the
-        # blocking overlay is what says so in the locked mode, and
-        # without it nothing else on this screen would.
-        self.capture_banner = ttk.Label(
-            snapshot_row, text="", foreground="#e5a33f"
+    def _tick_info_bar(self):
+        self.phones_count_label.config(
+            text=f"Phones: {len(self.connected_phones())}"
         )
+        self.logs_count_label.config(text=f"Logs: {log_store.count():,}")
 
-        ttk.Separator(self.root, orient="horizontal").pack(fill="x")
+        if self._info_bar_ticks % self.INFO_BAR_NIC_EVERY_TICKS == 0:
+            interfaces = list_ipv4_interfaces()
+            self.nic_label.config(
+                text="   \u2022   ".join(label for label, _ in interfaces)
+                if interfaces else "No network adapters"
+            )
 
-        # No padding, and the section's own background: everything below
-        # the control bar's separator is the mixer section, edge to edge,
+        self._info_bar_ticks += 1
+        self.root.after(self.INFO_BAR_TICK_MS, self._tick_info_bar)
+
+    def build_ui(self):
+
+        # First, so it spans the full width beneath the sidebar as well.
+        self.build_info_bar(self.root)
+
+        # Sidebar on the left, the mixer to its right.
+        self.build_sidebar(self.root)
+
+        content = ttk.Frame(self.root)
+        content.pack(side="left", fill="both", expand=True)
+
+        # No padding, and the section's own background: everything right
+        # of the sidebar is the mixer section, edge to edge,
         # with the breathing room coming from channels_frame's own
         # padding inside it instead of a lighter margin around it.
         configure_section_styles(self.root)
-        frame = ttk.Frame(self.root, style="Section.TFrame")
+        frame = ttk.Frame(content, style="Section.TFrame")
         frame.pack(fill="both", expand=True)
 
         self.aux_panel = AuxLevelsPanel(
@@ -3280,61 +3723,299 @@ class MainWindow:
         # After the panel, so it stacks above everything the panel built.
         self._build_digico_overlay(frame)
 
-        self.build_setup_window()
+        # Pages slide in over the mixer - the aux and bank bar included -
+        # and nothing else: the sidebar and the info bar stay put. A
+        # sibling of the mixer section rather than a child, so it covers
+        # the DiGiCo overlay too. Placed only while a page is up.
+        self.page_host = ttk.Frame(content)
+
+        self.build_persistent_pages()
         self._show_digico_overlay(bool(self.settings.get("digico_capture"))
                                   and not self._capture_allows_control())
         self._refresh_capture_banner()
 
-    def build_setup_window(self):
-        """The single Setup window: Config, Accounts and Aux as notebook tabs.
+    def build_persistent_pages(self):
+        """The Settings and Accounts pages.
 
-        Built once at startup and hidden rather than created on demand, so
-        the Config entries below exist before the first connect(). The
-        Accounts and Aux tabs read mixer state, which is not available yet
-        at startup - open_setup_window() refreshes them on the way in, and
-        _on_setup_tab_changed does the same when the operator switches tabs.
+        Built once at startup and kept rather than created on demand, so
+        the Settings entries exist before the first connect(). Accounts and
+        Settings' AUX Setup section read mixer state, which is not
+        available yet at startup - they are refreshed on the way in.
+
+        Every other page is built when opened and destroyed when left,
+        the way each was as a window of its own.
         """
-        self.setup_window = tk.Toplevel(self.root)
-        self.setup_window.title("Setup")
-        # Wide enough for the Config tab's third column (the adapter
-        # dropdowns) without clipping them.
-        self.setup_window.geometry("860x740")
-        self.setup_window.protocol("WM_DELETE_WINDOW", self.close_setup_window)
+        self.settings_page = ttk.Frame(self.page_host)
+        self.accounts_page = ttk.Frame(self.page_host)
 
-        self.setup_notebook = ttk.Notebook(self.setup_window)
-        self.setup_notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        # Settings' sections, one shown at a time - see
+        # _show_settings_section.
+        self.settings_sections = {
+            "General": ttk.Frame(self.settings_page),
+            "AUX Setup": ttk.Frame(self.settings_page),
+        }
 
-        config_tab = ttk.Frame(self.setup_notebook)
-        accounts_tab = ttk.Frame(self.setup_notebook)
-        aux_tab = ttk.Frame(self.setup_notebook)
-
-        self.setup_notebook.add(config_tab, text="Config")
-        self.setup_notebook.add(accounts_tab, text="Accounts")
-        self.setup_notebook.add(aux_tab, text="Aux")
-
-        self.build_config_tab(config_tab)
+        self.build_config_tab(self.settings_sections["General"])
 
         self.access_panel = AccessPanel(
-            accounts_tab, self.user_store, lambda: self.worker,
+            self.accounts_page, self.user_store, lambda: self.worker,
             self.get_hidden_auxes
         )
 
         self.aux_visibility_panel = AuxPanel(
-            aux_tab, self.settings, self.save_settings, lambda: self.worker,
-            on_change=self.aux_panel.refresh_aux_list
+            self.settings_sections["AUX Setup"], self.settings,
+            self.save_settings,
+            lambda: self.worker, on_change=self.aux_panel.refresh_aux_list
         )
 
-        self.setup_notebook.bind(
-            "<<NotebookTabChanged>>", self._on_setup_tab_changed
+        # (title, frame, owner) for the page on screen, or None. owner is
+        # the object behind a built-on-demand page, for its close hooks;
+        # None for the persistent ones above, which are only hidden.
+        self._page = None
+        self._slide_job = None
+
+    # Page slide: total duration, and how many frames it is drawn in.
+    SLIDE_MS = 220
+    SLIDE_STEPS = 14
+
+    # Space above and below a page shown as a card (fill=False).
+    CARD_PAGE_MARGIN = 20
+
+    # What _fit_window_size leaves of the screen's height for the title
+    # bar and a taskbar - the window never opens taller than the rest.
+    SCREEN_HEIGHT_RESERVE = 80
+
+    def _built_pages(self):
+        """The pages built when opened and destroyed when left.
+
+        title -> (build, fill, attribute). build makes the page's owner
+        inside the host it is given; fill is as for _open_page; the owner
+        is kept on self under attribute while it is open, for whatever
+        else needs to reach it (theme changes, a restored backup, the
+        update check). Shared by the openers and _fit_window_size, which
+        builds each one once to measure it.
+        """
+        return {
+            "Presets": (
+                lambda host: PresetsWindow(host, self.preset_store),
+                True, "presets_window"
+            ),
+            "Phone List": (
+                lambda host: PhonesWindow(
+                    host, self.connected_phones,
+                    is_running=lambda: self.remote_server is not None,
+                    on_kick=self.kick_phone,
+                ),
+                True, "phones_window"
+            ),
+            "Logs": (LogsWindow, True, "logs_window"),
+            # Not stretched: it is laid out as a card around its banner.
+            "About": (
+                lambda host: AboutWindow(
+                    host, self.server_details,
+                    initial_result=self.latest_update,
+                    on_result=self._apply_update_result,
+                    get_startup_options=self.startup_options,
+                    set_startup_option=self.set_startup_option,
+                ),
+                False, "about_window"
+            ),
+            "Backup": (
+                lambda host: BackupWindow(
+                    host, self.backup_store, self.user_store,
+                    self.preset_store, self.settings, self.save_settings,
+                    on_restored=self.on_backup_restored
+                ),
+                True, "backup_window"
+            ),
+            "Mixer Backup": (
+                lambda host: ShowBackupWindow(
+                    host, self.settings, self.save_settings,
+                    lambda: self.worker, self.command_queue
+                ),
+                True, "show_backup_window"
+            ),
+            "Copy To": (
+                lambda host: CopyToWindow(
+                    host, lambda: self.worker, self.command_queue
+                ),
+                True, "copy_to_window"
+            ),
+        }
+
+    def _open_built_page(self, title):
+        build, fill, attribute = self._built_pages()[title]
+        page = self._open_page(title, build=build, fill=fill)
+
+        if page is not None:
+            setattr(self, attribute, page)
+
+    def _largest_page_size(self):
+        """The width and height the biggest page asks for.
+
+        Every page is measured, the built-on-demand ones included: each is
+        built into the hidden page host, measured and closed again. Done
+        once, at startup, so the window can open at a size where no page
+        ever needs it to grow.
+        """
+        sizes = []
+
+        # Settings by section: only one is packed at a time, so the page
+        # as a whole would report just whichever that is.
+        for frame in (*self.settings_sections.values(), self.accounts_page):
+            self.root.update_idletasks()
+            sizes.append((frame.winfo_reqwidth(), frame.winfo_reqheight()))
+
+        for build, fill, _attribute in self._built_pages().values():
+            owner = build(self.page_host)
+            self.root.update_idletasks()
+
+            margin = 0 if fill else 2 * self.CARD_PAGE_MARGIN
+            sizes.append((owner.window.winfo_reqwidth(),
+                          owner.window.winfo_reqheight() + margin))
+
+            getattr(owner, "close", owner.window.destroy)()
+
+        return (max(width for width, _ in sizes),
+                max(height for _, height in sizes))
+
+    def _open_page(self, title, frame=None, build=None, fill=True,
+                   sections=()):
+        """Show a page over the mixer, sliding it in from the left.
+
+        Either frame - a persistent page - or build, which makes the
+        owner of a fresh one inside page_host and returns it. A page
+        already open is closed first (and may refuse, see close_page),
+        in which case nothing changes. Returns the owner built, if any.
+        fill=False centres the page at its natural size instead of
+        stretching it over the whole area - for About, which is laid out
+        as a card around its banner. sections, if any, are listed in the
+        sidebar under the title - see _show_page_sections.
+        """
+        if self._slide_job is not None:
+            return None
+
+        sidebar_moves = self._page is None
+
+        if self._page is not None:
+            if self._page[0] == title:
+                return None
+
+            if not self._take_down_page(confirm=True):
+                return None
+
+        owner = None
+
+        if build is not None:
+            owner = build(self.page_host)
+            frame = owner.window
+
+        if fill:
+            frame.pack(fill="both", expand=True)
+        else:
+            frame.pack(anchor="n", pady=self.CARD_PAGE_MARGIN)
+
+        self._page = (title, frame, owner)
+        self.page_title_label.config(text=title)
+        self._show_page_sections(sections)
+
+        self.page_host.lift()
+        self._slide(opening=True, sidebar=sidebar_moves)
+        return owner
+
+    def close_page(self):
+        """Back: slide the page away and the sidebar menu back in.
+
+        A page with work still running gets the chance to refuse first -
+        its confirm_close() asks the operator - and stays exactly as it
+        was if they say no.
+        """
+        if self._page is None or self._slide_job is not None:
+            return
+
+        owner = self._page[2]
+        confirm = getattr(owner, "confirm_close", None)
+
+        if confirm is not None and not confirm():
+            return
+
+        self._slide(
+            opening=False, sidebar=True,
+            on_done=lambda: self._take_down_page(confirm=False)
         )
 
-        self.setup_window.withdraw()
+    def _take_down_page(self, confirm):
+        """Remove the current page from page_host. False if it refused."""
+        title, frame, owner = self._page
+
+        if owner is None:
+            frame.pack_forget()
+        else:
+            if confirm and not getattr(owner, "confirm_close", lambda: True)():
+                return False
+
+            # close() where the page has one - it cancels its own after()
+            # jobs, which would otherwise fire against a destroyed widget.
+            getattr(owner, "close", frame.destroy)()
+
+        self._page = None
+        return True
+
+    def _slide(self, opening, sidebar, on_done=None):
+        """Animate the page in or out, and the sidebar's panels with it.
+
+        Eased out, so the movement starts quick and settles rather than
+        stopping dead. Drawn with place() offsets on every step: the
+        page's own layout is never redone mid-slide, only moved.
+        """
+        self.tab_gap.place_forget()
+
+        def step(index):
+            t = index / self.SLIDE_STEPS
+            eased = 1 - (1 - t) ** 3
+            # 1 means the page fully on screen.
+            shown = eased if opening else 1 - eased
+
+            width = self.page_host.master.winfo_width()
+            self.page_host.place(
+                x=-round(width * (1 - shown)), y=0, relwidth=1, relheight=1
+            )
+
+            if sidebar:
+                self._place_sidebar_panels(shown)
+
+            if index < self.SLIDE_STEPS:
+                self._slide_job = self.root.after(
+                    self.SLIDE_MS // self.SLIDE_STEPS, step, index + 1
+                )
+                return
+
+            self._slide_job = None
+
+            if not opening:
+                self.page_host.place_forget()
+            else:
+                self._place_tab_gap()
+
+            if on_done is not None:
+                on_done()
+
+        step(0)
+
+    def _place_sidebar_panels(self, shown):
+        """Menu sliding out to the left as the Back panel follows it in
+        from the right - shown is 0 for the menu alone, 1 for Back."""
+        offset = round(self.SIDEBAR_WIDTH * shown)
+        self.sidebar_menu.place(x=-offset, y=0, relwidth=1, relheight=1)
+        self.sidebar_back.place(
+            x=self.SIDEBAR_WIDTH - offset, y=0, relwidth=1, relheight=1
+        )
 
     def build_config_tab(self, parent):
         frame = ttk.Frame(parent, padding=15)
         frame.pack(fill="x")
 
-        port_vcmd = (self.setup_window.register(self._validate_port_input), "%P")
+        port_vcmd = (parent.register(self._validate_port_input), "%P")
 
         ttk.Label(frame, text="Mixer IP Address").grid(
             row=0, column=0, sticky="w"
@@ -3674,33 +4355,31 @@ class MainWindow:
         # say so plainly rather than binding to nothing.
         return label.split(" ", 1)[0]
 
-    def open_setup_window(self):
-        self.refresh_setup_tabs()
-        self.setup_window.deiconify()
-        self.setup_window.lift()
+    def open_settings_window(self):
+        self._open_page(
+            "Settings", frame=self.settings_page,
+            sections=[(name, self._show_settings_section)
+                      for name in self.settings_sections]
+        )
 
-    def close_setup_window(self):
-        self.setup_window.withdraw()
-
-    def _on_setup_tab_changed(self, event=None):
-        # Only worth refreshing what is actually on screen; the window
-        # stays alive in the background between openings, so without this
-        # a tab built while disconnected would keep showing stale content.
-        if self.setup_window.winfo_viewable():
-            self.refresh_setup_tabs()
-
-    def refresh_setup_tabs(self):
-        """Re-sync the Accounts and Aux tabs with the current mixer state.
-
-        The Aux tab has to be rebuilt outright rather than refreshed: its
-        rows are laid out from the aux list and colored with values read at
-        build time, so there is nothing to update in place.
-        """
-        if self.access_panel is not None:
-            self.access_panel.refresh_list()
-
-        if self.aux_visibility_panel is not None:
+    def _show_settings_section(self, name):
+        if name == "AUX Setup":
+            # Rebuilt outright rather than refreshed: its rows are laid
+            # out from the aux list and colored with values read at build
+            # time, so there is nothing to update in place.
             self.aux_visibility_panel.rebuild()
+
+        for section_name, frame in self.settings_sections.items():
+            if section_name == name:
+                frame.pack(fill="both", expand=True)
+            else:
+                frame.pack_forget()
+
+        self._mark_section(name)
+
+    def open_accounts_window(self):
+        self.access_panel.refresh_list()
+        self._open_page("Accounts", frame=self.accounts_page)
 
     def _validate_port_input(self, proposed):
         # Caps keystroke entry at 5 digits (max valid port is 65535) -
@@ -3810,6 +4489,10 @@ class MainWindow:
     def _recolor_widgets(self):
         bg = panel_bg(self.root)
         self.root.configure(bg=bg)
+        self._configure_sidebar_styles()
+
+        if getattr(self, "sections_canvas", None) is not None:
+            self._draw_sections()
 
         if getattr(self, "indicator", None) is not None:
             self.indicator.configure(bg=bg)
@@ -3844,8 +4527,12 @@ class MainWindow:
                 or self._status_phase in self.BUSY_PHASES)
 
     def _update_connect_button(self):
+        active = self._session_active()
+        # Accent only while it offers to connect - the one action the
+        # sidebar is there to invite. Disconnect shouldn't shout.
         self.connect_btn.config(
-            text="Disconnect" if self._session_active() else "Connect"
+            text="Disconnect" if active else "Connect",
+            style="TButton" if active else "Accent.TButton"
         )
 
     def _status_text_and_color(self):
@@ -4074,25 +4761,9 @@ class MainWindow:
         self.connect()
 
     def open_presets_window(self):
-
-        if self.presets_window and self.presets_window.window.winfo_exists():
-            self.presets_window.window.lift()
-            return
-
-        self.presets_window = PresetsWindow(self.root, self.preset_store)
-
+        self._open_built_page("Presets")
     def open_phones_window(self):
-
-        if self.phones_window and self.phones_window.window.winfo_exists():
-            self.phones_window.window.lift()
-            return
-
-        self.phones_window = PhonesWindow(
-            self.root, self.connected_phones,
-            is_running=lambda: self.remote_server is not None,
-            on_kick=self.kick_phone,
-        )
-
+        self._open_built_page("Phone List")
     def connected_phones(self):
         """Rows for the Phone List window, or nothing if no server is up.
 
@@ -4113,28 +4784,9 @@ class MainWindow:
         return self.remote_server.kick_client(client_id)
 
     def open_logs_window(self):
-
-        if self.logs_window and self.logs_window.window.winfo_exists():
-            self.logs_window.window.lift()
-            return
-
-        self.logs_window = LogsWindow(self.root)
-
+        self._open_built_page("Logs")
     def open_about_window(self):
-
-        if self.about_window and self.about_window.window.winfo_exists():
-            self.about_window.refresh()
-            self.about_window.window.lift()
-            return
-
-        self.about_window = AboutWindow(
-            self.root, self.server_details,
-            initial_result=self.latest_update,
-            on_result=self._apply_update_result,
-            get_startup_options=self.startup_options,
-            set_startup_option=self.set_startup_option,
-        )
-
+        self._open_built_page("About")
     def _start_update_check(self):
         """Asks GitHub once, a few seconds after launch, whether there's a
         newer release - and does nothing else with the answer but note it.
@@ -4154,8 +4806,9 @@ class MainWindow:
         if result["error"]:
             log("debug", f"Update check failed: {result['error']}")
 
-        label = "About  •  update available" if result["available"] else "About"
-        self.help_menu.entryconfigure(self.about_menu_index, label=label)
+        self.about_button.configure(
+            text=self.ABOUT_UPDATE_LABEL if result["available"] else "About"
+        )
 
         # The About window may already be open and showing an empty status
         # line when this lands - it is opened on demand, not after the
@@ -4234,36 +4887,11 @@ class MainWindow:
         self.connect()
 
     def open_backup_window(self):
-
-        if self.backup_window and self.backup_window.window.winfo_exists():
-            self.backup_window.window.lift()
-            return
-
-        self.backup_window = BackupWindow(
-            self.root, self.backup_store, self.user_store, self.preset_store,
-            self.settings, self.save_settings, on_restored=self.on_backup_restored
-        )
-
+        self._open_built_page("Backup")
     def open_show_backup_window(self):
-        if self.show_backup_window and \
-                self.show_backup_window.window.winfo_exists():
-            self.show_backup_window.window.lift()
-            return
-
-        self.show_backup_window = ShowBackupWindow(
-            self.root, self.settings, self.save_settings,
-            lambda: self.worker, self.command_queue
-        )
-
+        self._open_built_page("Mixer Backup")
     def open_copy_to_window(self):
-        if self.copy_to_window and self.copy_to_window.window.winfo_exists():
-            self.copy_to_window.window.lift()
-            return
-
-        self.copy_to_window = CopyToWindow(
-            self.root, lambda: self.worker, self.command_queue
-        )
-
+        self._open_built_page("Copy To")
     def on_backup_restored(self, keys):
         if "settings" in keys:
             self.reload_settings()
@@ -4281,6 +4909,8 @@ class MainWindow:
         # replacing self.settings outright would leave the Aux tab mutating
         # a now-orphaned dict that save_settings() no longer serializes.
         fresh = self.load_settings()
+        capture_before = (bool(self.settings.get("digico_capture")),
+                          bool(self.settings.get("digico_capture_control")))
         self.settings.clear()
         self.settings.update(fresh)
 
@@ -4302,12 +4932,28 @@ class MainWindow:
         self.remote_nic_combo.set("")
         self._refresh_nic_choices()
 
-        self.theme_var.set(self.settings["theme"])
+        self.dark_mode_var.set(self.settings["theme"] == "dark")
         self.apply_theme(self.settings["theme"], persist=False)
 
         # The Aux tab picks up the restored hidden_auxes via the rebuild
         # apply_theme() above already performs.
         self.aux_panel.refresh_aux_list()
+
+        # Otherwise the Backup page goes on listing - and writing new
+        # backups to - the old folder until the next launch, while the
+        # restored settings already name the new one.
+        self.backup_store.set_backups_dir(self.settings.get("backup_dir"))
+
+        # The two capture switches, and the mode they put CLMix in -
+        # re-applied only if the restore actually changed them, since
+        # re-entering the mode replaces a running capture with a fresh one.
+        capture = bool(self.settings.get("digico_capture"))
+        control = bool(self.settings.get("digico_capture_control"))
+        self.capture_control_var.set(control)
+
+        if (capture, control) != capture_before:
+            self._stop_capture()
+            self._set_digico_mode(capture)
 
     def _on_capture_toggled(self):
         self._set_digico_mode(self.capture_var.get())
@@ -4518,11 +5164,8 @@ class MainWindow:
                 f"{bridge.packets_to_app} to it. Recording to {file_name}.")
 
     def _refresh_capture_banner(self):
-        """Show or hide the control-bar note about a running capture."""
+        """Show or hide the info bar's note about a running capture."""
         if self.settings.get("digico_capture") and self._capture_allows_control():
-            self.capture_banner.config(
-                text="   DiGiCo App Capture running"
-            )
             self.capture_banner.pack(side="left")
         else:
             self.capture_banner.pack_forget()
@@ -4546,7 +5189,7 @@ class MainWindow:
 
             elif msg_type == "snapshot":
                 number, name = value
-                self.snapshot_label.config(text=f"Snapshot: {name or f'#{number}'}")
+                self._set_snapshot_text(f"Snapshot: {name or f'#{number}'}")
 
             elif msg_type == "message":
                 log("debug", value)
@@ -4593,7 +5236,7 @@ class MainWindow:
             # specific cause the operator actually needs to see.
             if self._failure_reason is None:
                 self._failure_reason = self._failure_notice(value)
-            self.snapshot_label.config(text="Snapshot: --")
+            self._set_snapshot_text("Snapshot: --")
             self.aux_panel.on_mixer_disconnected()
             self._stop_capture()
 

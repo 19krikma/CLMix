@@ -66,11 +66,10 @@ class CopyToWindow:
         self._groups_ticked = set(DEFAULT_GROUPS)
         self._all_groups = False
 
-        self.window = tk.Toplevel(master)
-        self.window.title("Copy To")
-        self.window.geometry("1000x700")
-        self.window.minsize(860, 600)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        # A page inside the main window, not a window of its own -
+        # MainWindow packs this frame into its page area, asks
+        # confirm_close() when the operator leaves it, and then close().
+        self.window = ttk.Frame(master)
 
         self.build_ui()
         self.refresh(ask_console=True)
@@ -527,9 +526,6 @@ class CopyToWindow:
                 style="Accent.TButton" if choice == "Continue" else "TButton"
             ).pack(side="left", padx=(8, 0))
 
-        # A prompt is the job waiting on the operator - make sure they see it.
-        self.window.deiconify()
-        self.window.lift()
 
     def _set_notes(self, text):
         self.notes.configure(state="normal")
@@ -546,16 +542,22 @@ class CopyToWindow:
 
     # --------------------------------------------------------------- close
 
-    def close(self):
+    def confirm_close(self):
+        """Whether the page may be left, cancelling a running job if the
+        operator agrees to. Asked before the page slides away, so a "no"
+        leaves it on screen exactly as it was."""
         if self.job is not None and not self.job.finished:
             if not messagebox.askyesno(
                 "Copy To",
                 "A copy is still running. Stop it and close?",
                 icon="warning", parent=self.window
             ):
-                return
+                return False
             self.job.cancel()
 
+        return True
+
+    def close(self):
         for job in (self._poll_job, self._names_job):
             if job is not None:
                 self.window.after_cancel(job)

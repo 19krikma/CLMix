@@ -5,27 +5,24 @@ from tkinter import filedialog, messagebox, ttk
 from services.backup_store import BackupStore
 from ui.logs_window import open_folder
 
-CHECK_MARK = "✓"
-
-# Only the path column stretches - everything else is fixed-width, so
-# shrinking the window eats into the path column instead of a checkmark
-# column.
+# Only the path column stretches - the date is fixed-width, so a narrow
+# page eats into the path rather than cutting the date short.
 PATH_COLUMN_MIN_WIDTH = 150
 DATETIME_COLUMN_WIDTH = 190
-SOURCE_COLUMN_WIDTH = 70
 
-# Padding/border/scrollbar allowance beyond the columns' own widths, so
-# the window opens exactly wide enough to show every column in full.
-WINDOW_CHROME_MARGIN = 60
 
 
 class BackupWindow:
-    """Lets the operator choose which settings to snapshot, capture one,
-    and see what's already been captured, restore from one, or remove
-    one - mirroring PresetsWindow's relationship to PresetStore.
-    """
+    """Lets the operator capture a backup of everything CLMix keeps -
+    accounts, presets and settings, always all three - and see what's
+    already been captured, restore from one, or remove one - mirroring
+    PresetsWindow's relationship to PresetStore.
 
-    SOURCE_KEYS = list(BackupStore.SOURCES)
+    The list shows only where and when: every backup holds everything.
+    The odd older one, made when the three could be chosen one by one,
+    may hold only some - restore writes back only what a backup contains,
+    and its confirmation names exactly what that is.
+    """
 
     def __init__(self, master, backup_store, user_store, preset_store,
                  settings, save_settings, on_restored=None):
@@ -36,20 +33,10 @@ class BackupWindow:
         self.save_settings = save_settings
         self.on_restored = on_restored
 
-        self.window = tk.Toplevel(master)
-        self.window.title("CLMix Backup")
+        # A page inside the main window, not a window of its own -
+        # MainWindow packs this frame into its page area.
+        self.window = ttk.Frame(master)
 
-        min_width = (
-            PATH_COLUMN_MIN_WIDTH + DATETIME_COLUMN_WIDTH +
-            len(self.SOURCE_KEYS) * SOURCE_COLUMN_WIDTH +
-            WINDOW_CHROME_MARGIN
-        )
-        self.window.minsize(min_width, 300)
-        self.window.geometry(f"{min_width}x400")
-
-        self.include_vars = {
-            key: tk.BooleanVar(value=True) for key in self.SOURCE_KEYS
-        }
         self._path_entry = None
 
         self.build_ui()
@@ -59,20 +46,8 @@ class BackupWindow:
         top_bar = ttk.Frame(self.window, padding=10)
         top_bar.pack(fill="x")
 
-        checks_row = ttk.Frame(top_bar)
-        checks_row.pack(anchor="w", pady=(8, 0))
-
-        ttk.Label(checks_row, text="Include:").pack(side="left", padx=(0, 8))
-
-        for key in self.SOURCE_KEYS:
-            ttk.Checkbutton(
-                checks_row,
-                text=BackupStore.LABELS[key],
-                variable=self.include_vars[key]
-            ).pack(side="left", padx=(0, 10))
-
         dir_row = ttk.Frame(top_bar)
-        dir_row.pack(anchor="w", pady=(8, 0))
+        dir_row.pack(fill="x")
 
         ttk.Button(
             dir_row, text="Change", command=self.change_backup_dir
@@ -82,8 +57,15 @@ class BackupWindow:
             dir_row, text="Open Folder", command=self.open_backup_dir
         ).pack(side="left", padx=(6, 0))
 
-        self.backup_dir_label = ttk.Label(dir_row, text="", foreground="#888888")
-        self.backup_dir_label.pack(side="left", padx=(10, 0))
+        # width=1: the path takes whatever room the row has left and is
+        # cut off past it, rather than asking for its full length - a long
+        # folder would otherwise widen the page, and the main window is
+        # sized to its widest page.
+        self.backup_dir_label = ttk.Label(
+            dir_row, text="", foreground="#888888", width=1
+        )
+        self.backup_dir_label.pack(side="left", fill="x", expand=True,
+                                   padx=(10, 0))
 
         list_header = ttk.Frame(self.window, padding=(10, 0))
         list_header.pack(fill="x")
@@ -105,7 +87,7 @@ class BackupWindow:
         )
         self.restore_btn.pack(side="right", padx=(0, 6))
 
-        columns = ("path", "datetime", *self.SOURCE_KEYS)
+        columns = ("path", "datetime")
         self.tree = ttk.Treeview(
             self.window, columns=columns, show="headings", height=10
         )
@@ -115,10 +97,6 @@ class BackupWindow:
         self.tree.heading("datetime", text="Date and Time")
         self.tree.column("datetime", width=DATETIME_COLUMN_WIDTH, stretch=False)
 
-        for key in self.SOURCE_KEYS:
-            self.tree.heading(key, text=BackupStore.LABELS[key])
-            self.tree.column(key, width=SOURCE_COLUMN_WIDTH, anchor="center", stretch=False)
-
         self.tree.pack(fill="both", expand=True, padx=10, pady=(4, 10))
 
         self.tree.bind("<Button-1>", self._on_tree_click)
@@ -126,16 +104,7 @@ class BackupWindow:
         self.tree.bind("<<TreeviewSelect>>", lambda event: self._update_action_buttons())
 
     def backup_now(self):
-        include = [key for key in self.SOURCE_KEYS if self.include_vars[key].get()]
-
-        if not include:
-            messagebox.showwarning(
-                "Nothing selected", "Choose at least one setting to back up.",
-                parent=self.window
-            )
-            return
-
-        self.backup_store.backup_now(include=include)
+        self.backup_store.backup_now()
         self.refresh_list()
 
     def change_backup_dir(self):
@@ -168,13 +137,9 @@ class BackupWindow:
         backups = self.backup_store.list_backups()
 
         for backup in backups:
-            marks = [
-                CHECK_MARK if key in backup.included else ""
-                for key in self.SOURCE_KEYS
-            ]
             self.tree.insert(
                 "", "end", iid=str(backup.path),
-                values=(str(backup.path), self._format(backup.created_at), *marks)
+                values=(str(backup.path), self._format(backup.created_at))
             )
 
         self.last_backup_label.config(
@@ -298,6 +263,9 @@ class BackupWindow:
 
         if self.on_restored:
             self.on_restored(restored)
+
+        # Restored settings can name a different backup folder.
+        self.refresh_list()
 
         restored_names = ", ".join(sorted(BackupStore.LABELS[key] for key in restored))
         messagebox.showinfo(

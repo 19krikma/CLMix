@@ -22,9 +22,9 @@ class BackupStore:
     the home directory into one timestamped file under BACKUPS_DIR, so
     an operator can capture known-good state (e.g. before updating the
     app) without needing to know where those files live or hand-copy
-    them individually. Which of the three are captured is selectable
-    per backup (see backup_now's include argument) rather than always
-    all-or-nothing.
+    them individually. Every backup captures all three. Older backups,
+    made when the three could be chosen one by one, may hold only some -
+    each records which in "included", and restore writes back only those.
     """
 
     SOURCES = {
@@ -64,8 +64,8 @@ class BackupStore:
             self.DEFAULT_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
             return self.DEFAULT_BACKUPS_DIR
 
-    def backup_now(self, include=None):
-        include = list(self.SOURCES) if include is None else list(include)
+    def backup_now(self):
+        include = list(self.SOURCES)
 
         directory = self.resolve_dir()
 

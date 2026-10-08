@@ -342,9 +342,9 @@ class AboutWindow:
         self.latest_result = initial_result
         self.on_result = on_result
 
-        self.window = tk.Toplevel(master)
-        self.window.title("About CLMix")
-        self.window.resizable(False, False)
+        # A page inside the main window, not a window of its own -
+        # MainWindow packs this frame into its page area.
+        self.window = ttk.Frame(master)
 
         self.banner_image = None
         self.link_labels = []

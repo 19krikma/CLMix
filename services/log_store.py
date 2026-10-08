@@ -165,6 +165,12 @@ class LogStore:
         with self._lock:
             return list(self._entries)
 
+    def count(self):
+        # For the main window's info bar, which polls every second - far
+        # cheaper than len(snapshot()), which copies up to MAX_ENTRIES.
+        with self._lock:
+            return len(self._entries)
+
     def clear(self):
         with self._lock:
             self._entries.clear()
