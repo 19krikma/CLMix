@@ -24,7 +24,7 @@ from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log, log_store
-from services.network_info import list_ipv4_interfaces
+from services.network_info import list_ipv4_interfaces, source_ip_for
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
 
@@ -1652,17 +1652,28 @@ class RoundButton:
 
     def configure(self, text=None, bg=None, fg=None, outer_bg=None,
                   activebackground=None, activeforeground=None, **_ignored):
-        if text is not None:
+        # AuxLevelsPanel re-applies every mute's colors several times a
+        # second whether or not they moved, and a redraw rebuilds the
+        # canvas from scratch - so an unchanged configure does nothing.
+        changed = False
+
+        if text is not None and text != self._text:
             self._text = text
-        if bg is not None:
+            changed = True
+        if bg is not None and bg != self._bg:
             self._bg = bg
-        if fg is not None:
+            changed = True
+        if fg is not None and fg != self._fg:
             self._fg = fg
-        if outer_bg is not None:
+            changed = True
+        if outer_bg is not None and outer_bg != self.canvas.cget("bg"):
             # What shows through outside the rounded shape - the strip's
             # own background, which changes with the theme.
             self.canvas.configure(bg=outer_bg)
-        self._redraw()
+            changed = True
+
+        if changed:
+            self._redraw()
 
     config = configure
 
@@ -1942,6 +1953,7 @@ class AuxLevelsPanel:
         self.meter_slices = {}
         self.meter_leg_spans = {}
         self.meter_peak_items = {}
+        self.meter_peak_drawn = {}
         self.meter_lit = {}
         self.meter_shown = {}
         self.meter_target = {}
@@ -2265,6 +2277,7 @@ class AuxLevelsPanel:
         self.meter_slices = {}
         self.meter_leg_spans = {}
         self.meter_peak_items = {}
+        self.meter_peak_drawn = {}
         self.meter_lit = {}
         self.meter_shown = {}
         self.meter_target = {}
@@ -2373,6 +2386,7 @@ class AuxLevelsPanel:
         self.meter_slices = {}
         self.meter_leg_spans = {}
         self.meter_peak_items = {}
+        self.meter_peak_drawn = {}
         self.meter_lit = {}
         self.meter_shown = {}
         self.meter_target = {}
@@ -2714,6 +2728,7 @@ class AuxLevelsPanel:
                 x0, 0, x1, 0,
                 fill=self.METER_PEAK_COLOR, state="hidden"
             )
+            self.meter_peak_drawn[(channel, leg)] = None
 
     def _apply_meter(self, channel, leg, level_db, peak_db):
         meter = self.channel_meters.get(channel)
@@ -2744,13 +2759,27 @@ class AuxLevelsPanel:
 
         if peak_item is not None:
             if peak_db is None or peak_db <= self.METER_FLOOR_DB:
-                meter.itemconfig(peak_item, state="hidden")
+                drawn = None
             else:
-                x0, x1 = self.meter_leg_spans[(channel, leg)]
-                y = self.level_length - self._meter_fraction(peak_db) \
-                    * self.level_length
-                meter.coords(peak_item, x0, y, x1, y)
-                meter.itemconfig(peak_item, state="normal")
+                # Whole pixels, so a peak drifting by a fraction of one
+                # does not count as a change.
+                drawn = round(self.level_length - self._meter_fraction(peak_db)
+                              * self.level_length)
+
+            # Touched only when the line actually moves: any coords or
+            # itemconfig call, even a no-op one, makes Tk repaint that
+            # canvas, and this runs for every leg about 30 times a second
+            # - with nothing changed that kept every meter repainting,
+            # which on Windows is what made the whole window lag.
+            if drawn != self.meter_peak_drawn.get((channel, leg), "unset"):
+                self.meter_peak_drawn[(channel, leg)] = drawn
+
+                if drawn is None:
+                    meter.itemconfig(peak_item, state="hidden")
+                else:
+                    x0, x1 = self.meter_leg_spans[(channel, leg)]
+                    meter.coords(peak_item, x0, drawn, x1, drawn)
+                    meter.itemconfig(peak_item, state="normal")
 
     def refresh_meters(self):
         now = time.monotonic()
@@ -3572,13 +3601,89 @@ class MainWindow:
         # Re-run on every theme change: each sv_ttk theme is its own ttk
         # theme, and a style configured under one doesn't carry over.
         style = ttk.Style()
+        self._use_flat_toolbutton(style, "Sidebar.Toolbutton")
+        self._use_flat_toolbutton(style, "InfoBar.Toolbutton")
         style.configure("Sidebar.Toolbutton", anchor="w", padding=(10, 3))
         # Squeezed so the info bar stays a single text line tall.
         style.configure("InfoBar.Toolbutton", padding=(6, 0))
 
+    # Bigger than any toolbutton gets, so the blank rest image is never
+    # tiled - see _use_flat_toolbutton.
+    FLAT_TOOLBUTTON_BLANK_SIZE = (600, 120)
+
+    def _use_flat_toolbutton(self, style, name):
+        """Point a Toolbutton style at a cheap-to-draw copy of its frame.
+
+        sv_ttk draws a Toolbutton at rest with a 10x10 transparent sprite
+        and a 4px border, so ttk tiles its 2x2 middle across the whole
+        button - over a thousand alpha-blended image draws per button on
+        every repaint. The sidebar's seven made each frame of the page
+        slide cost ~100ms, which is the lag opening any page. This copy
+        is identical in every other state (hover, pressed, focus all keep
+        sv_ttk's own sprites, which tile only a few times), but rests on
+        one blank image large enough never to tile. A blank photo has no
+        visible pixels, so Tk draws nothing for it at all.
+        """
+        theme = style.theme_use()
+        element = "Flat.Toolbutton.button"
+
+        if element not in style.element_names():
+            # The theme is "sun-valley-dark", but sv_ttk keeps its sprites
+            # under the namespace ttk::theme::sv_dark.
+            sprites = f"ttk::theme::sv_{theme.rsplit('-', 1)[-1]}::I"
+
+            if not self.root.tk.call("array", "exists", sprites):
+                return  # Not an sv_ttk theme - leave the stock look alone.
+
+            if not hasattr(self, "_flat_toolbutton_blank"):
+                width, height = self.FLAT_TOOLBUTTON_BLANK_SIZE
+                self._flat_toolbutton_blank = tk.PhotoImage(
+                    master=self.root, width=width, height=height
+                )
+
+            def sprite(key):
+                return self.root.tk.call("set", f"{sprites}({key})")
+
+            # Reaches into sv_ttk's own sprite names - written against
+            # 2.6.1, which requirements.txt pins. Should a later release
+            # rename one, the buttons keep sv_ttk's stock - slower - look
+            # rather than the app failing to start.
+            try:
+                # An image element asks for its image's size, so without
+                # this the blank would make every button 600x120. Pinned
+                # to the size of the sprites it stands in for instead.
+                hover = sprite("button-hover")
+                natural = (self.root.tk.call("image", "width", hover),
+                           self.root.tk.call("image", "height", hover))
+
+                # The same state map as sv_ttk's own Toolbutton.button.
+                self.root.tk.call(
+                    "ttk::style", "element", "create", element, "image", [
+                        self._flat_toolbutton_blank,
+                        "disabled", sprite("button-dis"),
+                        "pressed", sprite("button-pressed"),
+                        "active focus", sprite("button-focus-hover"),
+                        "active", sprite("button-hover"),
+                        "focus", sprite("button-focus"),
+                    ], "-border", 4, "-sticky", "nsew",
+                    "-width", natural[0], "-height", natural[1]
+                )
+            except tk.TclError as ex:
+                log("warning", f"Sidebar buttons left on sv_ttk's own look: {ex}")
+                return
+
+        style.layout(name, [
+            (element, {"sticky": "nsew", "children": [
+                ("Toolbutton.padding", {"sticky": "nsew", "children": [
+                    ("Toolbutton.label", {"side": "left", "expand": 1}),
+                ]}),
+            ]}),
+        ])
+
     # How often the info bar's phone and log counts repaint, and how often
-    # its adapter list is re-read. Adapters change rarely and enumerating
-    # them asks the OS, so they get the slower of the two.
+    # the mixer's route is re-checked. Routes change rarely and asking
+    # opens a socket, so that gets the slower of the two - the adapter
+    # line still repaints at once after a connect or disconnect.
     INFO_BAR_TICK_MS = 1000
     INFO_BAR_NIC_EVERY_TICKS = 5
 
@@ -3588,7 +3693,8 @@ class MainWindow:
         Left: connection status, the current snapshot, and a note while a
         DiGiCo App Capture runs. Right: connected phones with the way into
         the Phone List, the log count with the way into the Logs window,
-        and this machine's network adapters - the address a phone needs
+        and the adapters actually in use - which one talks to the DiGiCo
+        and which one the phones come in on, so the address a phone needs
         is right there. The status line changes
         length all the time (loading stages, the retry countdown), so it
         sits where it grows into empty space rather than shoving the
@@ -3611,8 +3717,6 @@ class MainWindow:
         # inward, so in reverse of how it reads.
         self.nic_label = ttk.Label(bar, text="", anchor="e")
         self.nic_label.pack(side="right")
-
-        ttk.Label(bar, text="Network:").pack(side="right", padx=(0, 6))
 
         divider(bar, side="right")
 
@@ -3655,6 +3759,8 @@ class MainWindow:
         ).pack(side="left")
 
         self._info_bar_ticks = 0
+        self._info_bar_nics_shown = None
+        self._mixer_route_cache = None
         self._tick_info_bar()
 
     def build_connection_status(self, bar):
@@ -3686,16 +3792,70 @@ class MainWindow:
             text=f"Phones: {len(self.connected_phones())}"
         )
         self.logs_count_label.config(text=f"Logs: {log_store.count():,}")
+        log_store.flush()
 
-        if self._info_bar_ticks % self.INFO_BAR_NIC_EVERY_TICKS == 0:
-            interfaces = list_ipv4_interfaces()
-            self.nic_label.config(
-                text="   \u2022   ".join(label for label, _ in interfaces)
-                if interfaces else "No network adapters"
-            )
+        # Repainted only when an address changes: the mixer or server
+        # comes or goes, or a phone joins on another adapter.
+        in_use = self._adapters_in_use()
+
+        if in_use != self._info_bar_nics_shown:
+            self._info_bar_nics_shown = in_use
+            self.nic_label.config(text=self._nic_summary(in_use))
 
         self._info_bar_ticks += 1
         self.root.after(self.INFO_BAR_TICK_MS, self._tick_info_bar)
+
+    def _adapters_in_use(self):
+        """(mixer ip, phone ips) the running connection is actually using.
+
+        The mixer's is its chosen adapter, or on Automatic whichever card
+        the routing table sends to the console by. The phones' is the
+        server's chosen adapter, or on Automatic - where it listens on
+        every card - the ones phones are connected in on, empty while
+        none are. None for whichever side is not running.
+        """
+        mixer = None
+        worker = self.worker
+
+        if worker is not None and worker.is_alive():
+            mixer = worker.bind_ip or self._mixer_route_ip(worker.mixer_ip)
+
+        phones = None
+        server = self.remote_server
+
+        if server is not None:
+            phones = (server.bind_ip,) if server.bind_ip else \
+                tuple(sorted(server.local_addresses()))
+
+        return mixer, phones
+
+    def _mixer_route_ip(self, mixer_ip):
+        # Cached per console address and refreshed on the slow tick: it
+        # only changes with the routing table, and asking opens a socket.
+        cached = self._mixer_route_cache
+
+        if cached is None or cached[0] != mixer_ip or \
+                self._info_bar_ticks % self.INFO_BAR_NIC_EVERY_TICKS == 0:
+            cached = self._mixer_route_cache = (mixer_ip, source_ip_for(mixer_ip))
+
+        return cached[1]
+
+    def _nic_summary(self, in_use):
+        mixer, phones = in_use
+
+        if mixer is None:
+            mixer_text = "not connected"
+        else:
+            mixer_text = mixer or "no route"
+
+        if phones is None:
+            phones_text = "server off"
+        elif phones:
+            phones_text = ", ".join(phones)
+        else:
+            phones_text = "all adapters"
+
+        return f"DiGiCo: {mixer_text}   \u2022   Phones: {phones_text}"
 
     def build_ui(self):
 
@@ -3774,7 +3934,11 @@ class MainWindow:
         self._page = None
         self._slide_job = None
 
-    # Page slide: total duration, and how many frames it is drawn in.
+    # Page slide: total duration, and how many frames it aims to draw.
+    # Paced by the clock, not by counting frames: each frame repaints
+    # every widget it uncovers, which can take longer than the frame
+    # interval, and counting 14 such frames stretched a 220ms slide past
+    # half a second. Now a slow machine just draws fewer frames.
     SLIDE_MS = 220
     SLIDE_STEPS = 14
 
@@ -3969,9 +4133,10 @@ class MainWindow:
         page's own layout is never redone mid-slide, only moved.
         """
         self.tab_gap.place_forget()
+        started = time.monotonic()
 
-        def step(index):
-            t = index / self.SLIDE_STEPS
+        def step():
+            t = min(1.0, (time.monotonic() - started) * 1000 / self.SLIDE_MS)
             eased = 1 - (1 - t) ** 3
             # 1 means the page fully on screen.
             shown = eased if opening else 1 - eased
@@ -3984,9 +4149,9 @@ class MainWindow:
             if sidebar:
                 self._place_sidebar_panels(shown)
 
-            if index < self.SLIDE_STEPS:
+            if t < 1.0:
                 self._slide_job = self.root.after(
-                    self.SLIDE_MS // self.SLIDE_STEPS, step, index + 1
+                    self.SLIDE_MS // self.SLIDE_STEPS, step
                 )
                 return
 
@@ -4000,7 +4165,7 @@ class MainWindow:
             if on_done is not None:
                 on_done()
 
-        step(0)
+        step()
 
     def _place_sidebar_panels(self, shown):
         """Menu sliding out to the left as the Back panel follows it in

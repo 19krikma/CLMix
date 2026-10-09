@@ -182,6 +182,24 @@ class RemoteServer:
         """How many phones are connected to this server right now."""
         return len(self._clients)
 
+    def local_addresses(self):
+        """The local addresses phones are connected in on right now.
+
+        With bind_ip set that can only be bind_ip; on Automatic the server
+        listens on every adapter, and this is how the info bar tells which
+        of them are actually carrying phones. Called from the Tkinter
+        thread, so the dict is copied first, as in client_list().
+        """
+        addresses = set()
+
+        for websocket in list(self._clients):
+            address = getattr(websocket, "local_address", None)
+
+            if address:
+                addresses.add(address[0])
+
+        return addresses
+
     def client_list(self):
         """One row per connected phone, for the Phone List window.
 

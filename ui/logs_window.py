@@ -36,6 +36,7 @@ class LogsWindow:
         self.search_var = tk.StringVar(value="")
         self._last_seq_rendered = 0
         self.refresh_job = None
+        self._labels_shown = None
         self._search_job = None
 
         self.build_ui()
@@ -131,17 +132,23 @@ class LogsWindow:
         self.render_full()
 
     def refresh(self):
-        entries = log_store.snapshot()
+        entries = log_store.entries_since(self._last_seq_rendered)
 
-        if entries and entries[-1][0] != self._last_seq_rendered:
+        if entries:
             self._append_new(entries)
 
-        self.file_label.config(text=f"Log file: {log_store.current_log_path()}")
-
+        # Set only on change: a ttk label re-laid-out twice a second for
+        # the same text is wasted work.
         write_error = log_store.get_write_error()
-        self.write_error_label.config(
-            text=f"Failed to write log file: {write_error}" if write_error else ""
+        labels = (
+            f"Log file: {log_store.current_log_path()}",
+            f"Failed to write log file: {write_error}" if write_error else "",
         )
+
+        if labels != self._labels_shown:
+            self._labels_shown = labels
+            self.file_label.config(text=labels[0])
+            self.write_error_label.config(text=labels[1])
 
         self.refresh_job = self.window.after(self.REFRESH_MS, self.refresh)
 

@@ -64,6 +64,25 @@ def list_ipv4_interfaces():
     return interfaces
 
 
+def source_ip_for(destination):
+    """The local address the routing table would send to destination from.
+
+    For the info bar, when the mixer adapter is left on Automatic: the OS
+    picks the card per packet, so this asks it which one. A UDP connect()
+    sends nothing - it only resolves the route. None if there is no route
+    (cable pulled, bad address).
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    try:
+        sock.connect((destination, 9))
+        return sock.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
 def ipv4_network_of(address):
     """The subnet an adapter holding address sits on, or None.
 

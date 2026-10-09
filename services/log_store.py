@@ -1,4 +1,7 @@
+import atexit
+import itertools
 import threading
+import time
 from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -6,6 +9,8 @@ from pathlib import Path
 MAX_ENTRIES = 20000
 RETENTION_DAYS = 30
 MAX_LOG_FILE_BYTES = 10 * 1024 * 1024
+FLUSH_SECONDS = 1.0
+FLUSH_NOW_LEVELS = ("warning", "error")
 
 LOGS_DIR = Path.home() / ".clmix_logs"
 
@@ -20,6 +25,12 @@ class LogStore:
     on day rollover or once it passes MAX_LOG_FILE_BYTES, at which point
     writing continues in a numbered ".2.log", ".3.log", ... file for that
     day) rather than opening/closing the file on every call.
+
+    Writes are buffered and flushed at most every FLUSH_SECONDS, or at
+    once for a warning or error. Every inbound console message is logged,
+    and flushing each line separately - a disk write per line, which on
+    Windows Defender also scans - was a measurable share of the app's
+    time under traffic. flush() lets the UI push out a quiet tail.
 
     Entries come from background threads (MixerWorker, RemoteServer) as
     well as the Tkinter main thread, so access is lock-protected. The
@@ -40,6 +51,8 @@ class LogStore:
         self._current_file_path = None
         self._active_date = None
         self._active_suffix = 1
+        self._file_size = 0
+        self._flushed_at = 0.0
         self.write_error = None
 
         self.add("info", "=== CLMix session started ===")
@@ -105,6 +118,14 @@ class LogStore:
 
             try:
                 self._file_handle.write(line)
+                # Counted rather than asked for with tell(), which on a
+                # text file is slow enough to matter at this rate.
+                self._file_size += len(line.encode("utf-8"))
+
+                if level in FLUSH_NOW_LEVELS or \
+                        time.monotonic() - self._flushed_at >= FLUSH_SECONDS:
+                    self._flush_locked()
+
                 self.write_error = None
             except OSError as ex:
                 self.write_error = str(ex)
@@ -125,12 +146,7 @@ class LogStore:
             self._open_file_handle()
             return
 
-        try:
-            size = self._file_handle.tell()
-        except OSError:
-            size = 0
-
-        if size >= MAX_LOG_FILE_BYTES:
+        if self._file_size >= MAX_LOG_FILE_BYTES:
             self._close_file_handle()
             self._active_suffix += 1
             self._open_file_handle()
@@ -142,12 +158,28 @@ class LogStore:
 
         try:
             self._file_handle = open(
-                self._current_file_path, "a", encoding="utf-8", buffering=1
+                self._current_file_path, "a", encoding="utf-8"
             )
+            self._file_size = self._file_handle.tell()
             self.write_error = None
         except OSError as ex:
             self._file_handle = None
             self.write_error = str(ex)
+
+    def flush(self):
+        """Push buffered lines to disk - for the UI's once-a-second tick,
+        so a quiet spell does not leave the last lines sitting unwritten."""
+        with self._file_lock:
+            if self._file_handle is not None:
+                try:
+                    self._flush_locked()
+                except OSError as ex:
+                    self.write_error = str(ex)
+                    self._close_file_handle()
+
+    def _flush_locked(self):
+        self._file_handle.flush()
+        self._flushed_at = time.monotonic()
 
     def _close_file_handle(self):
         if self._file_handle is not None:
@@ -160,6 +192,24 @@ class LogStore:
 
     def get_write_error(self):
         return self.write_error
+
+    def entries_since(self, seq):
+        """Only the entries newer than seq - for the Logs window's poll,
+        which used to copy all MAX_ENTRIES every half second to find the
+        handful that were new. Sequence numbers are consecutive, so the
+        new ones are simply the last (latest seq - seq) of the buffer."""
+        with self._lock:
+            if not self._entries:
+                return []
+
+            new = min(len(self._entries), self._entries[-1][0] - seq)
+
+            if new <= 0:
+                return []
+
+            return list(itertools.islice(
+                reversed(self._entries), new
+            ))[::-1]
 
     def snapshot(self):
         with self._lock:
@@ -197,6 +247,8 @@ class CaptureSettings:
 capture = CaptureSettings()
 
 log_store = LogStore()
+# The tail since the last flush, written out on a normal exit.
+atexit.register(log_store.flush)
 
 
 def log(level, message):

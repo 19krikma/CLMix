@@ -1,6 +1,6 @@
 python-osc
 websockets
-sv-ttk
+sv-ttk==2.6.1
 certifi
 zeroconf
 ifaddr
