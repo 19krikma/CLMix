@@ -34,10 +34,8 @@ from services.update_checker import SSL_CONTEXT
 from version import VERSION
 
 # Where reports go. Must be https:// - the privacy policy promises reports
-# and error logs travel encrypted. Left empty until the collector is
-# deployed; with no URL the outbox still fills (nothing is lost), it just
-# never empties.
-DEFAULT_COLLECTOR_URL = ""
+# and error logs travel encrypted.
+DEFAULT_COLLECTOR_URL = "https://clmix.krikma19.com"
 # Not a secret in any real sense: it ships inside every copy of the app.
 # It only keeps the collector's endpoints from being trivially spammed by
 # someone who stumbled on the URL.
