@@ -1,5 +1,6 @@
 import atexit
 import itertools
+import sys
 import threading
 import time
 from collections import deque
@@ -215,6 +216,12 @@ class LogStore:
         with self._lock:
             return list(self._entries)
 
+    def tail(self, count):
+        """The last count entries, oldest first - the lines leading up to
+        an error, for services.feedback."""
+        with self._lock:
+            return list(itertools.islice(reversed(self._entries), count))[::-1]
+
     def count(self):
         # For the main window's info bar, which polls every second - far
         # cheaper than len(snapshot()), which copies up to MAX_ENTRIES.
@@ -251,13 +258,46 @@ log_store = LogStore()
 atexit.register(log_store.flush)
 
 
-def log(level, message):
+# Called with (source, message, traceback) for every error-level entry -
+# services.feedback, which queues them for the collector when the operator
+# has opted in. A hook rather than an import so this module stays at the
+# bottom of the dependency graph, where everything else can log.
+_error_hook = None
+_in_error_hook = threading.local()
+
+
+def set_error_hook(hook):
+    global _error_hook
+    _error_hook = hook
+
+
+def log(level, message, source=None, traceback=None):
+    """Log one line. For an error, source names the component it came from
+    (the calling module unless given) and traceback, if any, is written
+    to the log under it - both feed the error hook above."""
+    text = f"{message}\n{traceback.rstrip()}" if traceback else message
+
     try:
-        print(f"[{level}] {message}")
+        print(f"[{level}] {text}")
     except (AttributeError, OSError, ValueError):
         # No usable stdout - e.g. a windowed (console=False) PyInstaller
         # build, where sys.stdout is None and print() would otherwise
         # raise and take the caller down with it.
         pass
 
-    log_store.add(level, message)
+    log_store.add(level, text)
+
+    if level == "error" and _error_hook is not None and \
+            not getattr(_in_error_hook, "active", False):
+        if source is None:
+            source = sys._getframe(1).f_globals.get("__name__", "unknown")
+
+        # Guarded against re-entry: anything the hook itself logs at
+        # error level would otherwise come straight back into it.
+        _in_error_hook.active = True
+        try:
+            _error_hook(source, message, traceback)
+        except Exception:  # noqa: BLE001 - logging must never raise
+            pass
+        finally:
+            _in_error_hook.active = False

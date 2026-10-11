@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **App:** CLMix
-**Effective date:** September 11, 2026
+**Effective date:** October 11, 2026
 
 CLMix ("the app", "we", "our") is a remote-control client for a digital
 audio mixing console. This policy explains what information CLMix
@@ -10,10 +10,12 @@ desktop clients.
 
 ## Summary
 
-CLMix has no backend server operated by the developer. Each installation
-connects only to a mixer control server that you (or your organization) run
-yourselves, over your own local network. We do not operate any server that
-receives, stores, or processes your data.
+Each installation of CLMix connects to a mixer control server that you (or
+your organization) run yourselves, over your own local network. The
+developer operates one server of its own: a feedback server that receives
+the bug reports and feature requests you choose to send, and error logs
+from the desktop app if you turn that on. Nothing reaches it unless you
+send a report or switch on error log sharing.
 
 ## Information We Access or Collect
 
@@ -51,8 +53,39 @@ elsewhere.
 
 **Activity logs (desktop app only).** The desktop app keeps local log files
 of connection and mixer activity for troubleshooting, stored on the same
-machine and automatically deleted after 30 days. These logs are never
-transmitted anywhere.
+machine and automatically deleted after 30 days. These log files are never
+transmitted anywhere. Only individual errors are sent, and only if you turn
+on error log sharing, described below.
+
+**Bug reports and feature requests.** You can send the developer a bug
+report or feature request from the desktop app's Feedback page, or from the
+phone apps. A report contains the type, title and description you write,
+and a name or email address only if you enter one for a reply. It is sent
+along with the CLMix version, your server's operating system, and a random
+install ID (see below). A report from a phone also includes the phone app's
+version, the phone model and its operating system version. A phone does
+not send the report to the developer itself: it goes to your own CLMix
+server, which forwards it. If your server has no internet connection, it
+keeps the report and sends it once a connection is available. Nothing is
+sent unless you write a report and press Send.
+
+**Error logs (desktop app only, off by default).** If you turn on "Send
+error logs to the developer" on the desktop app's Feedback page, the
+desktop app sends each error it logs to the developer's feedback server,
+so problems can be found and fixed. Each error is sent with the 20
+log lines before it, the CLMix version, the operating system and the
+random install ID. Those log lines can include remote-access account
+usernames and the network addresses of your mixer, server and connected
+phones. Passwords and session tokens are never written to the log, so they
+are never part of this. Errors from the phone apps are never collected.
+Turning the setting off stops it immediately and deletes any errors not yet
+sent.
+
+**Install ID (desktop app only).** The desktop app generates a random ID the
+first time it runs and sends it with reports and error logs, so the
+developer can tell that several reports came from the same installation.
+It is not derived from your device, your network or anything about you,
+and is not used for anything else.
 
 **Update check (desktop app only).** Shortly after startup, and again
 whenever you press Check in the About window, the desktop app makes an
@@ -70,7 +103,8 @@ installed without you pressing that button.
 
 CLMix does not access, collect, or share:
 
-- Name, email address, or other personal identifiers
+- Name, email address, or other personal identifiers, other than a name
+  or email address you choose to enter in a report
 - Location data (approximate or precise)
 - Contacts, calendar, photos, videos, or files
 - Microphone or camera data
@@ -78,16 +112,20 @@ CLMix does not access, collect, or share:
 - Messages, browsing history, or installed-app lists
 - Device identifiers (e.g. the iOS advertising identifier (IDFA) or
   identifier for vendor (IDFV), or the Android advertising ID or Android ID)
-- Crash logs, diagnostics, or analytics of any kind
+- Analytics or usage tracking of any kind
+- Crash logs or diagnostics, other than the opt-in error logs described
+  above
 
 ## Third Parties
 
 CLMix does not use any analytics, advertising, or crash-reporting SDKs, and
 does not share data with any third party. The Android and iOS apps make no
 outside network requests whatsoever - they talk only to your own mixer
-control server on your local network. On the Windows desktop app, the only
-outside requests are the anonymous GitHub version check and, if you ask for
-it, the update download described above.
+control server on your local network, and that includes the reports you
+send from them. On the Windows desktop app, the only outside requests are
+the anonymous GitHub version check, the update download if you ask for it,
+and the reports and opt-in error logs sent to the developer's own feedback
+server, all described above.
 
 ## Data Storage & Security
 
@@ -98,6 +136,8 @@ it, the update download described above.
   salted hash is kept, and only on the machine you designate as the server.
 - All mixer-control traffic (login, fader/mute/pan commands, presets) stays
   on your local network between the client app and your own server.
+- Reports and error logs are sent to the developer's feedback server over
+  an encrypted (HTTPS) connection.
 
 ## Data Retention & Deletion
 
@@ -107,6 +147,10 @@ it, the update download described above.
 - An administrator can delete a remote-access account at any time from the
   desktop app's Access management screen.
 - Desktop activity logs are automatically deleted after 30 days.
+- Reports and error logs sent to the developer are kept only as long as
+  they are needed to investigate and fix the problems they describe. To
+  have a report deleted, email us its reference number (shown when it was
+  sent) or describe it.
 
 ## Children's Privacy
 
