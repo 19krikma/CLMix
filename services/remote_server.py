@@ -10,7 +10,6 @@ import websockets
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
-from services import feedback
 from services.log_store import log
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
@@ -66,11 +65,6 @@ SESSION_TTL_SECONDS = 12 * 60 * 60
 # Phrased as something a person did, not as a fault: the phone shows this
 # verbatim, and "connection lost" would send its user chasing the Wi-Fi.
 KICK_MESSAGE = "Disconnected by the sound engineer"
-
-# How many reports one connection may submit per REPORT_WINDOW_SECONDS.
-# Generous for a person, and a ceiling on a phone app stuck in a loop.
-REPORTS_PER_WINDOW = 5
-REPORT_WINDOW_SECONDS = 10 * 60
 
 # Advertised over mDNS/DNS-SD so phone apps can find this server on the
 # local network instead of the user typing in an IP - Android's NsdManager
@@ -168,9 +162,6 @@ class RemoteServer:
         # client_list(), which is fine for a dict whose entries are only
         # ever swapped whole.
         self._clients = {}
-
-        # submit_report tasks still running - see _handle_message.
-        self._report_tasks = set()
 
         # Channels currently hard-muted from a phone, and what each aux
         # send was carrying when that happened, so unmuting can put them
@@ -314,7 +305,6 @@ class RemoteServer:
     def _run(self):
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        self._loop.set_exception_handler(feedback.asyncio_exception_handler)
         self._stop_event = asyncio.Event()
 
         try:
@@ -437,9 +427,6 @@ class RemoteServer:
             # long has this phone been on", which a clock change should
             # not rewrite.
             "connected_at": time.monotonic(),
-            # Monotonic times of this connection's recent submit_report
-            # calls, for REPORTS_PER_WINDOW.
-            "report_times": [],
         }
 
         # Registered once the state exists, so client_list() can never see
@@ -492,21 +479,6 @@ class RemoteServer:
             await self._send(
                 websocket, {"type": "error", "message": "Not authenticated"}
             )
-            return
-
-        # Ahead of the lock and mixer checks below: a report is about the
-        # app, and "the mixer won't connect" is exactly when someone wants
-        # to send one.
-        #
-        # Run as its own task: it waits up to a few seconds on the
-        # collector, and this phone's fader moves shouldn't queue behind
-        # that. Held in a set until done, since the loop keeps only a weak
-        # reference to a task.
-        if action == "submit_report":
-            task = asyncio.create_task(
-                self._submit_report(websocket, state, msg))
-            self._report_tasks.add(task)
-            task.add_done_callback(self._report_tasks.discard)
             return
 
         if self.locked_reason is not None:
@@ -893,84 +865,6 @@ class RemoteServer:
             "head_amp": HEAD_AMP_RANGES,
             "token": token,
         })
-
-    async def _submit_report(self, websocket, state, msg):
-        """A bug report or feature request from a phone, for the collector
-        (see services/feedback.py).
-
-        Request: {"action": "submit_report", "uid": "<uuid>",
-                  "type": "bug"|"feature", "title", "description",
-                  "contact", "device": {"platform": "android"|"ios",
-                  "app_version", "device_model", "os_version"}}
-
-        Answered with {"type": "report_result", "uid", "ok": true,
-        "status": "sent", "ref": "R-0042"} once the collector has it, or
-        "status": "queued" (no ref) when it couldn't be reached - the
-        report is saved here and goes when the internet is back. ok false
-        carries a "message" for the user: nothing was saved. The uid is
-        the phone's own, so a resend of the same report is stored once.
-        """
-        uid = msg.get("uid")
-
-        async def reply(**fields):
-            try:
-                await self._send(websocket, {"type": "report_result",
-                                             "uid": uid, **fields})
-            except websockets.ConnectionClosed:
-                # Gone before the answer was ready. The report itself is
-                # saved either way; resending it is harmless.
-                pass
-
-        now = time.monotonic()
-        recent = [t for t in state["report_times"]
-                  if now - t < REPORT_WINDOW_SECONDS]
-        state["report_times"] = recent
-
-        if len(recent) >= REPORTS_PER_WINDOW:
-            await reply(ok=False, message="Too many reports at once - "
-                                          "try again in a few minutes")
-            return
-
-        report, problem = feedback.validate_report(msg)
-
-        if problem:
-            await reply(ok=False, message=problem)
-            return
-
-        # Counted now, before the first await, so a burst of submissions
-        # running as concurrent tasks can't all get past the check above.
-        recent.append(now)
-
-        device = msg.get("device") if isinstance(msg.get("device"), dict) \
-            else {}
-        # Only phones speak this protocol; anything else claiming to be
-        # the desktop app is filed as an unknown phone, not as desktop.
-        if device.get("platform") not in ("android", "ios"):
-            device = dict(device, platform="android")
-
-        loop = asyncio.get_running_loop()
-
-        try:
-            uid = await loop.run_in_executor(
-                None, feedback.outbox.add_report, report, device, uid)
-        except OSError as ex:
-            log("warning", f"Could not save report from {state['user']!r}: "
-                f"{ex!r}")
-            await reply(ok=False, message="The server could not save the "
-                                          "report")
-            return
-
-        log("info", f"Report from {state['user']!r}: {report['type']} "
-            f"{report['title']!r}")
-
-        answer = await loop.run_in_executor(
-            None, feedback.outbox.send_report_now, uid)
-
-        if answer and answer.get("ref"):
-            await reply(ok=True, status="sent", ref=answer["ref"])
-        else:
-            feedback.outbox.wake()
-            await reply(ok=True, status="queued")
 
     def _prune_expired_sessions(self):
         """Drops aged-out tokens from the session table.

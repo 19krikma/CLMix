@@ -20,7 +20,7 @@ from pythonosc.osc_message import OscMessage, ParseError
 from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.parsing import osc_types
 
-from services import autostart, feedback, osc_text, updater
+from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log, log_store
@@ -44,7 +44,6 @@ from ui.logs_window import LogsWindow, open_folder
 from ui.phones_window import PhonesWindow
 from ui.presets_window import PresetsWindow
 from ui.copy_to_window import CopyToWindow
-from ui.feedback_window import FeedbackWindow
 from ui.show_backup_window import ShowBackupWindow
 from version import VERSION
 
@@ -3160,7 +3159,6 @@ class MainWindow:
         self.backup_window = None
         self.show_backup_window = None
         self.copy_to_window = None
-        self.feedback_window = None
         self.logs_window = None
         self.presets_window = None
         self.phones_window = None
@@ -3203,13 +3201,6 @@ class MainWindow:
         self.message_queue = queue.Queue()
 
         self.settings = self.load_settings()
-
-        # Reports and (if opted in) error logs for the developer - see
-        # services/feedback.py. Hooked in this early so an error anywhere
-        # in building the window below is caught too.
-        feedback.install_hooks(self.root)
-        feedback.outbox.set_errors_enabled(self.settings["share_error_logs"])
-        feedback.outbox.start()
         self.user_store = UserStore()
         self.preset_store = PresetStore()
         self.backup_store = BackupStore(backups_dir=self.settings.get("backup_dir"))
@@ -3315,7 +3306,6 @@ class MainWindow:
         # Kept so the startup update check can relabel it.
         self.about_button = entry("About", self.open_about_window, side="bottom")
         entry("Backup", self.open_backup_window, side="bottom")
-        entry("Feedback", self.open_feedback_window, side="bottom")
 
     def build_back_panel(self):
         """What the sidebar shows while a page is open: the way back to
@@ -4009,14 +3999,6 @@ class MainWindow:
                 ),
                 True, "show_backup_window"
             ),
-            "Feedback": (
-                lambda host: FeedbackWindow(
-                    host,
-                    get_sharing=lambda: bool(self.settings["share_error_logs"]),
-                    set_sharing=self.set_error_sharing,
-                ),
-                True, "feedback_window"
-            ),
             "Copy To": (
                 lambda host: CopyToWindow(
                     host, lambda: self.worker, self.command_queue
@@ -4609,10 +4591,6 @@ class MainWindow:
             # desktop's own login list, which services/autostart.py reads
             # back directly rather than mirroring here.
             "connect_on_launch": False,
-            # Opt-in to sending error logs to the developer - see
-            # services/feedback.py and the Feedback page. Off unless the
-            # operator turns it on: the privacy policy promises as much.
-            "share_error_logs": False,
         }
 
         try:
@@ -5079,14 +5057,6 @@ class MainWindow:
         self._open_built_page("Mixer Backup")
     def open_copy_to_window(self):
         self._open_built_page("Copy To")
-    def open_feedback_window(self):
-        self._open_built_page("Feedback")
-
-    def set_error_sharing(self, enabled):
-        self.settings["share_error_logs"] = bool(enabled)
-        self.save_settings()
-        feedback.outbox.set_errors_enabled(enabled)
-        log("info", "Error log sharing turned " + ("on" if enabled else "off"))
     def on_backup_restored(self, keys):
         if "settings" in keys:
             self.reload_settings()
@@ -5138,10 +5108,6 @@ class MainWindow:
         # backups to - the old folder until the next launch, while the
         # restored settings already name the new one.
         self.backup_store.set_backups_dir(self.settings.get("backup_dir"))
-
-        # A restored settings file carries its own answer to the error
-        # sharing opt-in, which has to take effect - in either direction.
-        feedback.outbox.set_errors_enabled(self.settings["share_error_logs"])
 
         # The two capture switches, and the mode they put CLMix in -
         # re-applied only if the restore actually changed them, since
