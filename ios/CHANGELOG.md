@@ -9,6 +9,22 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.5.0
+
+- **Only the live input can be adjusted.** On a channel's input sheet,
+  the input that is not selected - Main or ALT - has its 48V, Gain and Trim
+  greyed out and locked. Its button stays usable, since it is how to
+  switch over.
+- **Main is locked when nothing is patched to it**, the same way ALT
+  already was.
+- **Gain and Trim can be typed in.** Tap the number box beside a dial,
+  type the value and press Done. It is clamped to the dial's range and
+  reads back formatted - typing 0 shows 0.0.
+- **Gain dials turn more slowly**, a quarter of their old speed, so a
+  head amp can be set without overshooting.
+- **ALT can be selected on an input sitting at 0 dB.** It stayed locked
+  on such an input, and locked again after switching back to Main.
+
 ## 1.4.0
 
 - **Custom Banks.** Group the desk's channels your own way. Banks start

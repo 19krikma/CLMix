@@ -32,6 +32,8 @@ struct DialView: View {
     let onValueChanged: (Double) -> Void
     /// Called once the finger lifts, with the value it settled on.
     let onTurnFinished: (Double) -> Void
+    /// Scales how far a drag turns this dial - below 1 for a slower one.
+    var rate: Double = 1
 
     @StateObject private var turn = DialTurn()
 
@@ -107,7 +109,9 @@ struct DialView: View {
                 guard hasValue else { return }
 
                 if !turn.engaged {
-                    turn.begin(from: value, within: range, onChanged: onValueChanged)
+                    turn.begin(
+                        from: value, within: range, rate: rate, onChanged: onValueChanged
+                    )
                 }
 
                 turn.move(to: gesture.translation, at: gesture.time)
@@ -169,6 +173,7 @@ final class DialTurn: ObservableObject {
     @Published private(set) var value: Double = 0
 
     private var range: ClosedRange<Double> = 0...1
+    private var rate: Double = 1
     private var onChanged: ((Double) -> Void)?
 
     // Past the slop yet - until then a resting thumb's wobble is ignored.
@@ -181,10 +186,11 @@ final class DialTurn: ObservableObject {
     private var speed: Double = 0
 
     func begin(
-        from start: Double, within range: ClosedRange<Double>,
+        from start: Double, within range: ClosedRange<Double>, rate: Double,
         onChanged: @escaping (Double) -> Void
     ) {
         self.range = range
+        self.rate = rate
         self.onChanged = onChanged
         value = min(range.upperBound, max(range.lowerBound, start))
         dragging = false
@@ -227,7 +233,7 @@ final class DialTurn: ObservableObject {
 
         let next = min(
             range.upperBound,
-            max(range.lowerBound, value + travel * unitsPerPoint)
+            max(range.lowerBound, value + travel * unitsPerPoint * rate)
         )
 
         guard next != value else { return }

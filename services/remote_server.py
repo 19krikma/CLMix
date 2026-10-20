@@ -1324,31 +1324,29 @@ class RemoteServer:
     def _alt_available(worker, channel):
         """Whether the channel has an alt route patched on the console.
 
-        No address says so outright - input_type tracks the main slot only
-        (PROTOCOL.md, "Input patching"). An empty slot reports 0 dB and 48V
-        off, the same as an empty main does, so anything else - or the
-        channel already running on alt - is taken as a route being there.
-        A patched alt sitting at exactly 0 dB with 48V off reads as absent;
-        this wants confirming against a live capture of an alt patch.
+        The console only sends alt_analog_gain for a channel that has an
+        alt route - an empty alt slot leaves the query unanswered - so the
+        value having arrived at all is the signal, whatever it is. 0 dB is
+        an ordinary gain for a patched alt, and it used to read as absent
+        here, which locked out the ALT button on a live route and dropped
+        it again the moment the channel went back to Main.
+
+        A channel already running on alt counts too, in case its gain has
+        not been reported yet.
         """
         if worker is None:
             return False
 
         prefix = f"/Input_Channels/{channel}/Channel_Input"
 
-        def cached(suffix):
-            args = worker.cache.get(f"{prefix}/{suffix}")
-            try:
-                return float(args[0]) if args else None
-            except (TypeError, ValueError):
-                return None
+        if f"{prefix}/alt_analog_gain" in worker.cache:
+            return True
 
-        alt_in = cached("main/alt_in")
-        alt_gain = cached("alt_analog_gain")
-        alt_phantom = cached("alt_phantom")
-
-        return bool(alt_in) or bool(alt_phantom) or \
-            (alt_gain is not None and alt_gain != 0.0)
+        args = worker.cache.get(f"{prefix}/main/alt_in")
+        try:
+            return bool(float(args[0])) if args else False
+        except (TypeError, ValueError):
+            return False
 
     # phase is an enum over 0..3, not a flag - see PHASE_MAX. Two client
     # shapes are accepted, because the wire has carried both:

@@ -68,7 +68,11 @@
                 android:textSize="12sp"
                 android:textColor="@color/on_surface_variant" />
 
-            <TextView
+            <!-- Typed into as well as read: tap, type a value, Done.
+                 ChannelInputBottomSheet sets the key listener, since the
+                 readout it shows carries a "+" the number keypad's own
+                 filter would reject. -->
+            <EditText
                 android:id="@+id/gain_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -76,6 +80,9 @@
                 android:gravity="center"
                 android:paddingVertical="8dp"
                 android:maxLines="1"
+                android:imeOptions="actionDone"
+                android:importantForAutofill="no"
+                android:selectAllOnFocus="true"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 android:textColor="#F2F4F8"
@@ -114,7 +121,11 @@
                 android:textSize="12sp"
                 android:textColor="@color/on_surface_variant" />
 
-            <TextView
+            <!-- Typed into as well as read: tap, type a value, Done.
+                 ChannelInputBottomSheet sets the key listener, since the
+                 readout it shows carries a "+" the number keypad's own
+                 filter would reject. -->
+            <EditText
                 android:id="@+id/trim_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -122,6 +133,9 @@
                 android:gravity="center"
                 android:paddingVertical="8dp"
                 android:maxLines="1"
+                android:imeOptions="actionDone"
+                android:importantForAutofill="no"
+                android:selectAllOnFocus="true"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 android:textColor="#F2F4F8"

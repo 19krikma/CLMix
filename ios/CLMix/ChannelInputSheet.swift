@@ -10,11 +10,19 @@ import SwiftUI
 /// a sheet of its own rather than on the strip, and why the dials have to
 /// be held to move (see DialView).
 ///
-/// The Main / ALT buttons pick which slot feeds the channel. The ALT
-/// column stays disabled until the console reports an alt route to switch
-/// to (ChannelState.altAvailable). Trim sits after that switch on the
+/// The Main / ALT buttons pick which slot feeds the channel, and only the
+/// live slot's 48V, gain and trim can be touched - the other column greys
+/// out apart from its button, so nothing on it can be moved by accident
+/// while it is not what the channel hears. Each button needs its input to
+/// exist: ALT until the console reports an alt route to switch to
+/// (ChannelState.altAvailable), Main until it has reported the main head
+/// amp's gain - a channel can have nothing patched to Main. Trim sits after that switch on the
 /// console, so there is only one: the Trim dial in each column is the
 /// same value, and turning either moves both.
+///
+/// Each dial's readout is also a field: tap it, type a value and press
+/// Done, and the dial jumps there (clamped to its range) and the value is
+/// sent. See ValueField.
 ///
 /// Mirrors Android's ChannelInputBottomSheet.kt.
 struct ChannelInputSheet: View {
@@ -234,6 +242,9 @@ struct ChannelInputSheet: View {
         inputColumn(
             title: "Main",
             live: !altIn.shown,
+            // The console reports the main gain only when there is a main
+            // input, the same rule the server applies to alt.
+            available: channel.gain != nil,
             onSelect: { selectSource(alt: false) },
             phantomOn: phantom.shown,
             onPhantom: {
@@ -250,11 +261,12 @@ struct ChannelInputSheet: View {
         )
     }
 
-    /// Greyed out and locked while the console reports no alt route.
+    /// Its button is locked while the console reports no alt route.
     private var altColumn: some View {
         inputColumn(
             title: "ALT",
             live: altIn.shown,
+            available: channel.altAvailable,
             onSelect: { selectSource(alt: true) },
             phantomOn: altPhantom.shown,
             onPhantom: {
@@ -269,23 +281,25 @@ struct ChannelInputSheet: View {
                 }
             }
         )
-        .disabled(!channel.altAvailable)
-        .allowsHitTesting(channel.altAvailable)
-        .opacity(channel.altAvailable ? 1 : 0.4)
     }
 
     /// One input slot: the button that makes it live, its 48V as a small
-    /// square, its gain, and the shared trim.
+    /// square, its gain, and the shared trim. Only the live slot's
+    /// controls are enabled; the button stays usable (given a route) since
+    /// it is how to switch over.
     private func inputColumn(
         title: String,
         live: Bool,
+        available: Bool,
         onSelect: @escaping () -> Void,
         phantomOn: Bool,
         onPhantom: @escaping () -> Void,
         gain: Double?,
         onGain: @escaping (Double, Bool) -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let editable = live && available
+
+        return VStack(alignment: .leading, spacing: 0) {
             Button(action: onSelect) {
                 Text(title)
                     .frame(maxWidth: .infinity)
@@ -294,7 +308,30 @@ struct ChannelInputSheet: View {
             .foregroundStyle(live ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
             .background(live ? Color.clmixPrimary : Color.clmixMuteInactive)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .disabled(!available)
+            .opacity(available ? 1 : Self.disabledOpacity)
 
+            controls(
+                editable: editable,
+                phantomOn: phantomOn,
+                onPhantom: onPhantom,
+                gain: gain,
+                onGain: onGain
+            )
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The slot's 48V, gain and trim - greyed out and inert unless the
+    /// slot is the live one.
+    private func controls(
+        editable: Bool,
+        phantomOn: Bool,
+        onPhantom: @escaping () -> Void,
+        gain: Double?,
+        onGain: @escaping (Double, Bool) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             // 48V on reads as the console's own warning colour, not the
             // app's accent: it is the one control on this sheet that can
             // damage a source (ribbon mics especially), so it should look
@@ -311,13 +348,20 @@ struct ChannelInputSheet: View {
             .padding(.top, 6)
             .padding(.bottom, 12)
 
-            dialRow(label: "Gain", value: gain, range: gainRange, onChanged: onGain)
-                .padding(.bottom, 12)
+            // Gain turns at a quarter of the dial's usual rate: a head
+            // amp is the coarsest thing on the sheet, and a few dB too far
+            // on it is heard everywhere at once.
+            dialRow(
+                label: "Gain", value: gain, range: gainRange,
+                rate: Self.gainDialRate, enabled: editable, onChanged: onGain
+            )
+            .padding(.bottom, 12)
 
             dialRow(
                 label: "Trim",
                 value: trimShown,
                 range: trimRange,
+                enabled: editable,
                 onChanged: { value, force in
                     trimShown = value
                     throttle(value, force, touched: &trimTouchedAt, sent: &trimSentAt) {
@@ -326,12 +370,17 @@ struct ChannelInputSheet: View {
                 }
             )
         }
-        .frame(maxWidth: .infinity)
+        // Both, as the dials are gestures rather than controls, and
+        // .disabled alone has not always kept a gesture from firing.
+        .disabled(!editable)
+        .allowsHitTesting(editable)
+        .opacity(editable ? 1 : Self.disabledOpacity)
     }
 
     private func selectSource(alt: Bool) {
         guard alt != altIn.shown else { return }
         guard !alt || channel.altAvailable else { return }
+        guard alt || channel.gain != nil else { return }
 
         altIn.set(alt)
         onAltInChanged(channel.channel, alt)
@@ -345,6 +394,8 @@ struct ChannelInputSheet: View {
         label: String,
         value: Double?,
         range: ClosedRange<Double>,
+        rate: Double = 1,
+        enabled: Bool,
         onChanged: @escaping (Double, Bool) -> Void
     ) -> some View {
         HStack(spacing: 8) {
@@ -355,7 +406,8 @@ struct ChannelInputSheet: View {
                 onValueChanged: { onChanged($0, false) },
                 // Always sent, throttling or not: this is the value the
                 // operator actually chose.
-                onTurnFinished: { onChanged($0, true) }
+                onTurnFinished: { onChanged($0, true) },
+                rate: rate
             )
 
             VStack(spacing: 3) {
@@ -363,13 +415,12 @@ struct ChannelInputSheet: View {
                     .font(.system(size: 12))
                     .foregroundStyle(Color.clmixOnSurfaceVariant)
 
-                Text(Self.formatDb(value))
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color.clmixReadoutText)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background { readoutBox }
+                // A typed value is the operator's final choice, so it
+                // always goes out (force), like a finished turn.
+                ValueField(value: value, range: range, enabled: enabled) {
+                    onChanged($0, true)
+                }
+                .background { readoutBox }
             }
         }
     }
@@ -476,6 +527,11 @@ struct ChannelInputSheet: View {
     // ~60 a second the turn itself generates.
     private static let writeInterval: TimeInterval = 0.05
 
+    private static let disabledOpacity = 0.4
+
+    // 75% slower than DialView's default speed.
+    private static let gainDialRate = 0.25
+
     /// A dash rather than a number the console never sent.
     static func formatDb(_ value: Double?) -> String {
         guard let value else { return "—" }
@@ -516,6 +572,75 @@ private struct Optimistic<Value: Equatable> {
 
         shown = incoming
         return true
+    }
+}
+
+/// A dial's readout that can also be typed into. Tapped, it clears and
+/// shows the current value as its placeholder, so typing replaces it -
+/// iOS 17 has no way to select a field's text on focus, which is how
+/// Android does the same. Done (or tapping away) applies it, clamped to
+/// the dial's range, and the box then shows it formatted the usual way, so
+/// "0" reads back as "0.0". Anything that is not a number puts back what
+/// the dial is on. Mirrors the value boxes in Android's
+/// ChannelInputBottomSheet.
+private struct ValueField: View {
+    let value: Double?
+    let range: ClosedRange<Double>
+    let enabled: Bool
+    let onCommit: (Double) -> Void
+
+    @State private var draft = ""
+    @FocusState private var editing: Bool
+
+    var body: some View {
+        TextField(ChannelInputSheet.formatDb(value), text: $draft)
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(Color.clmixReadoutText)
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            // Not .decimalPad: it has neither a minus sign, which trim and
+            // the bottom of the gain range need, nor a Done key.
+            .keyboardType(.numbersAndPunctuation)
+            .autocorrectionDisabled()
+            .submitLabel(.done)
+            .focused($editing)
+            .onSubmit { editing = false }
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .onAppear { draft = ChannelInputSheet.formatDb(value) }
+            // Mid-edit, the box holds what is being typed - the dial
+            // follows the console, the box catches up on commit.
+            .onChange(of: value) { _, now in
+                if !editing { draft = ChannelInputSheet.formatDb(now) }
+            }
+            .onChange(of: editing) { _, now in
+                if now { draft = "" } else { commit() }
+            }
+            // The slot stopped being live mid-edit: drop the edit rather
+            // than send a value to an input the channel no longer hears.
+            // commit() sees enabled is false and only puts the value back.
+            .onChange(of: enabled) { _, now in
+                if !now && editing { editing = false }
+            }
+            // Closing the sheet mid-edit applies it, as with the name box.
+            .onDisappear {
+                if editing { commit() }
+            }
+    }
+
+    private func commit() {
+        let text = draft
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+
+        guard enabled, let typed = Double(text) else {
+            draft = ChannelInputSheet.formatDb(value)
+            return
+        }
+
+        let clamped = min(range.upperBound, max(range.lowerBound, typed))
+        onCommit(clamped)
+        draft = ChannelInputSheet.formatDb(clamped)
     }
 }
 

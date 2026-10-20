@@ -3,6 +3,28 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.9.0
+
+The channel input sheet, on Mixer Control.
+
+- **Only the live input can be adjusted.** With Main selected, the ALT
+  column's 48V, Gain and Trim are greyed out and locked, and the other way
+  round with ALT selected. Each column's Main / ALT button stays usable,
+  since it is how to switch over. Nothing can be nudged by accident on an
+  input the channel is not listening to.
+- **Main is locked when nothing is patched to it.** A channel the console
+  reports no main gain for gets its Main button and controls disabled,
+  the same way ALT already was.
+- **Gain and Trim can be typed in.** Tap the number box beside a dial,
+  type the value and press Done. The dial jumps there, the value is
+  clamped to the dial's range, and it reads back formatted - typing `0`
+  shows `0.0`.
+- **Gain dials turn more slowly** - a quarter of their old speed - so a
+  head amp can be set without overshooting.
+- **ALT works on a route sitting at 0 dB.** (Desktop 1.17.1.) The ALT
+  button stayed locked on a patched ALT input whose gain was exactly 0 dB
+  with 48V off, and locked again after switching back to Main.
+
 ## 2.6.0
 
 Two corrections to the input stage, both from reading the console's own

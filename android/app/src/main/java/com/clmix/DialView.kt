@@ -62,6 +62,9 @@ class DialView @JvmOverloads constructor(
             invalidate()
         }
 
+    /** Scales how far a drag turns this dial - below 1 for a slower one. */
+    var rate: Double = 1.0
+
     private var engaged = false
 
     // Past the slop yet - until then a resting thumb's wobble is ignored.
@@ -121,7 +124,7 @@ class DialView @JvmOverloads constructor(
         // Screen y grows downward, so up (negative dy) turns the value up.
         val travel = dx - dy * VERTICAL_RATE
 
-        val next = value + travel * unitsPerDp
+        val next = value + travel * unitsPerDp * rate
         if (next.coerceIn(min, max) != value) {
             value = next
             onValueChanged?.invoke(value)

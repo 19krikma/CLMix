@@ -653,6 +653,13 @@ while main was empty still reported `input_type 0.0`. Which of the two
 slots is actually feeding the channel is a separate parameter,
 `Channel_Input/main/alt_in`.
 
+**Whether an alt route exists at all is told by `alt_analog_gain`
+arriving**, not by its value: the console only sends it for a channel
+with an alt patched (observed on the Q225, 2026-10-18). A patched alt
+at 0 dB with 48V off is an ordinary state, so the value cannot be used
+to tell patched from empty - see `_alt_available` in
+`services/remote_server.py`.
+
 Only `0.0` and `2.0` have ever been observed, and `2.0` implies a `1.0`
 that nothing has yet produced - plausibly another source class. Test it
 as **non-zero means patched** rather than `== 2.0`.

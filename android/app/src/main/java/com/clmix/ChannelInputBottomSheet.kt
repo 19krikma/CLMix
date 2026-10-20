@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.os.SystemClock
 import android.text.InputFilter
+import android.text.InputType
+import android.text.method.DigitsKeyListener
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.clmix.databinding.BottomSheetChannelInputBinding
 import com.clmix.databinding.ChannelInputColumnBinding
@@ -29,11 +31,19 @@ import kotlin.math.abs
  * own rather than on the strip, and why the dials have to be held to move
  * (see DialView).
  *
- * The Main / ALT buttons pick which slot feeds the channel. The ALT
- * column stays disabled until the console reports an alt route to switch
- * to (ChannelState.altAvailable). Trim sits after that switch on the
+ * The Main / ALT buttons pick which slot feeds the channel, and only the
+ * live slot's 48V, gain and trim can be touched - the other column greys
+ * out apart from its button, so nothing on it can be moved by accident
+ * while it is not what the channel hears. Each button needs its input to
+ * exist: ALT until the console reports an alt route to switch to
+ * (ChannelState.altAvailable), Main until it has reported the main head
+ * amp's gain - a channel can have nothing patched to Main. Trim sits after that switch on the
  * console, so there is only one: the Trim dial in each column is the same
  * value, and turning either moves both.
+ *
+ * Each dial's readout is also a field: tap it, type a value and press
+ * Done, and the dial jumps there (clamped to its range) and the value is
+ * sent.
  */
 class ChannelInputBottomSheet(
     context: Context,
@@ -86,6 +96,15 @@ class ChannelInputBottomSheet(
     private val name = Optimistic(initial.name)
 
     private var altAvailable = initial.altAvailable
+
+    // Whether there is a main input at all: the console reports its gain
+    // only when there is one, the same rule the server applies to alt
+    // (_alt_available in remote_server.py).
+    private var mainAvailable = initial.gain != null
+
+    // One per gain/trim box: commits it if it is mid-edit. Run when the
+    // sheet closes, since a dismissed dialog does not reliably move focus.
+    private val valueBoxes = mutableListOf<() -> Unit>()
 
     init {
         dialog.setContentView(binding.root)
@@ -141,6 +160,12 @@ class ChannelInputBottomSheet(
             onAltPhantomChanged(channel, altPhantom.shown)
         }
 
+        // Gain turns at a quarter of the dial's usual rate: a head amp is
+        // the coarsest thing on the sheet, and a few dB too far on it is
+        // heard everywhere at once.
+        main.gainDial.rate = GAIN_DIAL_RATE
+        alt.gainDial.rate = GAIN_DIAL_RATE
+
         setUpDial(main.gainDial, main.gainValue, gainRange, initial.gain, gainWrites)
         setUpDial(alt.gainDial, alt.gainValue, gainRange, initial.altGain, altGainWrites)
         setUpDial(main.trimDial, main.trimValue, trimRange, initial.trim, trimWrites, mirror = alt)
@@ -150,12 +175,11 @@ class ChannelInputBottomSheet(
         applyPhantom(alt.phantomButton, altPhantom.shown)
         applyPhase()
         applySource()
-        applyAltAvailable()
     }
 
     private fun setUpDial(
         dial: DialView,
-        readout: TextView,
+        readout: EditText,
         range: ClosedFloatingPointRange<Double>,
         initial: Double?,
         writes: Throttle,
@@ -168,10 +192,10 @@ class ChannelInputBottomSheet(
         // the readout shows its floor rather than a number the console
         // never sent as if it had.
         dial.value = initial ?: range.start
-        readout.text = formatDb(dial.value)
+        readout.setText(formatDb(dial.value))
 
         dial.onValueChanged = { value ->
-            readout.text = formatDb(value)
+            readout.setText(formatDb(value))
             mirrorTrim(mirror, value)
             writes.turned(value, force = false)
         }
@@ -179,6 +203,73 @@ class ChannelInputBottomSheet(
         // Always sent, throttling or not: this is the value the operator
         // actually chose, and the console has to end up on it.
         dial.onTurnFinished = { value -> writes.turned(value, force = true) }
+
+        setUpValueBox(dial, readout, writes, mirror)
+    }
+
+    /**
+     * Typing a value in: selected on tap (selectAllOnFocus) so typing
+     * replaces it, applied on Done or when focus leaves - and when the
+     * sheet closes mid-edit, as with the name box.
+     */
+    private fun setUpValueBox(
+        dial: DialView,
+        box: EditText,
+        writes: Throttle,
+        mirror: ChannelInputColumnBinding?
+    ) {
+        // Set in code rather than as android:inputType, which on its own
+        // would filter out the "+" (and a locale's ",") the readout itself
+        // shows. The raw input type still asks for the number keypad.
+        box.keyListener = DigitsKeyListener.getInstance("0123456789+-.,")
+        box.setRawInputType(
+            InputType.TYPE_CLASS_NUMBER or
+                InputType.TYPE_NUMBER_FLAG_SIGNED or
+                InputType.TYPE_NUMBER_FLAG_DECIMAL
+        )
+
+        box.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                // Losing focus is what commits, below.
+                hideKeyboard(box)
+                true
+            } else {
+                false
+            }
+        }
+
+        box.setOnFocusChangeListener { _, focused ->
+            if (!focused) commitValue(dial, box, writes, mirror)
+        }
+
+        valueBoxes += { if (box.hasFocus()) commitValue(dial, box, writes, mirror) }
+    }
+
+    private fun commitValue(
+        dial: DialView,
+        box: EditText,
+        writes: Throttle,
+        mirror: ChannelInputColumnBinding?
+    ) {
+        val typed = box.text.toString().trim().replace(',', '.').toDoubleOrNull()
+
+        // Not a number (or left empty) - put back what the dial is on.
+        if (typed == null || !dial.isEnabled) {
+            box.setText(formatDb(dial.value))
+            return
+        }
+
+        dial.hasValue = true
+        dial.value = typed.coerceIn(dial.min, dial.max)
+        box.setText(formatDb(dial.value))
+        mirrorTrim(mirror, dial.value)
+        writes.turned(dial.value, force = true)
+    }
+
+    private fun hideKeyboard(box: EditText) {
+        box.clearFocus()
+        val keyboard = box.context.getSystemService(InputMethodManager::class.java)
+        keyboard?.hideSoftInputFromWindow(box.windowToken, 0)
     }
 
     /** Keeps the other column's Trim dial on the one being turned. */
@@ -186,7 +277,7 @@ class ChannelInputBottomSheet(
         other ?: return
         other.trimDial.hasValue = true
         other.trimDial.value = value
-        other.trimValue.text = formatDb(other.trimDial.value)
+        other.trimValue.setText(formatDb(other.trimDial.value))
     }
 
     /**
@@ -240,6 +331,7 @@ class ChannelInputBottomSheet(
     private fun selectSource(alt: Boolean) {
         if (alt == altIn.shown) return
         if (alt && !altAvailable) return
+        if (!alt && !mainAvailable) return
 
         altIn.set(alt)
         applySource()
@@ -275,15 +367,17 @@ class ChannelInputBottomSheet(
 
         if (altIn.reconcile(state.altIn, TOGGLE_CONFIRM_MS)) applySource()
 
-        if (state.altAvailable != altAvailable) {
+        val mainNow = state.gain != null
+        if (state.altAvailable != altAvailable || mainNow != mainAvailable) {
             altAvailable = state.altAvailable
-            applyAltAvailable()
+            mainAvailable = mainNow
+            applySource()
         }
     }
 
     private fun foldDial(
         dial: DialView,
-        readout: TextView,
+        readout: EditText,
         incoming: Double?,
         writes: Throttle
     ) {
@@ -292,7 +386,10 @@ class ChannelInputBottomSheet(
         if (writes.idle && (!dial.hasValue || abs(dial.value - incoming) >= 0.05)) {
             dial.hasValue = true
             dial.value = incoming
-            readout.text = formatDb(dial.value)
+
+            // Mid-edit, the box holds what is being typed - the dial
+            // follows the console, the box catches up on commit.
+            if (!readout.hasFocus()) readout.setText(formatDb(dial.value))
         }
     }
 
@@ -310,7 +407,13 @@ class ChannelInputBottomSheet(
         button.contentDescription = if (on) "48V on" else "48V off"
     }
 
-    /** The live input's button fills with the accent; the other does not. */
+    /**
+     * The live input's button fills with the accent; the other does not.
+     * Only the live column's 48V, gain and trim are enabled - the other
+     * column keeps just its button, which is how to switch over to it.
+     * Each button needs its input to exist - see mainAvailable and
+     * altAvailable.
+     */
     private fun applySource() {
         val onAlt = altIn.shown
 
@@ -324,17 +427,39 @@ class ChannelInputBottomSheet(
             if (onAlt) R.color.primary else R.color.mute_inactive,
             if (onAlt) R.color.on_primary else R.color.on_mute_inactive
         )
+
+        main.sourceButton.isEnabled = mainAvailable
+        main.sourceButton.alpha = if (mainAvailable) 1f else DISABLED_ALPHA
+        alt.sourceButton.isEnabled = altAvailable
+        alt.sourceButton.alpha = if (altAvailable) 1f else DISABLED_ALPHA
+
+        setControlsEnabled(main, !onAlt && mainAvailable)
+        setControlsEnabled(alt, onAlt && altAvailable)
     }
 
-    /** Greys out and locks the whole ALT column while there is no route. */
-    private fun applyAltAvailable() {
-        val enabled = altAvailable
+    private fun setControlsEnabled(column: ChannelInputColumnBinding, enabled: Boolean) {
+        val alpha = if (enabled) 1f else DISABLED_ALPHA
+        val controls = listOf(
+            column.phantomButton,
+            column.gainDial, column.gainLabel, column.gainValue,
+            column.trimDial, column.trimLabel, column.trimValue
+        )
 
-        alt.root.alpha = if (enabled) 1f else DISABLED_ALPHA
-        alt.sourceButton.isEnabled = enabled
-        alt.phantomButton.isEnabled = enabled
-        alt.gainDial.isEnabled = enabled
-        alt.trimDial.isEnabled = enabled
+        for (control in controls) {
+            control.isEnabled = enabled
+            control.alpha = alpha
+        }
+
+        // A column switched off mid-edit drops the edit rather than
+        // sending a value to the input that just stopped being live.
+        if (!enabled) {
+            for (box in listOf(column.gainValue, column.trimValue)) {
+                if (box.hasFocus()) {
+                    box.clearFocus()
+                    hideKeyboard(box)
+                }
+            }
+        }
     }
 
     /**
@@ -380,6 +505,7 @@ class ChannelInputBottomSheet(
     fun setOnDismissListener(action: () -> Unit) {
         dialog.setOnDismissListener {
             if (binding.inputChannelName.hasFocus()) commitName()
+            valueBoxes.forEach { it() }
             action()
         }
     }
@@ -471,6 +597,9 @@ class ChannelInputBottomSheet(
         private const val WRITE_INTERVAL_MS = 50L
 
         private const val DISABLED_ALPHA = 0.4f
+
+        // 75% slower than DialView's default speed.
+        private const val GAIN_DIAL_RATE = 0.25
 
         fun formatDb(value: Double): String {
             val rounded = Math.round(value * 10.0) / 10.0

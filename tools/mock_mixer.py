@@ -589,6 +589,15 @@ class MockMixer:
                 self.strips[prefix].append(address)
             params[address] = [value]
 
+        def drop(address):
+            """Takes a templated parameter back out, so it goes unanswered."""
+            params.pop(address, None)
+            prefix = address.rsplit("/", 1)[0]
+            while prefix and prefix not in self.strips:
+                prefix = prefix.rsplit("/", 1)[0]
+            if address in self.strips.get(prefix, []):
+                self.strips[prefix].remove(address)
+
         for channel in range(1, self.counts["Input_Channels"] + 1):
             prefix = f"/Input_Channels/{channel}"
             put(f"{prefix}/Channel_Input/name", CHANNEL_NAMES[channel - 1])
@@ -616,13 +625,20 @@ class MockMixer:
             # plain flag after all, this seed is the thing to drop.
             put(f"{prefix}/Channel_Input/phase", float(PHASE_SEED.get(channel, 0)))
             # An alt route on every fourth channel - a spare mic, say - at
-            # its own gain, and empty (0 dB, 48V off, as a real desk
-            # reports it) everywhere else. Channel 8 starts on its alt.
-            has_alt = channel % 4 == 0
-            put(f"{prefix}/Channel_Input/alt_analog_gain",
-                float(30 + channel % 11) if has_alt else 0.0)
-            put(f"{prefix}/Channel_Input/alt_phantom",
-                float(has_alt and channel % 8 == 0))
+            # its own gain, and no alt parameters at all everywhere else:
+            # the desk only answers for an alt slot that is patched, which
+            # is how the server tells the two apart. Channel 12's route
+            # sits at exactly 0 dB with 48V off, the case that has to
+            # still read as patched. Channel 8 starts on its alt.
+            if channel % 4 == 0:
+                put(f"{prefix}/Channel_Input/alt_analog_gain",
+                    0.0 if channel == 12 else float(30 + channel % 11))
+                put(f"{prefix}/Channel_Input/alt_phantom",
+                    float(channel % 8 == 0))
+            else:
+                # The template (commands.csv) gives every channel one.
+                for leaf in ("alt_analog_gain", "alt_phantom", "alt_input_pad"):
+                    drop(f"{prefix}/Channel_Input/{leaf}")
             put(f"{prefix}/Channel_Input/main/alt_in", float(channel == 8))
 
             for aux in range(1, self.counts["Aux_Outputs"] + 1):
