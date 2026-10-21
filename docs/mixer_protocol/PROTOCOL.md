@@ -235,6 +235,12 @@ For reference, these are the addresses `ui/main_window.py` already speaks - all 
 | `/Input_Channels/{n}/Aux_Send/{a}/send_level` (get/set) | Channel's send level to aux `a` |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_pan` (get/set) | Channel's send pan to aux `a`. Only meaningful when aux `a` is stereo; CLMix hides the control and skips the query on a mono bus |
 | `/Input_Channels/{n}/Aux_Send/{a}/send_on` (get/set) | Whether channel `n` is in aux `a`'s mix at all (`0.0` = out). What the phone apps' per-channel Mute button drives, since it affects only that one aux mix - unlike `/Input_Channels/{n}/mute` above, which cuts the source everywhere. |
+| `/Input_Channels/{n}/EQ/eq_in` (get/set) | EQ in/out |
+| `/Input_Channels/{n}/EQ/eq_on_{b}`, `eq_freq_{b}`, `eq_gain_{b}`, `eq_Q_{b}` (get/set), `eq_curve_{b}` (get only) | The four EQ bands, `b` = 1..4. Read, with the filters below, for every strip in mixer mode - each phone strip draws its EQ in miniature - and edited on the phone's EQ screen. `eq_curve` is reported but never written - only `1` has ever been observed, and its other values are unmapped |
+| `/Input_Channels/{n}/Filters/lo_filter_in`, `lo_filter_freq`, `hi_filter_in`, `hi_filter_freq` (get/set) | The EQ screen's high-pass (`lo_filter`) and low-pass (`hi_filter`) |
+| `/Input_Channels/{n}/Dynamics/comp_in`, `gate_in` (get/set) | Compressor and gate in/out. Read, with `comp_thresh_1`, `comp_ratio_1`, `comp_gain_1`, `gate_thresh` and `gate_range`, for every strip in mixer mode - each phone strip draws both sections' curves in miniature |
+| `/Input_Channels/{n}/Dynamics/comp_thresh_1`, `comp_ratio_1`, `comp_attack_1`, `comp_release_1`, `comp_gain_1`, `gate_thresh`, `gate_range`, `gate_attack`, `gate_hold`, `gate_release` (get/set) | The phone Dynamics screen's dials, read for the one channel whose screen is open. `_1` is the compressor's whole setting in its single-band mode |
+| `/Input_Channels/{n}/Dynamics/comp-multiband-desser`, `gate-duck-comp`, `comp_knee_1` (get only) | The two section modes and the knee: reported to the Dynamics screen, never written - their values have not been mapped |
 | `/Meters/clear`, `/Meters/request/{slot}` | Meter subscription for the visible strips: one slot on `.../post_meter/left` for a mono channel, two (`left` and `right`) for a stereo one |
 | `/Snapshots/Current_Snapshot/?` | Currently recalled snapshot number |
 | `/Snapshots/names/?` | Broadcasts `/Snapshots/name [index, name]` per snapshot |
@@ -253,7 +259,7 @@ Show Backup (`services/show_backup.py`) speaks these on top, all of them added f
 | `/Macros/names/?` | Macro names, saved for a rebuild; nothing writes them back |
 | `/Snapshots/End_Recall_Snapshot` (listened for) | When it is safe to start reading after a recall |
 
-Newly discovered below (channel EQ, dynamics, gate, delay, input gain/phantom/pad, routing to groups/matrix, aux/group/matrix bus processing, DCAs, graphic EQs, multitrack returns) is **not yet wired into the app** - it's everything else the console exposes.
+Newly discovered below (channel EQ and dynamics aside, now used as above - the rest of dynamics, gate, delay, input gain/phantom/pad, routing to groups/matrix, aux/group/matrix bus processing, DCAs, graphic EQs, multitrack returns) is **not yet wired into the app** - it's everything else the console exposes.
 
 ## Names are snapshot state
 

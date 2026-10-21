@@ -48,6 +48,21 @@
             android:name=".MixerControlActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboardHidden" />
+        <!-- Fixed landscape: the EQ graph's frequency axis wants the
+             width. sensorLandscape so it turns either way round with the
+             phone, rather than insisting on one side. -->
+        <activity
+            android:name=".EqActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboardHidden" />
+        <!-- Landscape for the same reason as the EQ: the transfer graph
+             and five dials want the width. -->
+        <activity
+            android:name=".DynamicsActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboardHidden" />
         <activity
             android:name=".AuxListActivity"
             android:exported="false"

@@ -46,13 +46,6 @@ extension Color {
         light: UIColor(red: 0xE5 / 255, green: 0x47 / 255, blue: 0x3F / 255, alpha: 1),
         dark: UIColor(red: 0xFF / 255, green: 0x6B / 255, blue: 0x62 / 255, alpha: 1)
     )
-    // The same hue at 45% brightness, which is what the hard-mute breath
-    // fades towards. Fading to the inactive grey instead would read as
-    // the mute releasing rather than as a warning.
-    static let clmixMuteActiveDim = Color(
-        light: UIColor(red: 0x67 / 255, green: 0x1F / 255, blue: 0x1C / 255, alpha: 1),
-        dark: UIColor(red: 0x72 / 255, green: 0x30 / 255, blue: 0x2C / 255, alpha: 1)
-    )
     // The little black readout beside a dial on the channel input sheet.
     // Deliberately black in both palettes rather than a themed surface:
     // it is a meter-style readout, the way a console prints its own
@@ -100,6 +93,16 @@ extension Color {
         light: UIColor(red: 0x9B / 255, green: 0xA0 / 255, blue: 0xA8 / 255, alpha: 1),
         dark: UIColor.white
     )
+
+    // The EQ screen: one colour per band and one for both filters, kept
+    // the same on the graph's handles and on the chips that select them.
+    // Mid-brightness hues that hold up on both surfaces, so one value
+    // serves both themes. Mirrors Android's eq_band_* colours.
+    static let clmixEqBandLF = Color(red: 0xF0 / 255, green: 0x7A / 255, blue: 0x2E / 255)
+    static let clmixEqBandLMF = Color(red: 0xD9 / 255, green: 0xA4 / 255, blue: 0x00 / 255)
+    static let clmixEqBandHMF = Color(red: 0x21 / 255, green: 0xA8 / 255, blue: 0x70 / 255)
+    static let clmixEqBandHF = Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xF6 / 255)
+    static let clmixEqFilter = Color(red: 0x9B / 255, green: 0x6C / 255, blue: 0xF0 / 255)
 
     private init(light: UIColor, dark: UIColor) {
         self = Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light })

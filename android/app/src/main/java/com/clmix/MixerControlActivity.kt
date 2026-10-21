@@ -21,7 +21,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.clmix.databinding.ActivityMixerControlBinding
 
 private const val STATE_BANK = "bank"
-private const val STATE_HARD_MUTE = "hardMute"
 
 // As MixerActivity: four bank buttons a row, and a panel animation short
 // enough to read as a control rather than a transition.
@@ -40,6 +39,9 @@ private const val BANK_PANEL_ANIM_MS = 100L
  *
  * What is deliberately absent, because it belongs to mixing one send:
  * the aux picker sheet and presets.
+ *
+ * Each strip also carries an EQ button under its name, which opens that
+ * channel's EQ full screen (EqActivity).
  */
 class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerControlBinding
@@ -54,13 +56,6 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     private var panSheet: PanBottomSheet? = null
     private var inputSheet: ChannelInputBottomSheet? = null
 
-    // Session-only, and off on every fresh entry to this screen: hard
-    // mute reaches every monitor mix, so it should be something the
-    // operator turns on for a reason rather than something left on from
-    // last time. Carried across a rebuild (a theme switch, a rotation)
-    // so it does not drop out from under a hand mid-show.
-    private var hardMute = false
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMixerControlBinding.inflate(layoutInflater)
@@ -68,7 +63,6 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         enterFullScreen()
 
         selectedBank = savedInstanceState?.getString(STATE_BANK)
-        hardMute = savedInstanceState?.getBoolean(STATE_HARD_MUTE) ?: false
 
         adapter = ChannelAdapter(
             onLevelChanged = { channel, db -> MixerClient.setLevel(channel, db) },
@@ -79,9 +73,11 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             },
             onPanButtonClicked = { channel -> showPanSheet(channel) },
             onMuteToggled = { channel, muted ->
-                MixerClient.setMute(channel, muted, hard = hardMute)
+                MixerClient.setMute(channel, muted)
             },
-            onChannelNumberClicked = { channel -> showChannelInputSheet(channel) }
+            onChannelNumberClicked = { channel -> showChannelInputSheet(channel) },
+            onEqClicked = { channel -> openEq(channel) },
+            onDynamicsClicked = { channel, comp -> openDynamics(channel, comp) }
         )
 
         // Both are the console's own controls, and Full Mixer Control is
@@ -95,7 +91,10 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         // The console's own numbering, above each name - see
         // ChannelAdapter.showChannelNumber.
         adapter.showChannelNumber = true
-        adapter.hardMute = hardMute
+
+        // The meter sits beside the name here, small, leaving the fader
+        // row to the fader - see ChannelAdapter.meterBesideName.
+        adapter.meterBesideName = true
 
         binding.channelRecycler.layoutManager =
             LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
@@ -145,15 +144,6 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             ThemeStore.setDarkMode(this, isChecked)
         }
 
-        // Checked state before the listener, as with Dark mode: the
-        // assignment fires it, and a rebuild would otherwise replay the
-        // restored state as a fresh tap.
-        binding.hardMuteSwitch.isChecked = hardMute
-        binding.hardMuteSwitch.setOnCheckedChangeListener { _, isChecked ->
-            hardMute = isChecked
-            adapter.hardMute = isChecked
-        }
-
         // Back to the AUX Only / Mixer Control choice, which is still
         // underneath in the back stack - finishing returns to it rather
         // than building a second copy. The session stays up; only this
@@ -178,7 +168,6 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString(STATE_BANK, selectedBank)
-        outState.putBoolean(STATE_HARD_MUTE, hardMute)
     }
 
     override fun onResume() {
@@ -254,6 +243,21 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
         inputSheet = sheet
         sheet.show()
+    }
+
+    // The EQ is its own landscape screen rather than a sheet: a frequency
+    // graph needs the width. The sheets are closed first so coming back
+    // lands on the strips, not on a sheet for some other channel.
+    private fun openEq(channel: ChannelState) {
+        dismissPanSheet()
+        dismissInputSheet()
+        EqActivity.start(this, channel)
+    }
+
+    private fun openDynamics(channel: ChannelState, comp: Boolean) {
+        dismissPanSheet()
+        dismissInputSheet()
+        DynamicsActivity.start(this, channel, comp)
     }
 
     private fun dismissInputSheet() {
@@ -352,6 +356,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
     override fun onMeters(sequence: Long, meters: Map<Int, MeterLevels>) {
         adapter.updateMeters(sequence, meters, binding.channelRecycler)
+        inputSheet?.updateMeter(sequence, meters)
     }
 
     override fun onDisconnected() {

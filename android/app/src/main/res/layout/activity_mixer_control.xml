@@ -135,23 +135,6 @@
             android:saveEnabled="false"
             android:textColor="?attr/colorOnSurface" />
 
-        <!-- Hard mute assembles something the console has no single
-             control for on an input channel: the channel mute plus every
-             aux send dropped, so the channel leaves the monitors as well
-             as the room. Sits directly above the way out of this screen,
-             since both are decisions about leaving something behind. -->
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/hard_mute_switch"
-            style="@style/Widget.Material3.CompoundButton.MaterialSwitch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="14dp"
-            android:layout_marginTop="10dp"
-            android:minHeight="48dp"
-            android:text="Hard mute"
-            android:saveEnabled="false"
-            android:textColor="?attr/colorOnSurface" />
-
         <!-- Back returns to the AUX Only / Mixer Control choice; Log Out
              ends the session outright. Side by side because they are the
              same kind of action at different depths. -->

@@ -1,14 +1,11 @@
 package com.clmix
 
-import android.animation.ArgbEvaluator
-import android.animation.ValueAnimator
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.SeekBar
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -31,7 +28,15 @@ class ChannelAdapter(
     // including Full Mixer Control - a socket riding the main mix is
     // looking at what every other surface is looking at, and renaming
     // there means renaming on the console (onChannelNumberClicked above).
-    private val onNameLongPressed: ((ChannelState) -> Unit)? = null
+    private val onNameLongPressed: ((ChannelState) -> Unit)? = null,
+    // Only Full Mixer Control passes this: the EQ button under the name,
+    // which opens the channel's EQ screen. Null everywhere else, where
+    // the button is not shown - an aux mix has no EQ of its own to
+    // reach from a channel strip.
+    private val onEqClicked: ((ChannelState) -> Unit)? = null,
+    // Only Full Mixer Control passes this either: COMP and GATE under the
+    // EQ, opening the Dynamics screen on the compressor (true) or gate.
+    private val onDynamicsClicked: ((ChannelState, Boolean) -> Unit)? = null
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     // "Fine" mode (toggled from MixerActivity's top bar): while on, the
@@ -75,12 +80,10 @@ class ChannelAdapter(
             }
         }
 
-    // Hard mute (Full Mixer Control's drawer): a muted channel is not
-    // only down in the room but out of every monitor mix too. A far
-    // bigger thing to have done by accident than an ordinary mute, so a
-    // strip muted under it pulses rather than sitting still - the one
-    // state on this screen worth catching out of the corner of an eye.
-    var hardMute: Boolean = false
+    // Full Mixer Control moves the meter up beside the channel name, as a
+    // small bar the height of the name, and gives the fader row back the
+    // space it took. The aux screens keep it beside the fader.
+    var meterBesideName: Boolean = false
         set(value) {
             if (field != value) {
                 field = value
@@ -110,6 +113,8 @@ class ChannelAdapter(
     private val displayedName = mutableMapOf<Int, String>()
     private val displayedPan = mutableMapOf<Int, Double?>()
     private val displayedMuted = mutableMapOf<Int, Boolean>()
+    private val displayedEq = mutableMapOf<Int, ChannelEq?>()
+    private val displayedDyn = mutableMapOf<Int, ChannelDynamics?>()
 
     // A mute tap flips the button straight away rather than waiting for
     // the console's echo to travel back through the desktop app's cache
@@ -142,8 +147,11 @@ class ChannelAdapter(
         }
     }
 
+    private fun meterOf(holder: ViewHolder): ChannelMeterView =
+        if (meterBesideName) holder.binding.nameMeter else holder.binding.channelMeter
+
     private fun applyMeter(holder: ViewHolder, channel: ChannelState) {
-        val meter = holder.binding.channelMeter
+        val meter = meterOf(holder)
         meter.setStereo(channel.stereo)
 
         val levels = meters[channel.channel] ?: return
@@ -201,29 +209,16 @@ class ChannelAdapter(
 
             val nameChanged = displayedName[channel.channel] != channel.name
 
-            if (progressChanged || panChanged || muteChanged || nameChanged) {
+            val eqChanged = displayedEq[channel.channel] != channel.eq ||
+                displayedDyn[channel.channel] != channel.dynamics
+
+            if (progressChanged || panChanged || muteChanged || nameChanged || eqChanged) {
                 notifyItemChanged(index, PAYLOAD_UPDATE)
             }
         }
     }
 
-    inner class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {
-        // Held per strip so it can be stopped when the strip stops being
-        // muted, is rebound to another channel, or scrolls off screen -
-        // an animator left running on a recycled view would pulse the
-        // wrong channel.
-        var mutePulse: ValueAnimator? = null
-
-        fun stopMutePulse() {
-            mutePulse?.cancel()
-            mutePulse = null
-        }
-    }
-
-    override fun onViewRecycled(holder: ViewHolder) {
-        super.onViewRecycled(holder)
-        holder.stopMutePulse()
-    }
+    inner class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemChannelBinding.inflate(
@@ -318,6 +313,27 @@ class ChannelAdapter(
             }
         })
 
+        holder.binding.eqButton.setOnClickListener {
+            val adapterPosition = holder.bindingAdapterPosition
+            if (adapterPosition != RecyclerView.NO_POSITION) {
+                onEqClicked?.invoke(channels[adapterPosition])
+            }
+        }
+
+        holder.binding.compButton.setOnClickListener {
+            val adapterPosition = holder.bindingAdapterPosition
+            if (adapterPosition != RecyclerView.NO_POSITION) {
+                onDynamicsClicked?.invoke(channels[adapterPosition], true)
+            }
+        }
+
+        holder.binding.gateButton.setOnClickListener {
+            val adapterPosition = holder.bindingAdapterPosition
+            if (adapterPosition != RecyclerView.NO_POSITION) {
+                onDynamicsClicked?.invoke(channels[adapterPosition], false)
+            }
+        }
+
         holder.binding.panButton.setOnClickListener {
             val adapterPosition = holder.bindingAdapterPosition
             if (adapterPosition != RecyclerView.NO_POSITION) {
@@ -385,7 +401,9 @@ class ChannelAdapter(
         holder.binding.channelName.text = channel.name
         displayedName[channel.channel] = channel.name
 
-        holder.binding.channelMeter.setStereo(channel.stereo)
+        holder.binding.nameMeter.visibility = if (meterBesideName) View.VISIBLE else View.GONE
+        holder.binding.channelMeter.visibility = if (meterBesideName) View.GONE else View.VISIBLE
+        meterOf(holder).setStereo(channel.stereo)
 
         holder.binding.channelNumber.text = channel.channel.toString()
         holder.binding.channelNumber.visibility =
@@ -453,6 +471,20 @@ class ChannelAdapter(
         val muted = effectiveMuted(channel)
         displayedMuted[channel.channel] = muted
         applyMuteAppearance(holder, muted)
+
+        holder.binding.eqButton.visibility =
+            if (onEqClicked != null) View.VISIBLE else View.GONE
+        displayedEq[channel.channel] = channel.eq
+        holder.binding.eqButton.eq = channel.eq
+
+        val dynVisibility = if (onDynamicsClicked != null) View.VISIBLE else View.GONE
+        holder.binding.compButton.visibility = dynVisibility
+        holder.binding.gateButton.visibility = dynVisibility
+        displayedDyn[channel.channel] = channel.dynamics
+        holder.binding.compButton.comp = true
+        holder.binding.compButton.section = channel.dynamics?.comp
+        holder.binding.gateButton.comp = false
+        holder.binding.gateButton.section = channel.dynamics?.gate
     }
 
     // What this channel's Mute button should read right now: the pushed
@@ -478,8 +510,6 @@ class ChannelAdapter(
         val binding = holder.binding
         val context = binding.root.context
 
-        holder.stopMutePulse()
-
         // The label stays "MUTE" in both states - it names the button,
         // it does not report the state. Colour carries that, which reads
         // faster across a row of strips than reading four characters on
@@ -494,45 +524,6 @@ class ChannelAdapter(
                 context, if (muted) R.color.on_primary else R.color.on_mute_inactive
             )
         )
-
-        if (muted && hardMute) {
-            startMutePulse(holder)
-        }
-    }
-
-    /**
-     * Breathes the Mute button between its red and a dimmed version of
-     * the same red while a hard mute is in force.
-     *
-     * Deliberately a fade rather than a blink: it has to register in
-     * peripheral vision across a row of strips without becoming the thing
-     * the eye keeps snapping back to during a show.
-     */
-    private fun startMutePulse(holder: ViewHolder) {
-        val context = holder.binding.root.context
-        val full = ContextCompat.getColor(context, R.color.mute_active)
-
-        // Same hue, dropped in brightness - fading towards the inactive
-        // grey instead would read as the mute releasing.
-        val dimmed = Color.rgb(
-            (Color.red(full) * PULSE_DIM_FACTOR).toInt(),
-            (Color.green(full) * PULSE_DIM_FACTOR).toInt(),
-            (Color.blue(full) * PULSE_DIM_FACTOR).toInt()
-        )
-
-        holder.mutePulse = ValueAnimator.ofObject(ArgbEvaluator(), full, dimmed).apply {
-            duration = PULSE_MS
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            interpolator = AccelerateDecelerateInterpolator()
-
-            addUpdateListener { animator ->
-                holder.binding.muteButton.backgroundTintList =
-                    ColorStateList.valueOf(animator.animatedValue as Int)
-            }
-
-            start()
-        }
     }
 
     // Called from MixerActivity whenever channel_recycler's own height
@@ -584,11 +575,6 @@ class ChannelAdapter(
     override fun getItemCount() = channels.size
 
     companion object {
-        // One breath in or out; a full cycle is twice this.
-        private const val PULSE_MS = 750L
-        private const val PULSE_DIM_FACTOR = 0.45f
-
-
         private const val SEEK_MAX = 1000
         private const val PAYLOAD_UPDATE = "update"
 

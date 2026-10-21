@@ -124,10 +124,23 @@ struct ChannelInputSheet: View {
                 nameRow
                     .padding(.bottom, 16)
 
-                HStack(alignment: .top, spacing: 16) {
-                    mainColumn
-                    altColumn
+                // The columns, with the channel's meter down their right-
+                // hand side: from just under the name and polarity row to
+                // the foot of the dials, so it reads the signal those
+                // dials are setting without rising past the polarity
+                // button. Mirrors Android's input_meter.
+                HStack(alignment: .top, spacing: 14) {
+                    HStack(alignment: .top, spacing: 16) {
+                        mainColumn
+                        altColumn
+                    }
+
+                    ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                        .frame(width: 10)
+                        .frame(maxHeight: .infinity)
+                        .allowsHitTesting(false)
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 24)
             .padding(.top, 10)

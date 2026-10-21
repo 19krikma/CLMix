@@ -10,8 +10,9 @@ import SwiftUI
 /// server checks it again on every write.
 ///
 /// What is deliberately absent, because it belongs to mixing one send:
-/// the aux picker sheet and presets. Mirrors Android's
-/// MixerControlActivity.
+/// the aux picker sheet and presets. Each strip also carries an EQ button
+/// under its name, which opens that channel's EQ full screen (EqView).
+/// Mirrors Android's MixerControlActivity.
 struct MixerControlView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var themeStore: ThemeStore
@@ -64,9 +65,28 @@ struct MixerControlView: View {
         .navigationBarHidden(true)
         .sheet(isPresented: $showMenu) { menuSheet }
         .sheet(item: $openInput) { open in inputSheet(for: open.id) }
+        // The EQ is its own full-screen, landscape view rather than a
+        // sheet: a frequency graph needs the width. AppModel turns the
+        // screen on its side as it opens.
+        .fullScreenCover(isPresented: eqBinding) { EqView().environmentObject(model) }
+        .fullScreenCover(isPresented: dynBinding) { DynamicsView().environmentObject(model) }
         // A bank switch can take the open channel off screen entirely,
         // leaving a sheet acting on a strip that is no longer there.
         .onChange(of: model.selectedBank) { _, _ in openInput = nil }
+    }
+
+    private var eqBinding: Binding<Bool> {
+        Binding(
+            get: { model.eqChannel != nil },
+            set: { if !$0 { model.closeEq() } }
+        )
+    }
+
+    private var dynBinding: Binding<Bool> {
+        Binding(
+            get: { model.dynChannel != nil },
+            set: { if !$0 { model.closeDynamics() } }
+        )
     }
 
     private var channelGrid: some View {
@@ -84,13 +104,17 @@ struct MixerControlView: View {
                         // the whole console is in reach here, and the
                         // number is how the desk itself refers to a strip.
                         showChannelNumber: true,
+                        // Small, beside the name, leaving the fader row to
+                        // the fader.
+                        meterBesideName: true,
                         panSupported: model.panSupported,
                         muteOffered: model.muteOffered,
-                        hardMuteArmed: model.hardMute,
                         onLevel: { model.setLevel(channel: channel.channel, db: $0) },
                         onPan: { model.setPan(channel: channel.channel, pan: $0) },
                         onMute: { model.setMute(channel: channel.channel, muted: $0) },
-                        onOpenInput: { openInput = OpenChannel(id: $0.channel) }
+                        onOpenInput: { openInput = OpenChannel(id: $0.channel) },
+                        onOpenEq: { model.openEq(channel: $0.channel) },
+                        onOpenDynamics: { model.openDynamics(channel: $0.channel, comp: $1) }
                     )
                     .equatable()
                 }
@@ -210,22 +234,6 @@ struct MixerControlView: View {
             Toggle("Dark mode", isOn: darkModeBinding)
                 .padding(.horizontal, 14)
                 .padding(.top, 16)
-
-            // Hard mute assembles something the console has no single
-            // control for on an input channel: the channel mute plus
-            // every aux send dropped, so the channel leaves the monitors
-            // as well as the room. Sits directly above the way out of
-            // this screen, since both are decisions about leaving
-            // something behind.
-            Toggle("Hard mute", isOn: $model.hardMute)
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
-
-            Text("Mutes the channel everywhere - the room and every monitor mix.")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.clmixOnSurfaceVariant)
-                .padding(.horizontal, 14)
-                .padding(.top, 4)
 
             // Back returns to the AUX Only / Mixer Control choice; Log Out
             // ends the session outright. Side by side because they are the

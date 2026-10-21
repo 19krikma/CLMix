@@ -24,6 +24,11 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidReceivePresets(_ names: [String])
     func mixerDidSavePreset(_ name: String)
     func mixerDidLoadPreset(_ name: String)
+    /// The open EQ screen's channel, on the levels cadence, for as long
+    /// as selectEq has one selected.
+    func mixerDidReceiveEq(_ eq: ChannelEq)
+    /// The open Dynamics screen's channel, on the levels cadence.
+    func mixerDidReceiveDynamics(_ dynamics: ChannelDynamics)
 }
 
 /// What AppModel drives, so a demo session (DemoMixer) can stand in for a
@@ -57,7 +62,11 @@ protocol MixerBackend: AnyObject {
     func selectBank(_ bank: String?)
     func setLevel(channel: Int, db: Double)
     func setPan(channel: Int, pan: Double)
-    func setMute(channel: Int, muted: Bool, hard: Bool)
+    func setMute(channel: Int, muted: Bool)
+    func selectEq(_ channel: Int?)
+    func setEq(channel: Int, _ write: EqWrite)
+    func selectDynamics(_ channel: Int?)
+    func setDynamics(channel: Int, _ write: DynWrite)
     func setGain(channel: Int, gain: Double)
     func setTrim(channel: Int, trim: Double)
     func setPhantom(channel: Int, phantom: Bool)
@@ -78,12 +87,12 @@ protocol MixerBackend: AnyObject {
 /// Talks to the CLMix desktop app's RemoteServer
 /// (services/remote_server.py) over a WebSocket, using the same JSON
 /// protocol the Android app's MixerClient.kt speaks: login/logout/
-/// list_auxes/list_banks/select_aux/select_mixer/select_bank/set_level/
-/// set_pan/set_mute/set_gain/set_trim/set_phantom/set_alt_gain/
-/// set_alt_phantom/set_alt_in/set_phase/set_name/
+/// list_auxes/list_banks/select_aux/select_mixer/select_bank/select_eq/
+/// select_dyn/set_level/set_pan/set_mute/set_eq/set_dyn/set_gain/set_trim/set_phantom/
+/// set_alt_gain/set_alt_phantom/set_alt_in/set_phase/set_name/
 /// set_personal_name/
 /// list_presets/save_preset/load_preset out, login_result/auxes/banks/
-/// levels/meters/presets/preset_saved/preset_loaded/error in.
+/// levels/eq/dynamics/meters/presets/preset_saved/preset_loaded/error in.
 ///
 /// The server rejects every action until a successful "login" - callers
 /// must send credentials via login() and wait for a true
@@ -287,12 +296,74 @@ final class MixerClient: NSObject, MixerBackend {
 
     /// In aux mode this mutes the channel in the selected mix only (the
     /// server writes the console's per-send on/off flag). In mixer mode it
-    /// writes the console's own channel mute - and with `hard` set, also
-    /// drops every aux send, taking the channel out of the monitors as
-    /// well as the room. The console has no single control for that on an
-    /// input channel; the server assembles it.
-    func setMute(channel: Int, muted: Bool, hard: Bool = false) {
-        send(["action": "set_mute", "channel": channel, "muted": muted, "hard": hard])
+    /// writes the console's own channel mute.
+    func setMute(channel: Int, muted: Bool) {
+        send(["action": "set_mute", "channel": channel, "muted": muted])
+    }
+
+    /// Opens (or, with nil, closes) one channel's EQ: from here on the
+    /// server follows each levels push with an "eq" frame for it. Mixer
+    /// mode only, like everything else that reaches the channel itself.
+    func selectEq(_ channel: Int?) {
+        send(["action": "select_eq", "channel": channel.map { $0 as Any } ?? NSNull()])
+    }
+
+    /// Opens (or, with nil, closes) one channel's Dynamics screen - the
+    /// same arrangement as selectEq, for a "dynamics" frame.
+    func selectDynamics(_ channel: Int?) {
+        send(["action": "select_dyn", "channel": channel.map { $0 as Any } ?? NSNull()])
+    }
+
+    func setDynamics(channel: Int, _ write: DynWrite) {
+        var payload: [String: Any] = ["action": "set_dyn", "channel": channel]
+
+        switch write {
+        case .compIn(let isIn):
+            payload["param"] = "comp_in"
+            payload["value"] = isIn
+        case .gateIn(let isIn):
+            payload["param"] = "gate_in"
+            payload["value"] = isIn
+        case .value(let param, let value):
+            payload["param"] = param.wireName
+            payload["value"] = value
+        }
+
+        send(payload)
+    }
+
+    func setEq(channel: Int, _ write: EqWrite) {
+        var payload: [String: Any] = ["action": "set_eq", "channel": channel]
+
+        switch write {
+        case .eqIn(let isIn):
+            payload["param"] = "eq_in"
+            payload["value"] = isIn
+        case .bandOn(let band, let on):
+            payload["param"] = "band_on"
+            payload["band"] = band
+            payload["value"] = on
+        case .freq(let band, let hz):
+            payload["param"] = "freq"
+            payload["band"] = band
+            payload["value"] = hz
+        case .gain(let band, let db):
+            payload["param"] = "gain"
+            payload["band"] = band
+            payload["value"] = db
+        case .q(let band, let q):
+            payload["param"] = "q"
+            payload["band"] = band
+            payload["value"] = q
+        case .filterIn(let lo, let isIn):
+            payload["param"] = lo ? "lo_filter_in" : "hi_filter_in"
+            payload["value"] = isIn
+        case .filterFreq(let lo, let hz):
+            payload["param"] = lo ? "lo_filter_freq" : "hi_filter_freq"
+            payload["value"] = hz
+        }
+
+        send(payload)
     }
 
     /// The channel's own input stage. Mixer mode only: a head amp feeds
@@ -520,10 +591,25 @@ final class MixerClient: NSObject, MixerBackend {
                         altGain: entry["alt_gain"] as? Double,
                         altPhantom: entry["alt_phantom"] as? Bool ?? false,
                         altIn: entry["alt_in"] as? Bool ?? false,
-                        altAvailable: entry["alt_available"] as? Bool ?? false
+                        altAvailable: entry["alt_available"] as? Bool ?? false,
+                        eqIn: entry["eq_in"] as? Bool,
+                        eq: (entry["eq_summary"] as? [Any]).flatMap {
+                            Self.parseEqSummary(channel: channel, $0)
+                        },
+                        compIn: entry["comp_in"] as? Bool,
+                        gateIn: entry["gate_in"] as? Bool,
+                        dynamics: (entry["dyn_summary"] as? [Any]).flatMap {
+                            Self.parseDynSummary(channel: channel, $0)
+                        }
                     )
                 }
                 delegate?.mixerDidReceiveLevels(aux: aux, channels: channels)
+
+            case "eq":
+                delegate?.mixerDidReceiveEq(Self.parseEq(json))
+
+            case "dynamics":
+                delegate?.mixerDidReceiveDynamics(Self.parseDynamics(json))
 
             case "meters":
                 // Positional [channel, peakL, rmsL, peakR, rmsR] rows -
@@ -573,6 +659,114 @@ final class MixerClient: NSObject, MixerBackend {
                 break
             }
         }
+    }
+}
+
+extension MixerClient {
+    /// Always all four bands, in console order, whatever arrived - a band
+    /// the server left out reads the same as one it has no values for.
+    /// Shared with DemoMixer so the demo's frames go through the same
+    /// reading a real server's do.
+    /// A strip's EQ from the positional row RemoteServer._eq_summary
+    /// sends: [eq_in, lo_in, lo_freq, hi_in, hi_freq, then on, freq, gain,
+    /// q, curve per band]. Nil for a row too short to be one.
+    static func parseEqSummary(channel: Int, _ row: [Any]) -> ChannelEq? {
+        let head = 5, perBand = 5
+        guard row.count >= head + EqRange.bandCount * perBand else { return nil }
+
+        func flag(_ i: Int) -> Bool? { (row[i] as? Int).map { $0 != 0 } }
+        func number(_ i: Int) -> Double? { row[i] as? Double }
+
+        let bands = (1...EqRange.bandCount).map { band -> EqBand in
+            let at = head + (band - 1) * perBand
+            return EqBand(
+                band: band, on: flag(at), freq: number(at + 1),
+                gain: number(at + 2), q: number(at + 3), curve: row[at + 4] as? Int
+            )
+        }
+
+        return ChannelEq(
+            channel: channel,
+            eqIn: flag(0),
+            bands: bands,
+            loFilter: EqFilter(isIn: flag(1), freq: number(2)),
+            hiFilter: EqFilter(isIn: flag(3), freq: number(4))
+        )
+    }
+
+    /// A strip's dynamics from RemoteServer._dyn_summary's positional row:
+    /// [comp_in, comp_thresh, comp_ratio, comp_gain, gate_in, gate_thresh,
+    /// gate_range]. Nil for a row too short to be one.
+    static func parseDynSummary(channel: Int, _ row: [Any]) -> ChannelDynamics? {
+        guard row.count >= 7 else { return nil }
+
+        func flag(_ i: Int) -> Bool? { (row[i] as? Int).map { $0 != 0 } }
+        func values(_ pairs: [(String, Int)]) -> [String: Double] {
+            var result: [String: Double] = [:]
+            for (key, i) in pairs {
+                if let value = row[i] as? Double { result[key] = value }
+            }
+            return result
+        }
+
+        return ChannelDynamics(
+            channel: channel,
+            comp: DynSection(isIn: flag(0), values: values([("thresh", 1), ("ratio", 2), ("gain", 3)])),
+            gate: DynSection(isIn: flag(4), values: values([("thresh", 5), ("range", 6)]))
+        )
+    }
+
+    static func parseDynamics(_ json: [String: Any]) -> ChannelDynamics {
+        func section(_ key: String, _ params: [DynParam]) -> DynSection {
+            let entry = json[key] as? [String: Any] ?? [:]
+            var values: [String: Double] = [:]
+            for param in params {
+                if let value = entry[param.key] as? Double { values[param.key] = value }
+            }
+            return DynSection(
+                isIn: entry["in"] as? Bool, values: values,
+                mode: entry["mode"] as? Int, knee: entry["knee"] as? Int
+            )
+        }
+
+        return ChannelDynamics(
+            channel: json["channel"] as? Int ?? 0,
+            comp: section("comp", DynParam.comp),
+            gate: section("gate", DynParam.gate)
+        )
+    }
+
+    static func parseEq(_ json: [String: Any]) -> ChannelEq {
+        let entries = json["bands"] as? [[String: Any]] ?? []
+        var byNumber: [Int: [String: Any]] = [:]
+        for entry in entries {
+            if let band = entry["band"] as? Int { byNumber[band] = entry }
+        }
+
+        let bands = (1...EqRange.bandCount).map { number -> EqBand in
+            guard let entry = byNumber[number] else { return EqBand(band: number) }
+            return EqBand(
+                band: number,
+                on: entry["on"] as? Bool,
+                freq: entry["freq"] as? Double,
+                gain: entry["gain"] as? Double,
+                q: entry["q"] as? Double,
+                curve: entry["curve"] as? Int
+            )
+        }
+
+        func filter(_ key: String) -> EqFilter {
+            let entry = json[key] as? [String: Any] ?? [:]
+            return EqFilter(isIn: entry["in"] as? Bool, freq: entry["freq"] as? Double)
+        }
+
+        return ChannelEq(
+            channel: json["channel"] as? Int ?? 0,
+            eqIn: json["eq_in"] as? Bool,
+            bands: bands,
+            loFilter: filter("lo_filter"),
+            hiFilter: filter("hi_filter")
+        )
     }
 }
 

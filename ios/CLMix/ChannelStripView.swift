@@ -34,13 +34,15 @@ struct ChannelStripView: View, Equatable {
     // whole console is in reach and the number is how the desk itself
     // refers to a strip.
     var showChannelNumber: Bool = false
+    // Full Mixer Control moves the meter up beside the channel name, as a
+    // small bar the height of the name, and gives the fader row back the
+    // space it took. The aux screens keep it beside the fader. Mirrors
+    // Android's ChannelAdapter.meterBesideName.
+    var meterBesideName: Bool = false
 
     // AppModel.panSupported / .muteOffered, resolved by the screen above.
     let panSupported: Bool
     let muteOffered: Bool
-    // Whether hard mute is switched on for this screen at all - a strip
-    // pulses only when it is also muted (see `hardMuted`).
-    var hardMuteArmed: Bool = false
     var personalizationAllowed: Bool = false
     var liveSnapshot: String? = nil
 
@@ -49,6 +51,13 @@ struct ChannelStripView: View, Equatable {
     let onMute: (Bool) -> Void
     var onPersonalName: ((String) -> Void)? = nil
     var onOpenInput: ((ChannelState) -> Void)? = nil
+    // Full Mixer Control only: the EQ button under the name, which opens
+    // the channel's EQ screen. Nil everywhere else, where the button is
+    // not drawn - an aux mix has no EQ of its own to reach from a strip.
+    var onOpenEq: ((ChannelState) -> Void)? = nil
+    // Full Mixer Control only, like onOpenEq: COMP and GATE under the EQ,
+    // opening the Dynamics screen on the compressor (true) or gate.
+    var onOpenDynamics: ((ChannelState, Bool) -> Void)? = nil
 
     @State private var showPanSheet = false
     @State private var showRenameAlert = false
@@ -75,21 +84,60 @@ struct ChannelStripView: View, Equatable {
             && lhs.fineMode == rhs.fineMode
             && lhs.alternate == rhs.alternate
             && lhs.showChannelNumber == rhs.showChannelNumber
+            && lhs.meterBesideName == rhs.meterBesideName
             && lhs.panSupported == rhs.panSupported
             && lhs.muteOffered == rhs.muteOffered
-            && lhs.hardMuteArmed == rhs.hardMuteArmed
             && lhs.personalizationAllowed == rhs.personalizationAllowed
             && lhs.liveSnapshot == rhs.liveSnapshot
             // Not state, but it decides whether the heading is a button
             // onto the input sheet or plain text.
             && (lhs.onOpenInput == nil) == (rhs.onOpenInput == nil)
+            && (lhs.onOpenEq == nil) == (rhs.onOpenEq == nil)
+            && (lhs.onOpenDynamics == nil) == (rhs.onOpenDynamics == nil)
     }
-
-    private var hardMuted: Bool { hardMuteArmed && channel.muted }
 
     var body: some View {
         VStack(spacing: 0) {
             heading
+
+            // The channel's EQ curve in miniature, and the button that
+            // opens it full size. Between the name and the fader, so the
+            // fader gives up the height rather than the buttons along the
+            // bottom moving.
+            if let onOpenEq {
+                Button { onOpenEq(channel) } label: {
+                    EqThumbView(eq: channel.eq)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("EQ")
+                .padding(.bottom, 6)
+            }
+
+            // The channel's dynamics in miniature: the compressor's curve
+            // over the gate's, stacked so each keeps the strip's full
+            // width. Drawn in the accent colour while that section is in;
+            // a tap opens the Dynamics screen on it.
+            if let onOpenDynamics {
+                Button { onOpenDynamics(channel, true) } label: {
+                    DynThumbView(comp: true, section: channel.dynamics?.comp)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Compressor")
+                .padding(.bottom, 4)
+
+                Button { onOpenDynamics(channel, false) } label: {
+                    DynThumbView(comp: false, section: channel.dynamics?.gate)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Gate")
+                .padding(.bottom, 6)
+            }
 
             faderRow
 
@@ -111,7 +159,7 @@ struct ChannelStripView: View, Equatable {
                 // waiting for the console's echo (see AppModel.setMute) -
                 // the server stays the authority on what's actually
                 // muted.
-                tonalButton("MUTE", active: channel.muted, pulsed: hardMuted) {
+                tonalButton("MUTE", active: channel.muted) {
                     onMute(!channel.muted)
                 }
                 .padding(.top, 6)
@@ -196,31 +244,45 @@ struct ChannelStripView: View, Equatable {
         }
     }
 
+    /// The number over the name, with the meter beside both on Full
+    /// Mixer Control - a small bar running from the number down to the
+    /// foot of the name, out of the way of the fader below.
     private var headingLabel: some View {
-        VStack(spacing: 0) {
-            if showChannelNumber {
-                Text("\(channel.channel)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.clmixOnSurfaceVariant)
-                    .lineLimit(1)
+        HStack(alignment: .top, spacing: 3) {
+            VStack(spacing: 0) {
+                if showChannelNumber {
+                    Text("\(channel.channel)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.clmixOnSurfaceVariant)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                }
+
+                // Two lines always, not just when a name needs them: the
+                // fader below takes whatever height is left, so a strip
+                // whose name wraps would otherwise end up with a shorter
+                // fader than its neighbours and a Mute button sitting at a
+                // different height along the row.
+                Text(channel.name)
+                    .font(.system(size: 12, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2, reservesSpace: true)
+                    .truncationMode(.tail)
+                    .foregroundStyle(Color.clmixOnSurface)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
             }
 
-            // Two lines always, not just when a name needs them: the
-            // fader below takes whatever height is left, so a strip whose
-            // name wraps would otherwise end up with a shorter fader than
-            // its neighbours and a Mute button sitting at a different
-            // height along the row.
-            Text(channel.name)
-                .font(.system(size: 12, weight: .bold))
-                .multilineTextAlignment(.center)
-                .lineLimit(2, reservesSpace: true)
-                .truncationMode(.tail)
-                .foregroundStyle(Color.clmixOnSurface)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 4)
+            if meterBesideName {
+                ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                    .frame(width: 7)
+                    .frame(maxHeight: .infinity)
+                    .padding(.top, 4)
+                    .allowsHitTesting(false)
+            }
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.bottom, 4)
         .contentShape(Rectangle())
     }
 
@@ -261,16 +323,18 @@ struct ChannelStripView: View, Equatable {
             // Beside the fader rather than against its ruler: this is
             // the console's own 0..-60 dB scale, not the fader's
             // -150..+10, and the two are not interchangeable.
-            ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
-                .frame(width: 10)
-                .padding(.leading, -8)
-                .allowsHitTesting(false)
+            if !meterBesideName {
+                ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                    .frame(width: 10)
+                    .padding(.leading, -8)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func tonalButton(
-        _ title: String, active: Bool = false, pulsed: Bool = false,
+        _ title: String, active: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -281,52 +345,7 @@ struct ChannelStripView: View, Equatable {
                 .frame(height: 34)
         }
         .foregroundStyle(active ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
-        .background { buttonFill(active: active, pulsed: pulsed) }
+        .background(active ? Color.clmixMuteActive : Color.clmixMuteInactive)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    @ViewBuilder
-    private func buttonFill(active: Bool, pulsed: Bool) -> some View {
-        if pulsed {
-            HardMutePulse()
-        } else {
-            active ? Color.clmixMuteActive : Color.clmixMuteInactive
-        }
-    }
-}
-
-/// Breathes between the mute red and a dimmed version of the same red
-/// while a hard mute is in force.
-///
-/// A hard mute is not only down in the room but out of every monitor mix
-/// too - a far bigger thing to have done by accident than an ordinary
-/// mute, so a strip muted under it moves rather than sitting still.
-/// Deliberately a fade rather than a blink: it has to register in
-/// peripheral vision across a row of strips without becoming the thing
-/// the eye keeps snapping back to during a show. Fading towards the
-/// inactive grey instead would read as the mute releasing, so it fades
-/// towards the same hue at lower brightness.
-///
-/// A view of its own so the repeating animation starts from its own
-/// onAppear: driven off a flag on the strip, it would only ever run for
-/// strips that were already muted when the screen was built, and sit
-/// frozen on whichever end it started at for the rest.
-private struct HardMutePulse: View {
-    // One breath in or out; a full cycle is twice this.
-    private static let pulseSeconds = 0.75
-
-    @State private var dimmed = false
-
-    var body: some View {
-        // The dim is faded in over the full red rather than the two
-        // colours being swapped: an opacity change interpolates, where
-        // exchanging one Color view for another can simply cut.
-        Color.clmixMuteActive
-            .overlay(Color.clmixMuteActiveDim.opacity(dimmed ? 1 : 0))
-            .animation(
-                .easeInOut(duration: Self.pulseSeconds).repeatForever(autoreverses: true),
-                value: dimmed
-            )
-            .onAppear { dimmed = true }
     }
 }

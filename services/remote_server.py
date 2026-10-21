@@ -46,6 +46,51 @@ HEAD_AMP_RANGES = {
     "trim": (-40.0, 40.0),
 }
 
+# The channel EQ Full Mixer Control's EQ screen edits: four parametric
+# bands plus the high- and low-pass filters ahead of them. Ranges are the
+# official app's parameter dictionary (docs/mixer_protocol/PROTOCOL.md,
+# "The iPad app's parameter dictionary"); writes are clamped to them here
+# so a phone can never put a value on the desk its own dial could not.
+# Frequencies are Hz on the wire even where the desk's dial reads kHz.
+EQ_BANDS = 4
+EQ_RANGES = {
+    "freq": (20.0, 20000.0),
+    "gain": (-18.0, 18.0),
+    "q": (0.1, 20.0),
+}
+
+# The channel dynamics the Dynamics screen edits: the compressor's first
+# band (the whole compressor in its ordinary single-band mode) and the
+# gate. Each entry is (wire leaf, range); ranges are the official app's
+# dictionary, times in seconds (PROTOCOL.md, "Units"). Writes are clamped
+# to them here, as the EQ's are.
+#
+# Deliberately absent: the knee, the compressor's multiband/de-esser mode
+# and the gate slot's gate/duck/comp mode are enums whose values have
+# never been seen to mean anything on a desk, so - as with eq_curve -
+# they are reported but never written.
+DYN_PARAMS = {
+    "comp_thresh": ("comp_thresh_1", (-60.0, 0.0)),
+    "comp_ratio": ("comp_ratio_1", (1.0, 50.0)),
+    "comp_attack": ("comp_attack_1", (0.00002, 0.1)),
+    "comp_release": ("comp_release_1", (0.001, 10.0)),
+    "comp_gain": ("comp_gain_1", (0.0, 40.0)),
+    "gate_thresh": ("gate_thresh", (-60.0, 0.0)),
+    "gate_range": ("gate_range", (0.0, 90.0)),
+    "gate_attack": ("gate_attack", (0.00005, 0.1)),
+    "gate_hold": ("gate_hold", (0.002, 2.0)),
+    "gate_release": ("gate_release", (0.005, 10.0)),
+}
+
+# The dynamics a strip's COMP and GATE thumbnails draw, in the order
+# _dyn_summary sends them: each section in or out, and the settings that
+# shape its static curve. Attack, release and hold shape time rather
+# than level, so a thumbnail has no use for them.
+DYN_SUMMARY_LEAVES = (
+    "comp_in", "comp_thresh_1", "comp_ratio_1", "comp_gain_1",
+    "gate_in", "gate_thresh", "gate_range",
+)
+
 # Meters get their own, faster loop. The console streams them at ~29Hz
 # and they are the one thing on the strip that has to look continuous -
 # at the 150ms of the levels push a meter reads as a row of steps rather
@@ -162,13 +207,6 @@ class RemoteServer:
         # client_list(), which is fine for a dict whose entries are only
         # ever swapped whole.
         self._clients = {}
-
-        # Channels currently hard-muted from a phone, and what each aux
-        # send was carrying when that happened, so unmuting can put them
-        # back rather than simply switching everything on. Server-wide
-        # rather than per-client: two phones looking at the same channel
-        # have to agree about what a hard mute is hiding.
-        self._hard_muted = {}
 
         # Set while CLMix is in DiGiCo App mode, to the reason every phone
         # is given: connected ones are sent it and dropped by their push
@@ -412,6 +450,12 @@ class RemoteServer:
             "mode": "aux",
             "aux": None, "bank": None, "user": None, "permission": None,
             "token": None,
+            # The channel whose EQ screen this phone has open, or None.
+            # Only ever set in mixer mode; while it is, the push loop
+            # follows each levels frame with that channel's EQ.
+            "eq_channel": None,
+            # The same for the Dynamics screen: its channel, or None.
+            "dyn_channel": None,
             # Last worker.snapshot_epoch this client has been re-primed
             # for. None until it picks an aux, since there is nothing to
             # prime before that.
@@ -526,6 +570,8 @@ class RemoteServer:
 
             state["mode"] = "aux"
             state["aux"] = aux
+            state["eq_channel"] = None
+            state["dyn_channel"] = None
             self._request_channel_states(worker, state)
             self._claim_meters(worker, state)
 
@@ -545,6 +591,8 @@ class RemoteServer:
             # that dispatch and someone's monitor mix.
             state["mode"] = "mixer"
             state["aux"] = None
+            state["eq_channel"] = None
+            state["dyn_channel"] = None
             self._request_channel_states(worker, state)
             self._claim_meters(worker, state)
 
@@ -653,6 +701,55 @@ class RemoteServer:
             else:
                 self._set_name(state, msg.get("channel"), msg.get("name"))
 
+        elif action in ("select_dyn", "set_dyn"):
+            # The channel's dynamics, behind the same gate as its EQ.
+            if not self._in_mixer_mode(state):
+                await self._send(
+                    websocket,
+                    {"type": "error", "message": "Not permitted for mixer control"}
+                )
+                return
+
+            if action == "select_dyn":
+                channel = self._valid_channel(worker, msg.get("channel"))
+                state["dyn_channel"] = channel
+
+                if channel is not None:
+                    self._request_dyn_state(channel)
+                return
+
+            if await self._reject_write(websocket, worker, state, entry):
+                return
+
+            self._set_dyn(worker, msg.get("channel"), msg.get("param"),
+                          msg.get("value"))
+
+        elif action in ("select_eq", "set_eq"):
+            # A channel's EQ belongs to the channel, exactly as its head
+            # amp does: it shapes what FOH, every monitor and the
+            # recording hear at once. So it lives behind the same gate -
+            # mixer mode, with the permission checked on every write.
+            if not self._in_mixer_mode(state):
+                await self._send(
+                    websocket,
+                    {"type": "error", "message": "Not permitted for mixer control"}
+                )
+                return
+
+            if action == "select_eq":
+                channel = self._valid_channel(worker, msg.get("channel"))
+                state["eq_channel"] = channel
+
+                if channel is not None:
+                    self._request_eq_state(channel)
+                return
+
+            if await self._reject_write(websocket, worker, state, entry):
+                return
+
+            self._set_eq(worker, msg.get("channel"), msg.get("param"),
+                         msg.get("band"), msg.get("value"))
+
         elif action == "set_personal_name":
             # The mirror image of set_name above: that one writes the
             # console's own name field and is refused outside mixer mode,
@@ -700,10 +797,10 @@ class RemoteServer:
                 )
                 return
 
-            self._set_mute(
-                state, msg.get("channel"), msg.get("muted"),
-                hard=bool(msg.get("hard", False)), worker=worker
-            )
+            # A "hard" flag from a build that still offered hard mute is
+            # ignored: the feature is gone, and its mute is an ordinary
+            # channel mute like any other.
+            self._set_mute(state, msg.get("channel"), msg.get("muted"))
 
         elif action == "list_presets":
             if not entry.get("presets", False):
@@ -1046,6 +1143,12 @@ class RemoteServer:
                 state["snapshot_epoch"] = worker.snapshot_epoch
                 self._request_channel_states(worker, state)
 
+                if state.get("eq_channel") is not None:
+                    self._request_eq_state(state["eq_channel"])
+
+                if state.get("dyn_channel") is not None:
+                    self._request_dyn_state(state["dyn_channel"])
+
             channels = self._channels_for(worker, state)
 
             if self._in_mixer_mode(state):
@@ -1079,6 +1182,26 @@ class RemoteServer:
 
             try:
                 await self._send(websocket, payload)
+
+                # The open EQ screen's channel, on the levels cadence.
+                # Its own frame rather than a field on every row: only
+                # one channel's EQ is ever on screen, and twenty-odd
+                # values per strip would be most of each levels frame.
+                eq_channel = state.get("eq_channel")
+
+                if self._in_mixer_mode(state) and eq_channel is not None:
+                    await self._send(websocket, {
+                        "type": "eq",
+                        **self._eq_state(worker, eq_channel),
+                    })
+
+                dyn_channel = state.get("dyn_channel")
+
+                if self._in_mixer_mode(state) and dyn_channel is not None:
+                    await self._send(websocket, {
+                        "type": "dynamics",
+                        **self._dyn_state(worker, dyn_channel),
+                    })
             except websockets.ConnectionClosed:
                 return
 
@@ -1188,6 +1311,16 @@ class RemoteServer:
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/main/alt_in/?"
                 )
+                # The whole EQ, which each strip draws in miniature as its
+                # EQ button - see _eq_summary.
+                self._request_eq_state(channel)
+                # What the strip's COMP and GATE thumbnails draw - see
+                # _dyn_summary. The rest of the dynamics is asked for only
+                # when its screen opens.
+                for leaf in DYN_SUMMARY_LEAVES:
+                    self.command_queue.put(
+                        f"/Input_Channels/{channel}/Dynamics/{leaf}/?"
+                    )
 
             return
 
@@ -1453,7 +1586,7 @@ class RemoteServer:
     # the console echoes the change back like any other parameter move,
     # and the push loop reports it from there, so the phone only ever
     # shows state the console has actually confirmed.
-    def _set_mute(self, state, channel, muted, hard=False, worker=None):
+    def _set_mute(self, state, channel, muted):
         if channel is None or muted is None:
             return
 
@@ -1465,16 +1598,6 @@ class RemoteServer:
             self.command_queue.put(
                 f"/Input_Channels/{channel}/mute {1.0 if muted else 0.0}"
             )
-
-            # The console has no hard_mute on an input channel - it only
-            # carries one on aux/group/matrix *outputs* (see
-            # docs/mixer_protocol). So a hard mute here is assembled: the
-            # channel mute above, plus every aux send dropped, which is
-            # what takes the channel out of the monitors as well as the
-            # room.
-            if hard and worker is not None:
-                self._apply_hard_mute(worker, channel, muted)
-
             return
 
         aux = state.get("aux")
@@ -1487,57 +1610,172 @@ class RemoteServer:
             f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on {send_on}"
         )
 
-    def _apply_hard_mute(self, worker, channel, muted):
-        """Drops (or restores) every aux send for a hard-muted channel.
+    @staticmethod
+    def _valid_channel(worker, channel):
+        """channel as an int if the console has an input by that number."""
+        try:
+            channel = int(channel)
+        except (TypeError, ValueError):
+            return None
 
-        What each send was carrying is remembered at mute time and put
-        back on unmute, so a channel deliberately left out of one
-        performer's wedge does not reappear there when the hard mute
-        lifts.
+        count_args = worker.cache.get("/Console/Input_Channels")
 
-        The values come from the desktop's cache, which holds a send only
-        once the console has reported it - and in mixer mode nothing
-        primes the sends, since the phone is riding channel faders. An
-        unreported send is taken as on, the same reading _channel_states
-        gives it, so the failure mode is a send coming back on rather than
-        one silently staying off. The queries fired below fix that for the
-        next time this channel is hard-muted.
+        try:
+            count = int(count_args[0]) if count_args else None
+        except (TypeError, ValueError):
+            count = None
+
+        if channel < 1 or (count is not None and channel > count):
+            return None
+
+        return channel
+
+    def _request_eq_state(self, channel):
+        """Primes the cache for everything _eq_state reports.
+
+        The same reason as _request_channel_states: the console only
+        announces a parameter when it changes, so an EQ nobody has
+        touched this session would open with nothing on it. Asked for
+        leaf by leaf rather than with a strip dump, which would drag the
+        whole channel - dynamics, sends and all - across the link for
+        one panel.
         """
-        aux_count = len(worker.cache.get("/Console/Aux_Outputs/modes", []))
+        prefix = f"/Input_Channels/{channel}"
+        self.command_queue.put(f"{prefix}/EQ/eq_in/?")
 
-        if aux_count == 0:
+        for band in range(1, EQ_BANDS + 1):
+            for leaf in ("eq_on", "eq_freq", "eq_gain", "eq_Q", "eq_curve"):
+                self.command_queue.put(f"{prefix}/EQ/{leaf}_{band}/?")
+
+        for side in ("lo", "hi"):
+            self.command_queue.put(f"{prefix}/Filters/{side}_filter_in/?")
+            self.command_queue.put(f"{prefix}/Filters/{side}_filter_freq/?")
+
+    def _request_dyn_state(self, channel):
+        """Primes the cache for everything _dyn_state reports.
+
+        gate_hold, gate_range and gate-duck-comp are among the leaves a
+        strip dump leaves out (PROTOCOL.md, "Parameters a strip dump
+        leaves out"), which is one more reason to ask leaf by leaf.
+        """
+        prefix = f"/Input_Channels/{channel}/Dynamics"
+
+        for leaf in ("comp_in", "gate_in", "comp-multiband-desser",
+                     "gate-duck-comp", "comp_knee_1"):
+            self.command_queue.put(f"{prefix}/{leaf}/?")
+
+        for leaf, _ in DYN_PARAMS.values():
+            self.command_queue.put(f"{prefix}/{leaf}/?")
+
+    def _set_dyn(self, worker, channel, param, value):
+        """Writes one dynamics parameter: comp_in, gate_in, or a DYN_PARAMS key."""
+        channel = self._valid_channel(worker, channel)
+
+        if channel is None or value is None:
             return
 
-        if muted:
-            previous = {}
+        prefix = f"/Input_Channels/{channel}/Dynamics"
 
-            for aux in range(1, aux_count + 1):
-                key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on"
-                previous[aux] = (
-                    float(worker.cache[key][0]) if key in worker.cache else 1.0
-                )
-                self.command_queue.put(
-                    f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on 0.0"
-                )
-                self.command_queue.put(f"{key}/?")
-
-            self._hard_muted[channel] = previous
-            log("info", f"Hard mute on channel {channel}: "
-                f"{aux_count} aux sends dropped")
+        if param in ("comp_in", "gate_in"):
+            self.command_queue.put(f"{prefix}/{param} {1.0 if value else 0.0}")
             return
 
-        previous = self._hard_muted.pop(channel, None)
+        if param not in DYN_PARAMS:
+            return
 
-        for aux in range(1, aux_count + 1):
-            # Nothing remembered (this server did not place the mute, or
-            # it restarted since) means every send goes back on, which is
-            # the console's own default for a send nobody has touched.
-            value = 1.0 if previous is None else previous.get(aux, 1.0)
-            self.command_queue.put(
-                f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on {value}"
-            )
+        leaf, bounds = DYN_PARAMS[param]
+        # Times go to the microsecond, so a 20 us attack survives.
+        wire = self._clamped(value, bounds, 6)
 
-        log("info", f"Hard mute lifted on channel {channel}")
+        if wire is not None:
+            self.command_queue.put(f"{prefix}/{leaf} {wire}")
+
+    # Band parameters and the address leaf each one writes. The rest of
+    # set_eq's vocabulary (eq_in and the two filters) has no band.
+    _EQ_BAND_LEAVES = {
+        "band_on": "eq_on",
+        "freq": "eq_freq",
+        "gain": "eq_gain",
+        "q": "eq_Q",
+    }
+
+    _EQ_FILTER_LEAVES = {
+        "lo_filter_in": "lo_filter_in",
+        "lo_filter_freq": "lo_filter_freq",
+        "hi_filter_in": "hi_filter_in",
+        "hi_filter_freq": "hi_filter_freq",
+    }
+
+    def _set_eq(self, worker, channel, param, band, value):
+        """Writes one EQ or filter parameter on an input channel.
+
+        param is one of eq_in, band_on, freq, gain, q (those four with
+        band 1..EQ_BANDS), lo_filter_in, lo_filter_freq, hi_filter_in,
+        hi_filter_freq. Flags go out as 0.0/1.0 and numbers are clamped to
+        EQ_RANGES - the console itself clamps nothing it is sent. Nothing
+        is written to the cache; the console's echo is what the next push
+        reports, as with every other write here.
+        """
+        channel = self._valid_channel(worker, channel)
+
+        if channel is None or value is None:
+            return
+
+        prefix = f"/Input_Channels/{channel}"
+
+        if param == "eq_in":
+            self.command_queue.put(f"{prefix}/EQ/eq_in {1.0 if value else 0.0}")
+            return
+
+        if param in self._EQ_FILTER_LEAVES:
+            leaf = self._EQ_FILTER_LEAVES[param]
+
+            if param.endswith("_in"):
+                wire = 1.0 if value else 0.0
+            else:
+                wire = self._clamped(value, EQ_RANGES["freq"], 1)
+
+            if wire is not None:
+                self.command_queue.put(f"{prefix}/Filters/{leaf} {wire}")
+            return
+
+        leaf = self._EQ_BAND_LEAVES.get(param)
+
+        try:
+            band = int(band)
+        except (TypeError, ValueError):
+            return
+
+        if leaf is None or not 1 <= band <= EQ_BANDS:
+            return
+
+        if param == "band_on":
+            wire = 1.0 if value else 0.0
+        elif param == "freq":
+            wire = self._clamped(value, EQ_RANGES["freq"], 1)
+        elif param == "gain":
+            wire = self._clamped(value, EQ_RANGES["gain"], 2)
+        else:
+            wire = self._clamped(value, EQ_RANGES["q"], 3)
+
+        if wire is not None:
+            self.command_queue.put(f"{prefix}/EQ/{leaf}_{band} {wire}")
+
+    @staticmethod
+    def _clamped(value, bounds, digits):
+        if isinstance(value, bool):
+            return None
+
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        if number != number:  # NaN
+            return None
+
+        low, high = bounds
+        return round(min(high, max(low, number)), digits)
 
     async def _save_preset(self, websocket, worker, state, name):
         name = (name or "").strip()
@@ -1913,9 +2151,191 @@ class RemoteServer:
                 "alt_in": alt_in,
                 "alt_available": cls._alt_available(worker, channel),
                 "stereo": worker.channel_is_stereo(channel),
+                "eq_in": cls._cached_flag(
+                    worker, f"/Input_Channels/{channel}/EQ/eq_in"
+                ),
+                "eq_summary": cls._eq_summary(worker, channel),
+                "comp_in": cls._cached_flag(
+                    worker, f"/Input_Channels/{channel}/Dynamics/comp_in"
+                ),
+                "gate_in": cls._cached_flag(
+                    worker, f"/Input_Channels/{channel}/Dynamics/gate_in"
+                ),
+                "dyn_summary": cls._dyn_summary(worker, channel),
             })
 
         return states
+
+    @staticmethod
+    def _cached_number(worker, key, digits):
+        args = worker.cache.get(key)
+
+        if not args:
+            return None
+
+        try:
+            return round(float(args[0]), digits)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _cached_flag(worker, key):
+        """A 0/1 parameter as a bool, or None until the console reports it."""
+        args = worker.cache.get(key)
+
+        if not args:
+            return None
+
+        try:
+            return bool(float(args[0]))
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _dyn_summary(cls, worker, channel):
+        """The strip thumbnails' dynamics as one flat list, positional for
+        the same reason as _eq_summary - it rides every strip of every
+        levels frame:
+
+            [comp_in, comp_thresh, comp_ratio, comp_gain,
+             gate_in, gate_thresh, gate_range]
+
+        Flags are 0/1, and anything unreported is null.
+        """
+        prefix = f"/Input_Channels/{channel}/Dynamics"
+        row = []
+
+        for leaf in DYN_SUMMARY_LEAVES:
+            if leaf.endswith("_in"):
+                value = cls._cached_flag(worker, f"{prefix}/{leaf}")
+                row.append(None if value is None else int(value))
+            else:
+                row.append(cls._cached_number(worker, f"{prefix}/{leaf}", 2))
+
+        return row
+
+    @classmethod
+    def _dyn_state(cls, worker, channel):
+        """One input channel's compressor and gate, as the Dynamics screen
+        shows them. None for anything the console has not reported.
+
+        The two mode enums and the knee are sent as the console's own
+        numbers, for the screen to name but never to write - see
+        DYN_PARAMS.
+        """
+        prefix = f"/Input_Channels/{channel}/Dynamics"
+
+        def enum(leaf):
+            args = worker.cache.get(f"{prefix}/{leaf}")
+            try:
+                return round(float(args[0])) if args else None
+            except (TypeError, ValueError):
+                return None
+
+        def section(name):
+            values = {
+                key[len(name) + 1:]: cls._cached_number(worker, f"{prefix}/{leaf}", 6)
+                for key, (leaf, _) in DYN_PARAMS.items()
+                if key.startswith(name + "_")
+            }
+            values["in"] = cls._cached_flag(worker, f"{prefix}/{name}_in")
+            return values
+
+        comp = section("comp")
+        comp["mode"] = enum("comp-multiband-desser")
+        comp["knee"] = enum("comp_knee_1")
+
+        gate = section("gate")
+        gate["mode"] = enum("gate-duck-comp")
+
+        return {"channel": channel, "comp": comp, "gate": gate}
+
+    @classmethod
+    def _eq_summary(cls, worker, channel):
+        """The channel's EQ as one flat list, for the strip's thumbnail.
+
+        Positional rather than _eq_state's named shape because it rides
+        every strip of every levels frame, where field names would be
+        most of the payload:
+
+            [eq_in, lo_in, lo_freq, hi_in, hi_freq,
+             then per band 1..EQ_BAND_COUNT: on, freq, gain, q, curve]
+
+        Flags are 0/1, and anything the console has not reported is null,
+        exactly as in _eq_state.
+        """
+        eq = cls._eq_state(worker, channel)
+
+        def flag(value):
+            return None if value is None else int(value)
+
+        row = [
+            flag(eq["eq_in"]),
+            flag(eq["lo_filter"]["in"]), eq["lo_filter"]["freq"],
+            flag(eq["hi_filter"]["in"]), eq["hi_filter"]["freq"],
+        ]
+
+        for band in eq["bands"]:
+            row += [flag(band["on"]), band["freq"], band["gain"],
+                    band["q"], band["curve"]]
+
+        return row
+
+    @classmethod
+    def _eq_state(cls, worker, channel):
+        """One input channel's EQ and filters, as the EQ screen draws them.
+
+        Every value is None until the console has answered for it, which
+        the phone reads as "nothing to show yet" - a band with no
+        frequency is left off the graph rather than drawn at some default
+        the desk does not hold.
+
+        Bands are numbered as the console numbers them. On every channel
+        captured, band 1 sat highest and band 4 lowest, but that is how
+        those channels were set rather than a rule, so the phone places
+        each band by its frequency and never by its number.
+
+        eq_curve is an enum over 1..4 whose values have never been seen to
+        mean anything in particular - every sample ever captured read 1.
+        So, as with phase, it is reported but never written (set_eq has no
+        "curve"): the wrong number on a live desk would reshape a band
+        nobody asked to touch.
+        """
+        prefix = f"/Input_Channels/{channel}"
+        bands = []
+
+        for band in range(1, EQ_BANDS + 1):
+            curve_args = worker.cache.get(f"{prefix}/EQ/eq_curve_{band}")
+
+            try:
+                curve = round(float(curve_args[0])) if curve_args else None
+            except (TypeError, ValueError):
+                curve = None
+
+            bands.append({
+                "band": band,
+                "on": cls._cached_flag(worker, f"{prefix}/EQ/eq_on_{band}"),
+                "freq": cls._cached_number(worker, f"{prefix}/EQ/eq_freq_{band}", 1),
+                "gain": cls._cached_number(worker, f"{prefix}/EQ/eq_gain_{band}", 2),
+                "q": cls._cached_number(worker, f"{prefix}/EQ/eq_Q_{band}", 3),
+                "curve": curve,
+            })
+
+        def side(name):
+            return {
+                "in": cls._cached_flag(worker, f"{prefix}/Filters/{name}_filter_in"),
+                "freq": cls._cached_number(
+                    worker, f"{prefix}/Filters/{name}_filter_freq", 1
+                ),
+            }
+
+        return {
+            "channel": channel,
+            "eq_in": cls._cached_flag(worker, f"{prefix}/EQ/eq_in"),
+            "bands": bands,
+            "lo_filter": side("lo"),
+            "hi_filter": side("hi"),
+        }
 
     @staticmethod
     async def _send(websocket, payload):

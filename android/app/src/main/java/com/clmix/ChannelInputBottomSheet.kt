@@ -108,6 +108,7 @@ class ChannelInputBottomSheet(
 
     init {
         dialog.setContentView(binding.root)
+        binding.inputMeter.setStereo(initial.stereo)
 
         // The name box is the first focusable thing on the sheet, and
         // would otherwise take focus - and the keyboard - the moment it
@@ -342,8 +343,20 @@ class ChannelInputBottomSheet(
      * Folds in a push from the server, unless that control has just been
      * changed by hand.
      */
+    /** This channel's row of a meter frame, if the frame carries one. */
+    fun updateMeter(sequence: Long, meters: Map<Int, MeterLevels>) {
+        val levels = meters[channel] ?: return
+        binding.inputMeter.setLevels(
+            sequence,
+            levels.leftPeak, levels.leftRms,
+            levels.rightPeak, levels.rightRms
+        )
+    }
+
     fun update(state: ChannelState) {
         if (state.channel != channel) return
+
+        binding.inputMeter.setStereo(state.stereo)
 
         val box = binding.inputChannelName
         if (name.reconcile(state.name, NAME_CONFIRM_MS) && !box.hasFocus()) {

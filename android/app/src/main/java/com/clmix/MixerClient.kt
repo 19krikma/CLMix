@@ -45,17 +45,25 @@ interface MixerClientListener {
      *  to pick from. Both arrive together because the editor needs both
      *  and neither is worth a round trip of its own. */
     fun onCustomBanks(banks: List<CustomBank>, channels: List<BankChannel>) {}
+
+    /** The open EQ screen's channel, on the levels cadence, for as long
+     *  as selectEq() has one selected. */
+    fun onEq(eq: ChannelEq) {}
+
+    /** The open Dynamics screen's channel, on the levels cadence. */
+    fun onDynamics(dynamics: ChannelDynamics) {}
 }
 
 /**
  * Talks to the CLMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
  * protocol: login/logout/list_auxes/list_banks/select_aux/select_mixer/
- * select_bank/
- * set_level/set_pan/set_mute/set_personal_name/
+ * select_bank/select_eq/select_dyn/
+ * set_level/set_pan/set_mute/set_eq/set_dyn/set_personal_name/
  * list_presets/save_preset/load_preset out,
- * login_result/auxes/banks/levels/presets/preset_saved/preset_loaded/error
- * in.
+ * login_result/auxes/banks/levels/eq/dynamics/presets/preset_saved/
+ * preset_loaded/
+ * error in.
  *
  * The server rejects every action until a successful "login" - callers
  * must send credentials via login() (or a saved token via
@@ -383,16 +391,12 @@ object MixerClient {
 
     // In aux mode this mutes the channel in the selected mix only (the
     // server writes the console's per-send on/off flag). In mixer mode it
-    // writes the console's own channel mute - and with hard set, also
-    // drops every aux send, taking the channel out of the monitors as
-    // well as the room. The console has no single control for that on an
-    // input channel; the server assembles it.
-    fun setMute(channel: Int, muted: Boolean, hard: Boolean = false) = send(
+    // writes the console's own channel mute.
+    fun setMute(channel: Int, muted: Boolean) = send(
         JSONObject()
             .put("action", "set_mute")
             .put("channel", channel)
             .put("muted", muted)
-            .put("hard", hard)
     )
 
     // The channel's own input stage. Mixer mode only: a head amp feeds
@@ -452,6 +456,70 @@ object MixerClient {
             .put("action", "set_phase")
             .put("channel", channel)
             .put("phase", phase)
+    )
+
+    /**
+     * Opens (or, with null, closes) one channel's EQ: from here on the
+     * server follows each levels push with an "eq" frame for it. Mixer
+     * mode only, like everything else that reaches the channel itself.
+     */
+    fun selectEq(channel: Int?) = send(
+        JSONObject()
+            .put("action", "select_eq")
+            .put("channel", channel ?: JSONObject.NULL)
+    )
+
+    /** EQ in/out for the whole section. */
+    fun setEqIn(channel: Int, isIn: Boolean) = sendEq(channel, "eq_in", null, isIn)
+
+    fun setEqBandOn(channel: Int, band: Int, on: Boolean) =
+        sendEq(channel, "band_on", band, on)
+
+    fun setEqFreq(channel: Int, band: Int, hz: Double) = sendEq(channel, "freq", band, hz)
+
+    fun setEqGain(channel: Int, band: Int, db: Double) = sendEq(channel, "gain", band, db)
+
+    fun setEqQ(channel: Int, band: Int, q: Double) = sendEq(channel, "q", band, q)
+
+    /** lo is the high-pass (it cuts the lows), hi the low-pass. */
+    fun setFilterIn(channel: Int, lo: Boolean, isIn: Boolean) =
+        sendEq(channel, if (lo) "lo_filter_in" else "hi_filter_in", null, isIn)
+
+    fun setFilterFreq(channel: Int, lo: Boolean, hz: Double) =
+        sendEq(channel, if (lo) "lo_filter_freq" else "hi_filter_freq", null, hz)
+
+    private fun sendEq(channel: Int, param: String, band: Int?, value: Any) {
+        val msg = JSONObject()
+            .put("action", "set_eq")
+            .put("channel", channel)
+            .put("param", param)
+            .put("value", value)
+
+        if (band != null) msg.put("band", band)
+        send(msg)
+    }
+
+    /** Opens (or, with null, closes) one channel's Dynamics screen - the
+     *  same arrangement as selectEq, for a "dynamics" frame. */
+    fun selectDynamics(channel: Int?) = send(
+        JSONObject()
+            .put("action", "select_dyn")
+            .put("channel", channel ?: JSONObject.NULL)
+    )
+
+    fun setCompIn(channel: Int, isIn: Boolean) = sendDyn(channel, "comp_in", isIn)
+
+    fun setGateIn(channel: Int, isIn: Boolean) = sendDyn(channel, "gate_in", isIn)
+
+    fun setDynamics(channel: Int, param: DynParam, value: Double) =
+        sendDyn(channel, param.wireName, value)
+
+    private fun sendDyn(channel: Int, param: String, value: Any) = send(
+        JSONObject()
+            .put("action", "set_dyn")
+            .put("channel", channel)
+            .put("param", param)
+            .put("value", value)
     )
 
     // Renames the channel on the console itself - every surface and every
@@ -600,6 +668,15 @@ object MixerClient {
                         altPhantom = o.optBoolean("alt_phantom", false),
                         altIn = o.optBoolean("alt_in", false),
                         altAvailable = o.optBoolean("alt_available", false),
+                        eqIn = o.optBoolOrNull("eq_in"),
+                        eq = o.optJSONArray("eq_summary")?.let {
+                            parseEqSummary(o.getInt("channel"), it)
+                        },
+                        compIn = o.optBoolOrNull("comp_in"),
+                        gateIn = o.optBoolOrNull("gate_in"),
+                        dynamics = o.optJSONArray("dyn_summary")?.let {
+                            parseDynSummary(o.getInt("channel"), it)
+                        },
                         // phase_state is the console's value, 0..3. An
                         // older server sends only the "phase" bool, which
                         // cannot tell 3 from 1 - falling back to it loses
@@ -637,6 +714,16 @@ object MixerClient {
                 meterSequence++
                 val sequence = meterSequence
                 onMain { listener?.onMeters(sequence, map) }
+            }
+
+            "eq" -> {
+                val eq = parseEq(json)
+                onMain { listener?.onEq(eq) }
+            }
+
+            "dynamics" -> {
+                val dynamics = parseDynamics(json)
+                onMain { listener?.onDynamics(dynamics) }
             }
 
             "custom_banks" -> {
@@ -682,6 +769,108 @@ object MixerClient {
         }
     }
 
+    private fun parseEq(json: JSONObject): ChannelEq {
+        val arr = json.optJSONArray("bands") ?: JSONArray()
+        val byNumber = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+            .associateBy { it.optInt("band") }
+
+        // Always all four, in console order, whatever arrived - a band the
+        // server left out reads the same as one it has no values for.
+        val bands = (1..EQ_BAND_COUNT).map { band ->
+            val o = byNumber[band] ?: return@map EqBand(band)
+            EqBand(
+                band = band,
+                on = o.optBoolOrNull("on"),
+                freq = o.optDoubleOrNull("freq"),
+                gain = o.optDoubleOrNull("gain"),
+                q = o.optDoubleOrNull("q"),
+                curve = if (o.isNull("curve")) null else o.optInt("curve")
+            )
+        }
+
+        fun filter(key: String): EqFilter {
+            val o = json.optJSONObject(key) ?: return EqFilter()
+            return EqFilter(o.optBoolOrNull("in"), o.optDoubleOrNull("freq"))
+        }
+
+        return ChannelEq(
+            channel = json.optInt("channel"),
+            eqIn = json.optBoolOrNull("eq_in"),
+            bands = bands,
+            loFilter = filter("lo_filter"),
+            hiFilter = filter("hi_filter")
+        )
+    }
+
+    /**
+     * A strip's EQ from the positional row RemoteServer._eq_summary sends:
+     * [eq_in, lo_in, lo_freq, hi_in, hi_freq, then on, freq, gain, q,
+     * curve per band]. Null for a row too short to be one.
+     */
+    private fun parseEqSummary(channel: Int, row: JSONArray): ChannelEq? {
+        if (row.length() < EQ_SUMMARY_HEAD + EQ_BAND_COUNT * EQ_SUMMARY_BAND) return null
+
+        fun flag(i: Int): Boolean? = if (row.isNull(i)) null else row.optInt(i) != 0
+
+        val bands = (1..EQ_BAND_COUNT).map { band ->
+            val at = EQ_SUMMARY_HEAD + (band - 1) * EQ_SUMMARY_BAND
+            EqBand(
+                band = band,
+                on = flag(at),
+                freq = row.optDoubleOrNull(at + 1),
+                gain = row.optDoubleOrNull(at + 2),
+                q = row.optDoubleOrNull(at + 3),
+                curve = if (row.isNull(at + 4)) null else row.optInt(at + 4)
+            )
+        }
+
+        return ChannelEq(
+            channel = channel,
+            eqIn = flag(0),
+            bands = bands,
+            loFilter = EqFilter(flag(1), row.optDoubleOrNull(2)),
+            hiFilter = EqFilter(flag(3), row.optDoubleOrNull(4))
+        )
+    }
+
+    /**
+     * A strip's dynamics from RemoteServer._dyn_summary's positional row:
+     * [comp_in, comp_thresh, comp_ratio, comp_gain, gate_in, gate_thresh,
+     * gate_range]. Null for a row too short to be one.
+     */
+    private fun parseDynSummary(channel: Int, row: JSONArray): ChannelDynamics? {
+        if (row.length() < 7) return null
+
+        fun flag(i: Int): Boolean? = if (row.isNull(i)) null else row.optInt(i) != 0
+        fun values(vararg pairs: Pair<String, Int>) =
+            pairs.mapNotNull { (key, i) -> row.optDoubleOrNull(i)?.let { key to it } }.toMap()
+
+        return ChannelDynamics(
+            channel = channel,
+            comp = DynSection(flag(0), values("thresh" to 1, "ratio" to 2, "gain" to 3)),
+            gate = DynSection(flag(4), values("thresh" to 5, "range" to 6))
+        )
+    }
+
+    private fun parseDynamics(json: JSONObject): ChannelDynamics {
+        fun section(key: String, params: List<DynParam>): DynSection {
+            val o = json.optJSONObject(key) ?: return DynSection()
+            val values = params.mapNotNull { p -> o.optDoubleOrNull(p.key)?.let { p.key to it } }
+            return DynSection(
+                isIn = o.optBoolOrNull("in"),
+                values = values.toMap(),
+                mode = if (o.isNull("mode")) null else o.optInt("mode"),
+                knee = if (o.isNull("knee")) null else o.optInt("knee")
+            )
+        }
+
+        return ChannelDynamics(
+            channel = json.optInt("channel"),
+            comp = section("comp", DynParam.comp),
+            gate = section("gate", DynParam.gate)
+        )
+    }
+
     private fun onMain(action: () -> Unit) {
         mainHandler.post(action)
     }
@@ -713,8 +902,20 @@ data class MeterLevels(
     val rightRms: Double?
 )
 
+// The eq_summary row's shape: five leading values, then five per band.
+private const val EQ_SUMMARY_HEAD = 5
+private const val EQ_SUMMARY_BAND = 5
+
 private fun JSONArray.optDoubleOrNull(index: Int): Double? =
     if (isNull(index)) null else optDouble(index)
+
+// isNull is true for a missing key as well as an explicit null, so both
+// read as "not reported yet".
+private fun JSONObject.optDoubleOrNull(key: String): Double? =
+    if (isNull(key)) null else optDouble(key).takeUnless { it.isNaN() }
+
+private fun JSONObject.optBoolOrNull(key: String): Boolean? =
+    if (isNull(key)) null else optBoolean(key)
 
 // Head-amp dial ranges, in dB, used until a server states its own (see
 // MixerClient.gainRange). One range per parameter: the desk stores gain

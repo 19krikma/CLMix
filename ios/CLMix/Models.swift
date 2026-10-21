@@ -88,6 +88,24 @@ struct ChannelState: Identifiable, Hashable {
     // The alt controls stay disabled until it is.
     var altAvailable: Bool = false
 
+    // Whether the channel's EQ is switched in, which lights the strip's
+    // EQ button. Mixer mode only; nil until the console answers, or from
+    // a server too old to send it.
+    var eqIn: Bool? = nil
+
+    // The whole EQ, drawn in miniature as the strip's EQ button. Mixer
+    // mode only; nil from a server too old to send it.
+    var eq: ChannelEq? = nil
+
+    // Whether the compressor and the gate are in, which light the strip's
+    // COMP and GATE buttons. Mixer mode only; nil until reported.
+    var compIn: Bool? = nil
+    var gateIn: Bool? = nil
+
+    // What the COMP and GATE thumbnails draw: each section's in/out and
+    // the settings that shape its static curve. Mixer mode only.
+    var dynamics: ChannelDynamics? = nil
+
     var phaseInverted: Bool { phase != PhaseState.normal }
 
     var id: Int { channel }
@@ -127,4 +145,191 @@ struct BankChannel: Identifiable, Equatable {
     let name: String
 
     var id: Int { channel }
+}
+
+/// The channel EQ's shape and ranges, as the console's own parameter table
+/// states them (docs/mixer_protocol/PROTOCOL.md). Frequencies are Hz on
+/// the wire even where the desk's dial reads kHz. The server clamps every
+/// write to these too; they are here so the controls cannot sweep past
+/// them. Mirrors Android's EQ_* constants.
+enum EqRange {
+    static let bandCount = 4
+    static let freq = 20.0...20000.0
+    static let gain = -18.0...18.0
+    static let q = 0.1...20.0
+}
+
+/// One parametric band of a channel's EQ, numbered as the console numbers
+/// it (1...EqRange.bandCount). Every value is nil until the console has
+/// reported it - a band with no frequency yet is left off the graph rather
+/// than drawn somewhere the desk does not have it.
+///
+/// `curve` is the console's own enum, 1...4. Only 1 has ever been seen on
+/// a desk, so the app draws 1 as a bell and never writes the value - see
+/// EqResponse for how the others are drawn.
+struct EqBand: Hashable {
+    let band: Int
+    var on: Bool? = nil
+    var freq: Double? = nil
+    var gain: Double? = nil
+    var q: Double? = nil
+    var curve: Int? = nil
+}
+
+/// A high- or low-pass filter ahead of the EQ: switched in, and where.
+struct EqFilter: Hashable {
+    var isIn: Bool? = nil
+    var freq: Double? = nil
+}
+
+/// Everything the EQ screen shows for one input channel.
+struct ChannelEq: Hashable {
+    let channel: Int
+    var eqIn: Bool? = nil
+    var bands: [EqBand] = (1...EqRange.bandCount).map { EqBand(band: $0) }
+    var loFilter = EqFilter()
+    var hiFilter = EqFilter()
+}
+
+/// One EQ write, as the set_eq action carries it. `lo` picks the
+/// high-pass (the console's lo_filter - it cuts lows) over the low-pass.
+enum EqWrite {
+    case eqIn(Bool)
+    case bandOn(band: Int, Bool)
+    case freq(band: Int, Double)
+    case gain(band: Int, Double)
+    case q(band: Int, Double)
+    case filterIn(lo: Bool, Bool)
+    case filterFreq(lo: Bool, Double)
+}
+
+/// One section of a channel's dynamics - the compressor or the gate - as
+/// the Dynamics screen shows it. Values are keyed by DynParam.key; a value
+/// the console has not reported is absent.
+///
+/// `mode` is the console's own enum for what the section is running (the
+/// compressor: single-band, multiband or de-esser; the gate slot: gate,
+/// duck or compressor) and `knee` the compressor's knee. Neither has ever
+/// been seen to mean anything particular on a desk, so they are shown,
+/// never written. Mirrors Android's DynSection.
+struct DynSection: Hashable {
+    var isIn: Bool? = nil
+    var values: [String: Double] = [:]
+    var mode: Int? = nil
+    var knee: Int? = nil
+}
+
+struct ChannelDynamics: Hashable {
+    let channel: Int
+    var comp = DynSection()
+    var gate = DynSection()
+}
+
+/// The static curve each section makes: level out for level in, in dB.
+/// No knee, attack or release - those shape time rather than level. Shared
+/// by the Dynamics screen's graph and the strip thumbnails. Mirrors
+/// Android's DynResponse.
+enum DynResponse {
+    /// The gate: pulled down by its range below its threshold.
+    static func gate(_ section: DynSection, _ input: Double) -> Double {
+        guard section.isIn == true, let thresh = section.values["thresh"], input < thresh else {
+            return input
+        }
+        return input - (section.values["range"] ?? 0)
+    }
+
+    /// The compressor: bent over by its ratio above its threshold, then
+    /// lifted by its makeup gain.
+    static func comp(_ section: DynSection, _ input: Double) -> Double {
+        guard section.isIn == true, let thresh = section.values["thresh"] else { return input }
+        let ratio = max(1, section.values["ratio"] ?? 1)
+        let compressed = input > thresh ? thresh + (input - thresh) / ratio : input
+        return compressed + (section.values["gain"] ?? 0)
+    }
+
+    /// Both, in the console's order: gate first.
+    static func both(_ dynamics: ChannelDynamics, _ input: Double) -> Double {
+        comp(dynamics.comp, gate(dynamics.gate, input))
+    }
+}
+
+/// One dial on the Dynamics screen. Ranges are the console's own parameter
+/// table (docs/mixer_protocol/PROTOCOL.md); times are seconds on the wire.
+/// Log dials turn in octaves rather than in units - an attack running
+/// 20 us...100 ms would otherwise spend all its travel on the slow end.
+/// Mirrors Android's DynParam.
+enum DynParam: CaseIterable, Hashable {
+    case compThresh, compRatio, compAttack, compRelease, compGain
+    case gateThresh, gateRange, gateAttack, gateHold, gateRelease
+
+    static let comp: [DynParam] = [.compThresh, .compRatio, .compAttack, .compRelease, .compGain]
+    static let gate: [DynParam] = [.gateThresh, .gateRange, .gateAttack, .gateHold, .gateRelease]
+
+    var isComp: Bool { DynParam.comp.contains(self) }
+
+    var key: String {
+        switch self {
+        case .compThresh, .gateThresh: return "thresh"
+        case .compRatio: return "ratio"
+        case .compAttack, .gateAttack: return "attack"
+        case .compRelease, .gateRelease: return "release"
+        case .compGain: return "gain"
+        case .gateRange: return "range"
+        case .gateHold: return "hold"
+        }
+    }
+
+    /// The set_dyn param name: comp_thresh, gate_hold and so on.
+    var wireName: String { (isComp ? "comp_" : "gate_") + key }
+
+    var label: String { key == "thresh" ? "Thresh" : key.capitalized }
+
+    var range: ClosedRange<Double> {
+        switch self {
+        case .compThresh, .gateThresh: return -60...0
+        case .compRatio: return 1...50
+        case .compAttack: return 0.00002...0.1
+        case .compRelease: return 0.001...10
+        case .compGain: return 0...40
+        case .gateRange: return 0...90
+        case .gateAttack: return 0.00005...0.1
+        case .gateHold: return 0.002...2
+        case .gateRelease: return 0.005...10
+        }
+    }
+
+    var log: Bool {
+        switch key {
+        case "ratio", "attack", "release", "hold": return true
+        default: return false
+        }
+    }
+
+    var rate: Double {
+        switch key {
+        case "thresh", "gain": return 0.6
+        case "range": return 0.8
+        case "ratio": return 0.2
+        default: return 0.25
+        }
+    }
+
+    func format(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        switch key {
+        case "ratio": return String(format: "%.1f:1", value)
+        case "attack", "release", "hold":
+            if value < 0.01 { return String(format: "%.2f ms", value * 1000) }
+            if value < 1 { return String(format: "%.0f ms", value * 1000) }
+            return String(format: "%.2f s", value)
+        default: return String(format: "%.1f dB", value)
+        }
+    }
+}
+
+/// One dynamics write, as the set_dyn action carries it.
+enum DynWrite {
+    case compIn(Bool)
+    case gateIn(Bool)
+    case value(DynParam, Double)
 }

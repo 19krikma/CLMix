@@ -85,12 +85,21 @@ final class AppModel: NSObject, ObservableObject {
     // waiting on an App Store release; HeadAmpRange is the fallback.
     @Published var gainRange = HeadAmpRange.gain
     @Published var trimRange = HeadAmpRange.trim
-    // Hard mute (the mixer-control menu): a muted channel is not only
-    // down in the room but out of every monitor mix too. Session-only,
-    // and off on every fresh entry to that screen - it reaches every
-    // wedge, so it should be something the operator turns on for a
-    // reason rather than something left on from last time.
-    @Published var hardMute = false
+    // The channel whose EQ screen is open, and what that screen shows.
+    // Mixer Control only. `eq` is the desk's last frame with the phone's
+    // own value kept for anything it is still moving - see eqHeldUntil.
+    @Published var eqChannel: Int? {
+        didSet { updateLandscapeLock() }
+    }
+    @Published var eq: ChannelEq?
+
+    // The same pair for the Dynamics screen, and which of its two
+    // sections the strip button that opened it asked for.
+    @Published var dynChannel: Int? {
+        didSet { updateLandscapeLock() }
+    }
+    @Published var dynamics: ChannelDynamics?
+    @Published var dynOpenedOnComp = true
     @Published var presetNames: [String] = []
     @Published var discoveredServers: [DiscoveredServer] = []
     // True while the session is a local demo rather than a real console.
@@ -154,6 +163,23 @@ final class AppModel: NSObject, ObservableObject {
     }
     private var pendingMutes: [Int: PendingMute] = [:]
     private let muteConfirmTimeout: TimeInterval = 2
+
+    // The EQ screen's equivalent of pendingMutes, per value (see
+    // EqKey): when the desk's own reading of it is trusted again. While a
+    // handle is being dragged an in-flight echo of an older position
+    // would otherwise pull it back. Mirrors Android's EqActivity.
+    private var eqHeldUntil: [String: Date] = [:]
+    private let eqDragHold: TimeInterval = 0.4
+    private let eqToggleHold: TimeInterval = 2
+
+    // The latest write per value, sent at most every eqWriteInterval: a
+    // drag at 120 Hz would otherwise put over a hundred UDP packets a
+    // second on the console's link for one handle.
+    private var pendingEqWrites: [String: EqWrite] = [:]
+    private var eqFlushTask: Task<Void, Never>?
+    private var pendingDynWrites: [String: DynWrite] = [:]
+    private var dynFlushTask: Task<Void, Never>?
+    private let eqWriteInterval: UInt64 = 40_000_000
 
     /// The aux being mixed, resolved against the live aux list so its
     /// `stereo` flag is whatever the server last reported rather than
@@ -332,10 +358,8 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     /// "Mixer Control": the console's own channel faders, pans and mutes.
-    /// Hard mute deliberately starts off on every entry - see hardMute.
     func enterMixerControl() {
         channels = []
-        hardMute = false
         screen = .mixerControl
         backend.selectMixerControl()
         backend.requestBanks()
@@ -345,6 +369,8 @@ final class AppModel: NSObject, ObservableObject {
     /// session stays up; only the screen ends - and nothing is selected
     /// again until the next choice is made.
     func leaveMixerControl() {
+        closeEq()
+        closeDynamics()
         channels = []
         banks = []
         selectedBank = nil
@@ -418,10 +444,162 @@ final class AppModel: NSObject, ObservableObject {
         if let index = channels.firstIndex(where: { $0.channel == channel }) {
             channels[index].muted = muted
         }
-        // Hard mute only has meaning against the console's own channel
-        // mute, so it is never sent from an aux socket - the server
-        // refuses it there anyway.
-        backend.setMute(channel: channel, muted: muted, hard: isMixerMode && hardMute)
+        backend.setMute(channel: channel, muted: muted)
+    }
+
+    // MARK: - EQ
+
+    /// Opens one channel's EQ full screen, on its side. The server
+    /// follows each levels push with that channel's EQ from here on.
+    func openEq(channel: Int) {
+        guard isMixerMode else { return }
+        eqHeldUntil = [:]
+        pendingEqWrites = [:]
+        eq = ChannelEq(channel: channel)
+        eqChannel = channel
+        backend.selectEq(channel)
+    }
+
+    private func updateLandscapeLock() {
+        AppDelegate.lockedToLandscape = eqChannel != nil || dynChannel != nil
+    }
+
+    // MARK: - Dynamics
+
+    /// Opens one channel's compressor and gate full screen, on its side,
+    /// with `comp` deciding which section it opens on. The server follows
+    /// each levels push with that channel's dynamics from here on.
+    func openDynamics(channel: Int, comp: Bool) {
+        guard isMixerMode else { return }
+        eqHeldUntil = [:]
+        pendingDynWrites = [:]
+        dynamics = ChannelDynamics(channel: channel)
+        dynOpenedOnComp = comp
+        dynChannel = channel
+        backend.selectDynamics(channel)
+    }
+
+    func closeDynamics() {
+        guard dynChannel != nil else { return }
+        flushDynWrites()
+        if backend.isConnected { backend.selectDynamics(nil) }
+        dynChannel = nil
+        dynamics = nil
+    }
+
+    /// Applies one edit on screen straight away and queues it for the
+    /// desk, held against the desk's echo exactly as editEq is.
+    func editDynamics(_ write: DynWrite, toggle: Bool = false) {
+        guard dynChannel != nil, var current = dynamics else { return }
+
+        let key: String
+        switch write {
+        case .compIn(let isIn):
+            current.comp.isIn = isIn
+            key = "comp_in"
+        case .gateIn(let isIn):
+            current.gate.isIn = isIn
+            key = "gate_in"
+        case .value(let param, let value):
+            if param.isComp {
+                current.comp.values[param.key] = value
+            } else {
+                current.gate.values[param.key] = value
+            }
+            key = param.wireName
+        }
+
+        dynamics = current
+        eqHeldUntil["dyn:" + key] = Date().addingTimeInterval(toggle ? eqToggleHold : eqDragHold)
+        pendingDynWrites[key] = write
+
+        if toggle {
+            flushDynWrites()
+        } else if dynFlushTask == nil {
+            dynFlushTask = Task { [weak self, eqWriteInterval] in
+                try? await Task.sleep(nanoseconds: eqWriteInterval)
+                guard !Task.isCancelled else { return }
+                self?.flushDynWrites()
+            }
+        }
+    }
+
+    func flushDynWrites() {
+        dynFlushTask?.cancel()
+        dynFlushTask = nil
+
+        guard let channel = dynChannel else {
+            pendingDynWrites = [:]
+            return
+        }
+
+        let writes = pendingDynWrites.values
+        pendingDynWrites = [:]
+        for write in writes { backend.setDynamics(channel: channel, write) }
+    }
+
+    func closeEq() {
+        guard eqChannel != nil else { return }
+        flushEqWrites()
+        if backend.isConnected { backend.selectEq(nil) }
+        eqChannel = nil
+        eq = nil
+    }
+
+    /// Applies one edit on screen straight away and queues it for the
+    /// desk. `toggle` holds it longer: a tap has no further movement
+    /// coming to refresh the hold, as a drag does.
+    func editEq(_ write: EqWrite, toggle: Bool = false) {
+        guard eqChannel != nil, var current = eq else { return }
+
+        let key = EqKey.of(write)
+
+        func band(_ n: Int, _ change: (inout EqBand) -> Void) {
+            guard (1...current.bands.count).contains(n) else { return }
+            change(&current.bands[n - 1])
+        }
+
+        switch write {
+        case .eqIn(let isIn): current.eqIn = isIn
+        case .bandOn(let n, let on): band(n) { $0.on = on }
+        case .freq(let n, let hz): band(n) { $0.freq = hz }
+        case .gain(let n, let db): band(n) { $0.gain = db }
+        case .q(let n, let q): band(n) { $0.q = q }
+        case .filterIn(let lo, let isIn):
+            if lo { current.loFilter.isIn = isIn } else { current.hiFilter.isIn = isIn }
+        case .filterFreq(let lo, let hz):
+            if lo { current.loFilter.freq = hz } else { current.hiFilter.freq = hz }
+        }
+
+        eq = current
+        eqHeldUntil[key] = Date().addingTimeInterval(toggle ? eqToggleHold : eqDragHold)
+        pendingEqWrites[key] = write
+
+        if toggle {
+            flushEqWrites()
+        } else if eqFlushTask == nil {
+            eqFlushTask = Task { [weak self, eqWriteInterval] in
+                try? await Task.sleep(nanoseconds: eqWriteInterval)
+                guard !Task.isCancelled else { return }
+                self?.flushEqWrites()
+            }
+        }
+    }
+
+    /// Sends everything still waiting - at the end of a drag, so the last
+    /// position is never left stranded on the phone.
+    func flushEqWrites() {
+        eqFlushTask?.cancel()
+        eqFlushTask = nil
+
+        guard let channel = eqChannel else {
+            pendingEqWrites = [:]
+            return
+        }
+
+        let writes = pendingEqWrites.values
+        pendingEqWrites = [:]
+        for write in writes { backend.setEq(channel: channel, write) }
     }
 
     // The channel's input stage. Only ever reachable from the
@@ -537,7 +715,16 @@ final class AppModel: NSObject, ObservableObject {
         mixerControlAllowed = false
         gainRange = HeadAmpRange.gain
         trimRange = HeadAmpRange.trim
-        hardMute = false
+        eqFlushTask?.cancel()
+        eqFlushTask = nil
+        pendingEqWrites = [:]
+        eqChannel = nil
+        eq = nil
+        dynFlushTask?.cancel()
+        dynFlushTask = nil
+        pendingDynWrites = [:]
+        dynChannel = nil
+        dynamics = nil
         awaitingAuxes = false
         presetNames = []
         isConnecting = false
@@ -570,6 +757,10 @@ extension AppModel: MixerClientDelegate {
         MeterCenter.shared.clear()
 
         let wasMidSession = screen != .connect
+        eqChannel = nil
+        eq = nil
+        dynChannel = nil
+        dynamics = nil
         awaitingAuxes = false
         isConnecting = false
         statusMessage = wasMidSession ? "Disconnected" : ""
@@ -602,6 +793,10 @@ extension AppModel: MixerClientDelegate {
                 showButtonResult("Can't Reach Server", isRejection: false)
             } else {
                 MeterCenter.shared.clear()
+                eqChannel = nil
+                eq = nil
+                dynChannel = nil
+                dynamics = nil
                 isConnecting = false
                 statusIsError = true
                 statusMessage = "Disconnected"
@@ -832,6 +1027,61 @@ extension AppModel: MixerClientDelegate {
         pendingPresetLoadCompletion?()
         pendingPresetLoadCompletion = nil
     }
+
+    /// The Dynamics screen's version of mixerDidReceiveEq below.
+    func mixerDidReceiveDynamics(_ incoming: ChannelDynamics) {
+        guard let channel = dynChannel, incoming.channel == channel else { return }
+
+        let local = dynamics ?? ChannelDynamics(channel: channel)
+        let now = Date()
+        func held(_ key: String) -> Bool { (eqHeldUntil["dyn:" + key] ?? .distantPast) > now }
+
+        func merge(_ from: DynSection, _ mine: DynSection, prefix: String) -> DynSection {
+            var merged = from
+            if held(prefix + "in") { merged.isIn = mine.isIn }
+            for (key, value) in mine.values where held(prefix + key) {
+                merged.values[key] = value
+            }
+            return merged
+        }
+
+        var merged = incoming
+        merged.comp = merge(incoming.comp, local.comp, prefix: "comp_")
+        merged.gate = merge(incoming.gate, local.gate, prefix: "gate_")
+
+        if merged != dynamics { dynamics = merged }
+    }
+
+    /// Folds a frame from the desk into what the EQ screen shows, keeping
+    /// the phone's own value for anything it is still holding.
+    func mixerDidReceiveEq(_ incoming: ChannelEq) {
+        guard let channel = eqChannel, incoming.channel == channel else { return }
+
+        let local = eq ?? ChannelEq(channel: channel)
+        let now = Date()
+        func held(_ key: String) -> Bool { (eqHeldUntil[key] ?? .distantPast) > now }
+
+        var merged = incoming
+        merged.eqIn = held(EqKey.eqIn) ? local.eqIn : incoming.eqIn
+
+        for index in merged.bands.indices {
+            let n = merged.bands[index].band
+            guard let mine = local.bands.first(where: { $0.band == n }) else { continue }
+            if held(EqKey.band("on", n)) { merged.bands[index].on = mine.on }
+            if held(EqKey.band("freq", n)) { merged.bands[index].freq = mine.freq }
+            if held(EqKey.band("gain", n)) { merged.bands[index].gain = mine.gain }
+            if held(EqKey.band("q", n)) { merged.bands[index].q = mine.q }
+        }
+
+        if held(EqKey.loIn) { merged.loFilter.isIn = local.loFilter.isIn }
+        if held(EqKey.loFreq) { merged.loFilter.freq = local.loFilter.freq }
+        if held(EqKey.hiIn) { merged.hiFilter.isIn = local.hiFilter.isIn }
+        if held(EqKey.hiFreq) { merged.hiFilter.freq = local.hiFilter.freq }
+
+        // Only when it moved - an unchanged write still rebuilds every
+        // view watching the model, the same reason channels is compared.
+        if merged != eq { eq = merged }
+    }
 }
 
 extension AppModel: MdnsDiscoveryDelegate {
@@ -845,5 +1095,28 @@ extension AppModel: MdnsDiscoveryDelegate {
 
     func mdnsDidLoseServer(id: String) {
         discoveredServers.removeAll { $0.id == id }
+    }
+}
+
+/// Names each EQ value for the hold and the write throttle in AppModel.
+private enum EqKey {
+    static let eqIn = "eq_in"
+    static let loIn = "lo_in"
+    static let loFreq = "lo_freq"
+    static let hiIn = "hi_in"
+    static let hiFreq = "hi_freq"
+
+    static func band(_ param: String, _ band: Int) -> String { "\(param):\(band)" }
+
+    static func of(_ write: EqWrite) -> String {
+        switch write {
+        case .eqIn: return eqIn
+        case .bandOn(let n, _): return band("on", n)
+        case .freq(let n, _): return band("freq", n)
+        case .gain(let n, _): return band("gain", n)
+        case .q(let n, _): return band("q", n)
+        case .filterIn(let lo, _): return lo ? loIn : hiIn
+        case .filterFreq(let lo, _): return lo ? loFreq : hiFreq
+        }
     }
 }

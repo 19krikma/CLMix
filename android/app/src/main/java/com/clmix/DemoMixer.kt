@@ -125,7 +125,29 @@ object DemoMixer {
         // The alternate input slot. Null gain means no alt route patched.
         var altGain: Double? = null,
         var altPhantom: Boolean = false,
-        var altIn: Boolean = false
+        var altIn: Boolean = false,
+        // The channel EQ, in console band order (1 = HF .. 4 = LF), and
+        // the two filters ahead of it.
+        var eqIn: Boolean = true,
+        val bands: MutableList<DemoBand> = mutableListOf(),
+        var loFilterIn: Boolean = false,
+        var loFilterFreq: Double = 80.0,
+        var hiFilterIn: Boolean = false,
+        var hiFilterFreq: Double = 18000.0,
+        // The compressor and gate, keyed as the server's dynamics frame
+        // keys them (DynParam.key).
+        var compIn: Boolean = false,
+        val comp: MutableMap<String, Double> = mutableMapOf(),
+        var gateIn: Boolean = false,
+        val gate: MutableMap<String, Double> = mutableMapOf()
+    )
+
+    private class DemoBand(
+        var on: Boolean,
+        var freq: Double,
+        var gain: Double,
+        var q: Double,
+        val curve: Int = 1
     )
 
     // [aux index: [channel number: send]]
@@ -149,6 +171,10 @@ object DemoMixer {
     // with selectedAux, the same way the real server's two modes are.
     private var mixerMode = false
     private var selectedBank: String? = null
+    // The channel whose EQ screen is open, as the real server's
+    // state["eq_channel"]. Mixer mode only.
+    private var eqChannel: Int? = null
+    private var dynChannel: Int? = null
     private var pushing = false
 
     /** The one snapshot this fake console knows about. The real server
@@ -162,6 +188,8 @@ object DemoMixer {
     fun start() {
         seed()
         selectedAux = null
+        eqChannel = null
+        dynChannel = null
         mixerMode = false
         selectedBank = null
         personalNames.clear()
@@ -170,6 +198,8 @@ object DemoMixer {
     fun stop() {
         stopPushing()
         selectedAux = null
+        eqChannel = null
+        dynChannel = null
         mixerMode = false
         selectedBank = null
         personalNames.clear()
@@ -256,7 +286,10 @@ object DemoMixer {
                     null
                 },
                 altPhantom = entry.name.startsWith("BV")
-            )
+            ).apply {
+                seedEq(this, entry)
+                seedDynamics(this, entry)
+            }
         }
 
         // Two presets to load straight away, so the Load sheet is not
@@ -264,6 +297,82 @@ object DemoMixer {
         presets.clear()
         presets["Opening Set"] = copyOf(sends[1])
         presets["Acoustic Set"] = copyOf(sends[4])
+    }
+
+    /**
+     * An EQ shaped like the source rather than four flat bands, so the
+     * graph opens on a curve worth looking at: a kick scooped in the
+     * boxy mids, a vocal with its rumble filtered off and some air on top.
+     * Everything else gets a gentle default the same shape as a desk's
+     * reset channel. The talkback has its EQ out, so EQ OUT is visible.
+     */
+    private fun seedEq(strip: Strip, entry: DemoChannel) {
+        fun band(freq: Double, gain: Double, q: Double, curve: Int = 1, on: Boolean = true) =
+            DemoBand(on, freq, gain, q, curve)
+
+        val bands = when {
+            entry.name.startsWith("Kick") -> listOf(
+                band(4200.0, 5.0, 1.4), band(1800.0, 0.0, 1.0),
+                band(380.0, -8.0, 1.8), band(62.0, 4.0, 1.2)
+            )
+            entry.name.startsWith("Snare") -> listOf(
+                band(8000.0, 3.0, 0.8, curve = 2), band(2500.0, 2.0, 1.5),
+                band(900.0, -4.0, 2.5), band(200.0, 3.0, 1.2)
+            )
+            entry.name.contains("Vox") || entry.name.startsWith("BV") -> listOf(
+                band(12000.0, 3.5, 0.7, curve = 2), band(3200.0, 1.5, 1.2),
+                band(450.0, -3.0, 1.6), band(120.0, 0.0, 1.0, on = false)
+            )
+            entry.name.startsWith("Bass") -> listOf(
+                band(5000.0, 0.0, 0.7), band(800.0, 2.0, 1.0),
+                band(250.0, -3.0, 1.4), band(70.0, 3.0, 1.0)
+            )
+            else -> listOf(
+                band(8000.0, 0.0, 0.71), band(2000.0, 0.0, 0.71),
+                band(500.0, 0.0, 0.71), band(100.0, 0.0, 0.71)
+            )
+        }
+
+        strip.bands.clear()
+        strip.bands.addAll(bands)
+
+        val vocal = entry.name.contains("Vox") || entry.name.startsWith("BV")
+        strip.loFilterIn = vocal || entry.name.startsWith("OH") || entry.name == "Acoustic"
+        strip.loFilterFreq = if (vocal) 110.0 else 80.0
+        strip.hiFilterIn = entry.name.startsWith("Kick")
+        strip.hiFilterFreq = if (entry.name.startsWith("Kick")) 9000.0 else 18000.0
+        strip.eqIn = entry.voice != Voice.SILENT
+    }
+
+    /** Compression on the vocals and bass, a gate on the drums - what a
+     *  real input list would have in. Everything else carries the same
+     *  settings, switched out. */
+    private fun seedDynamics(strip: Strip, entry: DemoChannel) {
+        val name = entry.name
+        val vocal = name.contains("Vox") || name.startsWith("BV")
+        val drum = entry.voice in setOf(Voice.KICK, Voice.SNARE, Voice.TOMS)
+
+        strip.compIn = vocal || name.startsWith("Bass")
+        strip.comp.putAll(
+            mapOf(
+                "thresh" to if (vocal) -24.0 else -18.0,
+                "ratio" to if (vocal) 3.0 else 4.0,
+                "attack" to 0.005,
+                "release" to 0.12,
+                "gain" to if (vocal) 4.0 else 2.0
+            )
+        )
+
+        strip.gateIn = drum
+        strip.gate.putAll(
+            mapOf(
+                "thresh" to if (drum) -32.0 else -50.0,
+                "range" to 40.0,
+                "attack" to 0.0002,
+                "hold" to 0.05,
+                "release" to 0.15
+            )
+        )
     }
 
     private fun copyOf(mix: Map<Int, Send>?): Map<Int, Send> =
@@ -305,6 +414,8 @@ object DemoMixer {
 
             "select_aux" -> {
                 selectedAux = message.optInt("aux")
+                eqChannel = null
+        dynChannel = null
                 mixerMode = false
                 // The bank filter deliberately survives an aux change,
                 // matching RemoteServer._handle: select_aux sets the aux
@@ -315,6 +426,8 @@ object DemoMixer {
 
             "select_mixer" -> {
                 selectedAux = null
+                eqChannel = null
+        dynChannel = null
                 mixerMode = true
                 startPushing()
             }
@@ -351,14 +464,6 @@ object DemoMixer {
                 val muted = message.optBoolean("muted")
                 if (mixerMode) {
                     console[channel]?.muted = muted
-
-                    // A hard mute is assembled rather than being one
-                    // control: the channel mute plus every aux send
-                    // dropped, so the channel leaves the monitors as
-                    // well as the room.
-                    if (message.optBoolean("hard")) {
-                        for (mix in sends.values) mix[channel]?.muted = muted
-                    }
                 } else {
                     currentMix()?.get(channel)?.muted = muted
                 }
@@ -413,6 +518,25 @@ object DemoMixer {
 
             "set_phase" -> if (mixerMode) {
                 console[message.optInt("channel")]?.phase = message.optInt("phase")
+            }
+
+            // The EQ screen. Mixer mode only, as the real server has it.
+            "select_eq" -> if (mixerMode) {
+                eqChannel = if (message.isNull("channel")) null else message.optInt("channel")
+                pushEq()
+            }
+
+            "select_dyn" -> if (mixerMode) {
+                dynChannel = if (message.isNull("channel")) null else message.optInt("channel")
+                pushDynamics()
+            }
+
+            "set_dyn" -> if (mixerMode) {
+                console[message.optInt("channel")]?.let { setDynamics(it, message) }
+            }
+
+            "set_eq" -> if (mixerMode) {
+                console[message.optInt("channel")]?.let { setEq(it, message) }
             }
 
             "set_name" -> if (mixerMode) {
@@ -475,12 +599,126 @@ object DemoMixer {
         pushLevels()
     }
 
+    /** The real server's _set_eq, down to the clamping. */
+    private fun setEq(strip: Strip, message: JSONObject) {
+        val param = message.optString("param")
+        val flag = message.optBoolean("value")
+        val number = message.optDouble("value")
+
+        fun freq() = number.coerceIn(EQ_FREQ_RANGE)
+
+        when (param) {
+            "eq_in" -> strip.eqIn = flag
+            "lo_filter_in" -> strip.loFilterIn = flag
+            "hi_filter_in" -> strip.hiFilterIn = flag
+            "lo_filter_freq" -> if (!number.isNaN()) strip.loFilterFreq = freq()
+            "hi_filter_freq" -> if (!number.isNaN()) strip.hiFilterFreq = freq()
+
+            else -> {
+                val band = strip.bands.getOrNull(message.optInt("band") - 1) ?: return
+
+                when (param) {
+                    "band_on" -> band.on = flag
+                    "freq" -> if (!number.isNaN()) band.freq = freq()
+                    "gain" -> if (!number.isNaN()) band.gain = number.coerceIn(EQ_GAIN_RANGE)
+                    "q" -> if (!number.isNaN()) band.q = number.coerceIn(EQ_Q_RANGE)
+                }
+            }
+        }
+    }
+
+    /** RemoteServer._eq_summary's positional row. */
+    private fun eqSummary(strip: Strip): JSONArray {
+        fun flag(on: Boolean) = if (on) 1 else 0
+
+        val row = JSONArray()
+            .put(flag(strip.eqIn))
+            .put(flag(strip.loFilterIn)).put(strip.loFilterFreq)
+            .put(flag(strip.hiFilterIn)).put(strip.hiFilterFreq)
+
+        for (band in strip.bands) {
+            row.put(flag(band.on)).put(band.freq).put(band.gain).put(band.q).put(band.curve)
+        }
+
+        return row
+    }
+
+    /** The real server's _set_dyn, down to the clamping. */
+    private fun setDynamics(strip: Strip, message: JSONObject) {
+        val param = message.optString("param")
+
+        when (param) {
+            "comp_in" -> strip.compIn = message.optBoolean("value")
+            "gate_in" -> strip.gateIn = message.optBoolean("value")
+            else -> {
+                val target = DynParam.values().firstOrNull { it.wireName == param } ?: return
+                val value = message.optDouble("value")
+                if (value.isNaN()) return
+                val map = if (target.isComp) strip.comp else strip.gate
+                map[target.key] = value.coerceIn(target.range)
+            }
+        }
+    }
+
+    private fun pushDynamics() {
+        val channel = dynChannel ?: return
+        val strip = console[channel] ?: return
+
+        fun section(isIn: Boolean, values: Map<String, Double>): JSONObject {
+            val o = JSONObject().put("in", isIn).put("mode", 0)
+            for ((key, value) in values) o.put(key, value)
+            return o
+        }
+
+        deliver(
+            JSONObject()
+                .put("type", "dynamics")
+                .put("channel", channel)
+                .put("comp", section(strip.compIn, strip.comp).put("knee", 0))
+                .put("gate", section(strip.gateIn, strip.gate))
+        )
+    }
+
+    private fun pushEq() {
+        val channel = eqChannel ?: return
+        val strip = console[channel] ?: return
+
+        val bands = JSONArray()
+        strip.bands.forEachIndexed { index, band ->
+            bands.put(
+                JSONObject()
+                    .put("band", index + 1)
+                    .put("on", band.on)
+                    .put("freq", band.freq)
+                    .put("gain", band.gain)
+                    .put("q", band.q)
+                    .put("curve", band.curve)
+            )
+        }
+
+        deliver(
+            JSONObject()
+                .put("type", "eq")
+                .put("channel", channel)
+                .put("eq_in", strip.eqIn)
+                .put("bands", bands)
+                .put(
+                    "lo_filter",
+                    JSONObject().put("in", strip.loFilterIn).put("freq", strip.loFilterFreq)
+                )
+                .put(
+                    "hi_filter",
+                    JSONObject().put("in", strip.hiFilterIn).put("freq", strip.hiFilterFreq)
+                )
+        )
+    }
+
     private fun currentMix(): HashMap<Int, Send>? = selectedAux?.let { sends[it] }
 
     /**
      * Any credentials are accepted: the demo exists to be walked into,
      * and there is no account behind it to get wrong. It is allowed
-     * everything, so Presets, hard mute, Full Mixer Control and personal
+     * everything, so Presets, Full Mixer Control, EQ and personal
      * names are all exercised rather than hidden - "all of the features
      * and functionality" is what Guideline 2.1 asks a demonstration mode
      * to show.
@@ -655,9 +893,26 @@ object DemoMixer {
                         .put("alt_phantom", strip.altPhantom)
                         .put("alt_in", strip.altIn)
                         .put("alt_available", strip.altGain != null)
+                        .put("eq_in", strip.eqIn)
+                        .put("eq_summary", eqSummary(strip))
+                        .put("comp_in", strip.compIn)
+                        .put("gate_in", strip.gateIn)
+                        .put(
+                            "dyn_summary",
+                            JSONArray()
+                                .put(if (strip.compIn) 1 else 0)
+                                .put(strip.comp["thresh"]).put(strip.comp["ratio"])
+                                .put(strip.comp["gain"])
+                                .put(if (strip.gateIn) 1 else 0)
+                                .put(strip.gate["thresh"]).put(strip.gate["range"])
+                        )
                 )
             }
             deliver(levelsMessage(MixerClient.MIXER_AUX, channels))
+
+            // Follows the levels frame, as the real push loop sends it.
+            pushEq()
+            pushDynamics()
             return
         }
 

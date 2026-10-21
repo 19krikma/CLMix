@@ -9,6 +9,38 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.6.0
+
+- **Channel EQ.** Every Mixer Control strip shows its channel's EQ curve
+  in miniature under its name - greyed while the EQ is out. Tapping it opens the channel's
+  EQ full screen, turned on its side: a graph of the curve across
+  20 Hz-20 kHz with a handle for each of the four bands and for the high-
+  and low-pass filters. Drag a band's handle to move its frequency and
+  gain, pinch to change its Q, or pick it from the row of chips and turn
+  its Freq, Gain and Q dials. Each band and filter can be switched on and
+  off, and EQ IN switches the whole EQ in or out - while it is out the
+  curve stays drawn in grey, so you can see what switching it back in
+  would do.
+- **Channel dynamics.** Under the EQ, each Mixer Control strip shows its
+  compressor's curve over its gate's in miniature, each drawn in colour
+  while that section is in and greyed while it is out.
+  Tapping one opens the channel's Dynamics full screen on its side: a
+  graph of level in against level out with both thresholds as handles to
+  drag, an IN button, and five dials per section - compressor threshold,
+  ratio, attack, release and makeup gain; gate threshold, range, attack,
+  hold and release. A section the console is running in another mode
+  (multiband, de-esser, duck) is named on screen; the mode itself is
+  changed on the desk.
+- **The meter moved up beside the channel name** on Mixer Control, as a
+  slim bar running from the channel number down to the foot of the name,
+  leaving the fader row to the fader.
+  The aux screens keep it beside the fader.
+- **The input sheet has a meter.** Opened from a channel's number or
+  name, the sheet now shows that channel's meter down its right-hand
+  side, beside the gain and trim dials it reflects.
+- **Hard mute is gone** from the Mixer Control menu. Mute on that screen
+  is the channel's own mute, nothing more.
+
 ## 1.5.0
 
 - **Only the live input can be adjusted.** On a channel's input sheet,

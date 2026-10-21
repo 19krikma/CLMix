@@ -158,6 +158,11 @@ final class DemoMixer: MixerBackend {
         var altGain: Double? = nil
         var altPhantom: Bool = false
         var altIn: Bool = false
+        // The channel EQ, in console band order (1 = HF ... 4 = LF), and
+        // the two filters ahead of it.
+        var eq = ChannelEq(channel: 0)
+        // The compressor and gate, as the server's dynamics frame has them.
+        var dynamics = ChannelDynamics(channel: 0)
     }
 
     // [aux index: [channel number: send]]
@@ -172,6 +177,10 @@ final class DemoMixer: MixerBackend {
     // modes are.
     private var mixerMode = false
     private var selectedBank: String?
+    // The channel whose EQ screen is open, as the real server's
+    // state["eq_channel"]. Mixer mode only.
+    private var eqChannel: Int?
+    private var dynChannel: Int?
     // This account's own banks, once it has any. Nil until seeded from
     // the catalog, exactly as the real server seeds from whatever the
     // console reports - see RemoteServer._stored_banks.
@@ -247,7 +256,9 @@ final class DemoMixer: MixerBackend {
                 // section has something to show; the rest have none.
                 altGain: entry.name == "Lead Vox" || entry.name.hasPrefix("BV")
                     ? Double(30 + entry.channel % 11) : nil,
-                altPhantom: entry.name.hasPrefix("BV")
+                altPhantom: entry.name.hasPrefix("BV"),
+                eq: seededEq(for: entry),
+                dynamics: seededDynamics(for: entry)
             )
         }
 
@@ -257,6 +268,79 @@ final class DemoMixer: MixerBackend {
             "Opening Set": sends[1] ?? [:],
             "Acoustic Set": sends[4] ?? [:],
         ]
+    }
+
+    /// An EQ shaped like the source rather than four flat bands, so the
+    /// graph opens on a curve worth looking at: a kick scooped in the
+    /// boxy mids, a vocal with its rumble filtered off and some air on
+    /// top. Everything else gets a gentle default the same shape as a
+    /// desk's reset channel. The talkback has its EQ out, so EQ OUT is
+    /// visible. Identical to Android's DemoMixer.seedEq.
+    private func seededEq(for entry: DemoChannel) -> ChannelEq {
+        func band(_ n: Int, _ freq: Double, _ gain: Double, _ q: Double,
+                  curve: Int = 1, on: Bool = true) -> EqBand {
+            EqBand(band: n, on: on, freq: freq, gain: gain, q: q, curve: curve)
+        }
+
+        let name = entry.name
+        let vocal = name.contains("Vox") || name.hasPrefix("BV")
+        let bands: [EqBand]
+
+        if name.hasPrefix("Kick") {
+            bands = [band(1, 4200, 5, 1.4), band(2, 1800, 0, 1.0),
+                     band(3, 380, -8, 1.8), band(4, 62, 4, 1.2)]
+        } else if name.hasPrefix("Snare") {
+            bands = [band(1, 8000, 3, 0.8, curve: 2), band(2, 2500, 2, 1.5),
+                     band(3, 900, -4, 2.5), band(4, 200, 3, 1.2)]
+        } else if vocal {
+            bands = [band(1, 12000, 3.5, 0.7, curve: 2), band(2, 3200, 1.5, 1.2),
+                     band(3, 450, -3, 1.6), band(4, 120, 0, 1.0, on: false)]
+        } else if name.hasPrefix("Bass") {
+            bands = [band(1, 5000, 0, 0.7), band(2, 800, 2, 1.0),
+                     band(3, 250, -3, 1.4), band(4, 70, 3, 1.0)]
+        } else {
+            bands = [band(1, 8000, 0, 0.71), band(2, 2000, 0, 0.71),
+                     band(3, 500, 0, 0.71), band(4, 100, 0, 0.71)]
+        }
+
+        return ChannelEq(
+            channel: entry.channel,
+            eqIn: entry.voice != .silent,
+            bands: bands,
+            loFilter: EqFilter(
+                isIn: vocal || name.hasPrefix("OH") || name == "Acoustic",
+                freq: vocal ? 110 : 80
+            ),
+            hiFilter: EqFilter(
+                isIn: name.hasPrefix("Kick"),
+                freq: name.hasPrefix("Kick") ? 9000 : 18000
+            )
+        )
+    }
+
+    /// Compression on the vocals and bass, a gate on the drums - what a
+    /// real input list would have in. Everything else carries the same
+    /// settings, switched out. Identical to Android's seedDynamics.
+    private func seededDynamics(for entry: DemoChannel) -> ChannelDynamics {
+        let name = entry.name
+        let vocal = name.contains("Vox") || name.hasPrefix("BV")
+        let drum = [Voice.kick, .snare, .toms].contains(entry.voice)
+
+        return ChannelDynamics(
+            channel: entry.channel,
+            comp: DynSection(
+                isIn: vocal || name.hasPrefix("Bass"),
+                values: ["thresh": vocal ? -24 : -18, "ratio": vocal ? 3 : 4,
+                         "attack": 0.005, "release": 0.12, "gain": vocal ? 4 : 2],
+                mode: 0, knee: 0
+            ),
+            gate: DynSection(
+                isIn: drum,
+                values: ["thresh": drum ? -32 : -50, "range": 40, "attack": 0.0002,
+                         "hold": 0.05, "release": 0.15],
+                mode: 0
+            )
+        )
     }
 
     /// Anything named L/R sits off-center, everything else stays up the
@@ -286,6 +370,8 @@ final class DemoMixer: MixerBackend {
     func connect(host: String, port: Int) {
         seed()
         selectedAux = nil
+        eqChannel = nil
+        dynChannel = nil
         mixerMode = false
         selectedBank = nil
         isConnected = true
@@ -303,6 +389,8 @@ final class DemoMixer: MixerBackend {
         customBanks = nil
         mixerControlAllowed = false
         selectedAux = nil
+        eqChannel = nil
+        dynChannel = nil
         mixerMode = false
         selectedBank = nil
     }
@@ -418,6 +506,8 @@ final class DemoMixer: MixerBackend {
 
     func selectAux(_ aux: Int) {
         selectedAux = aux
+        eqChannel = nil
+        dynChannel = nil
         mixerMode = false
         // The bank filter deliberately survives an aux change, matching
         // RemoteServer._handle (select_aux sets state["aux"] and leaves
@@ -429,6 +519,8 @@ final class DemoMixer: MixerBackend {
 
     func selectMixerControl() {
         selectedAux = nil
+        eqChannel = nil
+        dynChannel = nil
         mixerMode = true
         startPushing()
     }
@@ -460,18 +552,9 @@ final class DemoMixer: MixerBackend {
         sends[aux]?[channel]?.pan = pan
     }
 
-    func setMute(channel: Int, muted: Bool, hard: Bool) {
+    func setMute(channel: Int, muted: Bool) {
         if mixerMode {
             console[channel]?.muted = muted
-
-            // A hard mute is assembled rather than being one control:
-            // the channel mute plus every aux send dropped, so the
-            // channel leaves the monitors as well as the room.
-            if hard {
-                for aux in sends.keys {
-                    sends[aux]?[channel]?.muted = muted
-                }
-            }
             return
         }
 
@@ -527,6 +610,80 @@ final class DemoMixer: MixerBackend {
     func setPhase(channel: Int, phase: Int) {
         guard mixerMode else { return }
         console[channel]?.phase = phase
+    }
+
+    // The EQ screen. Mixer mode only, as the real server has it.
+    func selectEq(_ channel: Int?) {
+        guard mixerMode else { return }
+        eqChannel = channel
+        pushEq()
+    }
+
+    /// The real server's _set_eq, down to the clamping.
+    func setEq(channel: Int, _ write: EqWrite) {
+        guard mixerMode, var eq = console[channel]?.eq else { return }
+
+        func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
+            min(range.upperBound, max(range.lowerBound, value))
+        }
+
+        func band(_ n: Int, _ change: (inout EqBand) -> Void) {
+            guard (1...eq.bands.count).contains(n) else { return }
+            change(&eq.bands[n - 1])
+        }
+
+        switch write {
+        case .eqIn(let isIn): eq.eqIn = isIn
+        case .bandOn(let n, let on): band(n) { $0.on = on }
+        case .freq(let n, let hz): band(n) { $0.freq = clamp(hz, EqRange.freq) }
+        case .gain(let n, let db): band(n) { $0.gain = clamp(db, EqRange.gain) }
+        case .q(let n, let q): band(n) { $0.q = clamp(q, EqRange.q) }
+        case .filterIn(let lo, let isIn):
+            if lo { eq.loFilter.isIn = isIn } else { eq.hiFilter.isIn = isIn }
+        case .filterFreq(let lo, let hz):
+            if lo {
+                eq.loFilter.freq = clamp(hz, EqRange.freq)
+            } else {
+                eq.hiFilter.freq = clamp(hz, EqRange.freq)
+            }
+        }
+
+        console[channel]?.eq = eq
+    }
+
+    private func pushEq() {
+        guard let channel = eqChannel, let eq = console[channel]?.eq else { return }
+        Task { @MainActor in self.delegate?.mixerDidReceiveEq(eq) }
+    }
+
+    func selectDynamics(_ channel: Int?) {
+        guard mixerMode else { return }
+        dynChannel = channel
+        pushDynamics()
+    }
+
+    /// The real server's _set_dyn, down to the clamping.
+    func setDynamics(channel: Int, _ write: DynWrite) {
+        guard mixerMode, var dyn = console[channel]?.dynamics else { return }
+
+        switch write {
+        case .compIn(let isIn): dyn.comp.isIn = isIn
+        case .gateIn(let isIn): dyn.gate.isIn = isIn
+        case .value(let param, let value):
+            let clamped = min(param.range.upperBound, max(param.range.lowerBound, value))
+            if param.isComp {
+                dyn.comp.values[param.key] = clamped
+            } else {
+                dyn.gate.values[param.key] = clamped
+            }
+        }
+
+        console[channel]?.dynamics = dyn
+    }
+
+    private func pushDynamics() {
+        guard let channel = dynChannel, let dyn = console[channel]?.dynamics else { return }
+        Task { @MainActor in self.delegate?.mixerDidReceiveDynamics(dyn) }
     }
 
     func setName(channel: Int, name: String) {
@@ -655,7 +812,12 @@ final class DemoMixer: MixerBackend {
                 altGain: strip.altGain,
                 altPhantom: strip.altPhantom,
                 altIn: strip.altIn,
-                altAvailable: strip.altGain != nil
+                altAvailable: strip.altGain != nil,
+                eqIn: strip.eq.eqIn,
+                eq: strip.eq,
+                compIn: strip.dynamics.comp.isIn,
+                gateIn: strip.dynamics.gate.isIn,
+                dynamics: strip.dynamics
             )
         }
 
@@ -664,6 +826,10 @@ final class DemoMixer: MixerBackend {
                 aux: MixerClient.mixerAux, channels: channels
             )
         }
+
+        // Follows the levels frame, as the real push loop sends it.
+        pushEq()
+        pushDynamics()
     }
 
     /// Which strips this socket is looking at. A bank is resolved

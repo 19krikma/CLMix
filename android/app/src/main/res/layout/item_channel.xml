@@ -9,44 +9,112 @@
     android:paddingStart="4dp"
     android:paddingEnd="4dp">
 
-    <!-- The channel's number on the console, above its name. Hidden
-         unless the screen asks for it (ChannelAdapter.showChannelNumber)
-         - the aux screens have always shown the name alone, and the line
-         costs fader travel on every strip. One line, never wrapped: it
-         is a couple of digits. -->
-    <TextView
-        android:id="@+id/channel_number"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:maxLines="1"
-        android:background="?attr/selectableItemBackground"
-        android:paddingVertical="5dp"
-        android:textSize="11sp"
-        android:textColor="@color/on_surface_variant"
-        android:visibility="gone"
-        tools:text="12"
-        tools:visibility="visible" />
-
-    <!-- Two lines always, not just when a name needs them: the fader
-         below takes whatever height is left, so a strip whose name wraps
-         would otherwise end up with a shorter fader than its neighbours
-         and a Mute button sitting at a different height along the row.
-         Reserving both lines everywhere keeps the row aligned whatever
-         mix of long and short names a console has. -->
-    <TextView
-        android:id="@+id/channel_name"
+    <!-- The heading: the channel's number over its name, with the meter
+         beside both on Full Mixer Control (see
+         ChannelAdapter.meterBesideName) - a small bar running from the
+         number down to the foot of the name, out of the way of the fader
+         below. -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="4dp"
-        android:background="?attr/selectableItemBackground"
-        android:gravity="center"
-        android:minLines="2"
-        android:maxLines="2"
-        android:ellipsize="end"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:textColor="?attr/colorOnSurface" />
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- The channel's number on the console, above its name.
+                 Hidden unless the screen asks for it
+                 (ChannelAdapter.showChannelNumber) - the aux screens have
+                 always shown the name alone, and the line costs fader
+                 travel on every strip. One line, never wrapped: it is a
+                 couple of digits. -->
+            <TextView
+                android:id="@+id/channel_number"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:maxLines="1"
+                android:background="?attr/selectableItemBackground"
+                android:paddingVertical="5dp"
+                android:textSize="11sp"
+                android:textColor="@color/on_surface_variant"
+                android:visibility="gone"
+                tools:text="12"
+                tools:visibility="visible" />
+
+            <!-- Two lines always, not just when a name needs them: the
+                 fader below takes whatever height is left, so a strip whose
+                 name wraps would otherwise end up with a shorter fader than
+                 its neighbours and a Mute button sitting at a different
+                 height along the row. Reserving both lines everywhere keeps
+                 the row aligned whatever mix of long and short names a
+                 console has. -->
+            <TextView
+                android:id="@+id/channel_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minLines="2"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" />
+
+        </LinearLayout>
+
+        <com.clmix.ChannelMeterView
+            android:id="@+id/name_meter"
+            android:layout_width="7dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="3dp"
+            android:layout_marginTop="4dp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+    <!-- The channel's EQ curve in miniature, and the button that opens
+         it full size. Full Mixer Control only (gone unless ChannelAdapter
+         is given onEqClicked) - and placed here, between the name and
+         the fader, so the fader row's weight gives up the height rather
+         than the buttons along the bottom moving. -->
+    <com.clmix.EqThumbView
+        android:id="@+id/eq_button"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_marginBottom="6dp"
+        android:contentDescription="EQ"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+    <!-- The channel's dynamics in miniature: the compressor's curve over
+         the gate's, stacked so each keeps the strip's full width. Each is
+         drawn in the accent colour while that section is in, and a tap
+         opens the Dynamics screen on it. Full Mixer Control only, like
+         the EQ above them. -->
+    <com.clmix.DynThumbView
+        android:id="@+id/comp_button"
+        android:layout_width="match_parent"
+        android:layout_height="34dp"
+        android:layout_marginBottom="4dp"
+        android:contentDescription="Compressor"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+    <com.clmix.DynThumbView
+        android:id="@+id/gate_button"
+        android:layout_width="match_parent"
+        android:layout_height="34dp"
+        android:layout_marginBottom="6dp"
+        android:contentDescription="Gate"
+        android:visibility="gone"
+        tools:visibility="visible" />
 
     <LinearLayout
         android:id="@+id/fader_row"

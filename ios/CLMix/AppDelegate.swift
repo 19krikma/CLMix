@@ -1,7 +1,7 @@
 import UIKit
 
-/// Exists for one thing: restricting rotation to portrait while the login
-/// screen is up. Info.plist's UISupportedInterfaceOrientations lists
+/// Exists for one thing: restricting rotation per screen - portrait while
+/// the login screen is up, landscape while a channel's EQ is open. Info.plist's UISupportedInterfaceOrientations lists
 /// Landscape too, for the mixer screens - this narrows that down
 /// per-screen, since iOS has no per-SwiftUI-view orientation lock and
 /// only ever asks the app delegate.
@@ -26,10 +26,34 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
+    /// Set while the EQ screen is up: its frequency axis wants the width.
+    /// Unlike the portrait lock this one also asks the scene to turn
+    /// straight away, so the screen opens on its side rather than waiting
+    /// for the phone to be turned. Mirrors Android's EqActivity being
+    /// fixed to sensorLandscape.
+    static var lockedToLandscape = false {
+        didSet {
+            guard oldValue != lockedToLandscape else { return }
+
+            for scene in UIApplication.shared.connectedScenes {
+                guard let windowScene = scene as? UIWindowScene else { continue }
+                windowScene.windows.first?.rootViewController?
+                    .setNeedsUpdateOfSupportedInterfaceOrientations()
+
+                if lockedToLandscape {
+                    windowScene.requestGeometryUpdate(
+                        .iOS(interfaceOrientations: .landscape)
+                    ) { _ in }
+                }
+            }
+        }
+    }
+
     func application(
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
-        Self.lockedToPortrait ? .portrait : .all
+        if Self.lockedToLandscape { return .landscape }
+        return Self.lockedToPortrait ? .portrait : .all
     }
 }
