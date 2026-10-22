@@ -8,6 +8,8 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.net.Uri
+import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.graphics.Color
@@ -107,11 +109,19 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     // under a spinner) so clicks are ignored here instead.
     private var loading = false
 
-    // Required (API 33+) for MixerConnectionService's ongoing notification
-    // to actually be visible - best-effort, the foreground service (and so
-    // the background-survival fix it provides) still runs without it.
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // Asks for whatever runtimePermissions() reports missing - at launch for
+    // notifications alone, and from the permissions button for the lot. Its
+    // badge only reports once it has been tapped, so a refusal at launch does
+    // not mark the button before anybody asked it anything.
+    private val permissionsLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            if (permissionsChecked) updatePermissionsBadge()
+        }
+
+    // Set by the first tap on the permissions button. From then on its badge
+    // shows the live answer, re-read in onResume - which is what brings it
+    // up to date on the way back from the system's app settings.
+    private var permissionsChecked = false
 
     // Top system-bar inset, cached from the last insets pass so the banner
     // offset can be recomputed on a width change without waiting for another.
@@ -177,14 +187,14 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
                 contentBasePadding.bottom + bars.bottom
             )
 
-            // The floating control is a child of the window-sized root,
-            // so nothing else has moved it clear of the gesture strip.
-            (binding.themeToggle.layoutParams as FrameLayout.LayoutParams).apply {
+            // The floating controls are a child of the window-sized root,
+            // so nothing else has moved them clear of the gesture strip.
+            (binding.cornerControls.layoutParams as FrameLayout.LayoutParams).apply {
                 val base = dpToPx(20)
                 if (bottomMargin != base + bars.bottom || marginEnd != base + bars.right) {
                     bottomMargin = base + bars.bottom
                     marginEnd = base + bars.right
-                    binding.themeToggle.requestLayout()
+                    binding.cornerControls.requestLayout()
                 }
             }
 
@@ -324,6 +334,8 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         mdnsDiscovery = MdnsDiscovery(this)
 
         requestNotificationPermission()
+
+        binding.permissionsButton.setOnClickListener { onPermissionsTapped() }
 
         // Silently resume a previous session instead of making the user
         // log in again every time the app is relaunched after being fully
@@ -546,23 +558,122 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
     }
 
+    // Required (API 33+) for MixerConnectionService's ongoing notification
+    // to actually be visible - best-effort, the foreground service (and so
+    // the background-survival fix it provides) still runs without it.
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        askFor(listOf(Manifest.permission.POST_NOTIFICATIONS))
+    }
 
-        val granted = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (!granted) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    /**
+     * The permissions CLMix has to ask for at runtime on this phone, each
+     * with the words the permissions button uses for it. Everything else the
+     * manifest declares (network, Wi-Fi state, the foreground service) is
+     * granted at install and cannot be missing, so it is not listed.
+     */
+    private fun runtimePermissions(): Map<String, String> = buildMap {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            put(Manifest.permission.POST_NOTIFICATIONS, "notifications")
         }
     }
+
+    private fun missingPermissions(): List<String> =
+        runtimePermissions().keys.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+    private fun askFor(permissions: List<String>) {
+        val missing = permissions.filter { it in missingPermissions() }
+        if (missing.isEmpty()) return
+
+        permissionPrefs().edit()
+            .putStringSet(KEY_ASKED, askedPermissions() + missing)
+            .apply()
+        permissionsLauncher.launch(missing.toTypedArray())
+    }
+
+    /**
+     * Checks, then asks for whatever is missing. Android stops showing its
+     * dialog once a permission has been refused twice - launch() then comes
+     * straight back denied without asking anybody - so a permission that
+     * has been asked for before and no longer wants a rationale is sent to
+     * the app's own settings page instead, the one place left to turn it on.
+     */
+    private fun onPermissionsTapped() {
+        permissionsChecked = true
+        updatePermissionsBadge()
+
+        val missing = missingPermissions()
+        if (missing.isEmpty()) return
+
+        val asked = askedPermissions()
+        val blocked = missing.any {
+            it in asked && !shouldShowRequestPermissionRationale(it)
+        }
+
+        if (blocked) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", packageName, null)
+                )
+            )
+        } else {
+            askFor(missing)
+        }
+    }
+
+    /**
+     * The gear's badge: a green tick once everything is allowed, a red
+     * mark while something is missing, nothing until the button has been
+     * tapped. The words go to the button's content description, there
+     * being no room for them on screen.
+     */
+    private fun updatePermissionsBadge() {
+        val names = runtimePermissions()
+        val missing = missingPermissions()
+        val badge = binding.permissionsBadge
+
+        when {
+            !permissionsChecked -> {
+                badge.visibility = View.GONE
+                binding.permissionsButton.contentDescription = "Check permissions"
+            }
+            missing.isEmpty() -> {
+                badge.setImageResource(R.drawable.ic_check_circle)
+                badge.imageTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(this, R.color.secondary)
+                )
+                badge.visibility = View.VISIBLE
+                binding.permissionsButton.contentDescription =
+                    "Permissions: everything CLMix needs is allowed"
+            }
+            else -> {
+                badge.setImageResource(R.drawable.ic_error)
+                badge.imageTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(this, R.color.mute_active)
+                )
+                badge.visibility = View.VISIBLE
+                binding.permissionsButton.contentDescription =
+                    "Permissions: tap to allow " +
+                        missing.joinToString(" and ") { names.getValue(it) }
+            }
+        }
+    }
+
+    private fun permissionPrefs(): SharedPreferences =
+        getSharedPreferences(PREFS_PERMISSIONS, MODE_PRIVATE)
+
+    private fun askedPermissions(): Set<String> =
+        permissionPrefs().getStringSet(KEY_ASKED, emptySet()) ?: emptySet()
 
     override fun onResume() {
         super.onResume()
         MixerClient.claimListener(this)
         mdnsDiscovery.start(this)
         openScanWindow()
+        if (permissionsChecked) updatePermissionsBadge()
     }
 
     override fun onPause() {
@@ -995,6 +1106,12 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
          * it. Matches the iOS ConnectView's own scan window.
          */
         private const val SCAN_WINDOW_MS = 30_000L
+
+        // Which permissions have ever been asked for, so onPermissionsTapped
+        // can tell "never asked" from "refused for good" - Android reports
+        // both as no rationale wanted.
+        private const val PREFS_PERMISSIONS = "permissions"
+        private const val KEY_ASKED = "asked"
 
         // How long a failure stays on the button before it turns back
         // into "Login".

@@ -3,6 +3,14 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.11.0
+
+- **Permissions check.** A gear button beside the light/dark toggle on
+  the login screen checks what CLMix needs from the phone. A green tick
+  on it means everything is allowed; otherwise a tap asks for what is
+  missing, or opens CLMix's page in Settings once the phone will no
+  longer ask.
+
 ## 2.10.0
 
 Mixer Control. Needs desktop 1.18.0 or later for EQ.

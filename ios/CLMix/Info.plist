@@ -28,6 +28,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_clmix._tcp.</string>
+		<string>_clmix-check._tcp.</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>CLMix finds and connects to the desktop mixer app on your local network.</string>

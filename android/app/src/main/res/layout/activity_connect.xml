@@ -318,22 +318,62 @@
 
     </ScrollView>
 
-    <!-- Over the form rather than in it, so it keeps its corner whatever
-         the form is doing above it. Only the icon changes on this
-         screen: the connect screen is pinned to the dark palette
-         whatever the choice is (see ConnectActivity), and what the tap
-         sets is every screen past login. -->
-    <ImageButton
-        android:id="@+id/theme_toggle"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+    <!-- Over the form rather than in it, so they keep their corner
+         whatever the form is doing above them. ConnectActivity moves this
+         row, not the buttons, clear of the gesture strip. -->
+    <LinearLayout
+        android:id="@+id/corner_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:layout_margin="20dp"
-        android:background="@drawable/login_circle_button"
-        android:foreground="?attr/selectableItemBackgroundBorderless"
-        android:padding="12dp"
-        android:src="@drawable/ic_dark_mode"
-        android:tint="?attr/colorPrimary"
-        android:contentDescription="Switch between light and dark mode" />
+        android:orientation="horizontal">
+
+        <!-- Checks what CLMix needs from the phone and asks for whatever
+             is missing (see ConnectActivity.onPermissionsTapped). The
+             answer is the badge on its corner: a green tick, or a red
+             mark while something is missing. -->
+        <FrameLayout
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="12dp">
+
+            <ImageButton
+                android:id="@+id/permissions_button"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/login_circle_button"
+                android:foreground="?attr/selectableItemBackgroundBorderless"
+                android:padding="12dp"
+                android:src="@drawable/ic_settings"
+                android:tint="?attr/colorPrimary"
+                android:contentDescription="Check permissions" />
+
+            <!-- Sits on a disc of the window colour, so the glyph's
+                 cut-out reads against the wallpaper and the button edge
+                 it overlaps. -->
+            <ImageView
+                android:id="@+id/permissions_badge"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="top|end"
+                android:background="@drawable/badge_background"
+                android:importantForAccessibility="no"
+                android:visibility="gone" />
+
+        </FrameLayout>
+
+        <ImageButton
+            android:id="@+id/theme_toggle"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/login_circle_button"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
+            android:padding="12dp"
+            android:src="@drawable/ic_dark_mode"
+            android:tint="?attr/colorPrimary"
+            android:contentDescription="Switch between light and dark mode" />
+
+    </LinearLayout>
 
 </FrameLayout>

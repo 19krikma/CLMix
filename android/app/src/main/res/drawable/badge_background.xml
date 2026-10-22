@@ -1,0 +1,7 @@
+<!-- The disc behind the permissions button's status badge, in the window
+     colour so the badge glyph's cut-out has something solid to read
+     against. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/background" />
+</shape>

@@ -9,6 +9,14 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.7.0
+
+- **Permissions check.** A gear button beside the light/dark toggle on
+  the login screen checks that CLMix can reach your local network. A
+  green tick on it means everything is allowed; the first tap asks for
+  access if it has never been asked for, and if it was turned down a tap
+  opens CLMix's page in Settings, where the Local Network switch is.
+
 ## 1.6.0
 
 - **Channel EQ.** Every Mixer Control strip shows its channel's EQ curve

@@ -3,6 +3,10 @@ import SwiftUI
 struct ConnectView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var themeStore: ThemeStore
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+
+    @StateObject private var localNetwork = LocalNetworkPermission()
 
     @AppStorage("clmix.host") private var host = ""
     @AppStorage("clmix.port") private var port = "8765"
@@ -123,9 +127,15 @@ struct ConnectView: View {
                 LoginBackgroundView(bandTop: contentTopPadding)
                     .ignoresSafeArea()
             }
-            // Over the form rather than in it, so it keeps its corner
-            // whatever the form is doing above it.
-            .overlay(alignment: .bottomTrailing) { themeToggle }
+            // Over the form rather than in it, so they keep their corner
+            // whatever the form is doing above them.
+            .overlay(alignment: .bottomTrailing) {
+                HStack(spacing: 12) {
+                    permissionsButton
+                    themeToggle
+                }
+                .padding(20)
+            }
         }
         // The artwork runs to the very top of the screen, under the
         // status bar/notch, same as Android's enableEdgeToEdge() - the
@@ -139,6 +149,14 @@ struct ConnectView: View {
             model.resumeSessionIfPossible()
         }
         .onDisappear { model.stopDiscovery() }
+        // Back from Settings, or from the system's own prompt (which
+        // takes the app out of the active state while it is up): once the
+        // box has been used it shows the live answer, so read it again.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active && localNetwork.status != .unchecked {
+                localNetwork.check()
+            }
+        }
         // Keyed on the generation, so a refresh cancels the window in
         // flight and opens a fresh one rather than letting the first
         // one's deadline close the second. A cancelled run deliberately
@@ -225,7 +243,6 @@ struct ConnectView: View {
                 .contentShape(Circle())
         }
         .foregroundStyle(Color.clmixPrimary)
-        .padding(20)
         .animation(.easeInOut(duration: 0.2), value: dark)
         .accessibilityLabel(dark ? "Switch to light mode" : "Switch to dark mode")
     }
@@ -351,6 +368,76 @@ struct ConnectView: View {
         .foregroundStyle(Color.primary)
         .overlay(boxBorder)
         .disabled(model.isConnecting)
+    }
+
+    /// A gear beside the theme toggle, drawn exactly as it is, that
+    /// checks what CLMix needs from the phone and asks for whatever is
+    /// missing - mirrors Android's permissions_button. On iOS that is
+    /// local network access alone. Checking is what raises the system's
+    /// prompt the first time; once refused, iOS never shows it again, so
+    /// a tap on a refused button goes to this app's page in Settings,
+    /// where the Local Network switch lives. The answer is the badge on
+    /// its corner: a green tick, or a red mark while access is refused.
+    private var permissionsButton: some View {
+        let status = localNetwork.status
+
+        return Button {
+            if status == .denied,
+               let url = URL(string: UIApplication.openSettingsURLString) {
+                openURL(url)
+            } else {
+                localNetwork.check()
+            }
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 48, height: 48)
+                .background(Circle().fill(.ultraThinMaterial))
+                .overlay(Circle().stroke(Color.clmixLoginOutline, lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .foregroundStyle(Color.clmixPrimary)
+        .overlay(alignment: .topTrailing) { permissionsIcon(status) }
+        .animation(.easeInOut(duration: 0.2), value: status)
+        .accessibilityLabel(permissionsLabel(status))
+    }
+
+    private func permissionsLabel(_ status: LocalNetworkPermission.Status) -> String {
+        switch status {
+        case .unchecked: return "Check permissions"
+        case .checking: return "Checking permissions"
+        case .granted: return "Permissions: everything CLMix needs is allowed"
+        case .denied: return "Permissions: tap to allow local network access in Settings"
+        case .inconclusive: return "Permissions: couldn't tell, tap to try again"
+        }
+    }
+
+    /// The permissions button's corner badge, on a disc of the window
+    /// colour so the glyph's cut-out reads against the wallpaper.
+    @ViewBuilder
+    private func permissionsIcon(_ status: LocalNetworkPermission.Status) -> some View {
+        switch status {
+        case .checking:
+            ProgressView()
+                .controlSize(.mini)
+                .tint(Color.clmixPrimary)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(Color.clmixBackground))
+        case .granted:
+            badge("checkmark.circle.fill", Color.clmixSecondary)
+        case .denied:
+            badge("exclamationmark.circle.fill", Color.clmixMuteActive)
+        case .unchecked, .inconclusive:
+            EmptyView()
+        }
+    }
+
+    private func badge(_ symbol: String, _ color: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 18))
+            .foregroundStyle(color)
+            .background(Circle().fill(Color.clmixBackground))
+            .accessibilityHidden(true)
     }
 
     // Rejected credentials tint both fields together, the one thing
