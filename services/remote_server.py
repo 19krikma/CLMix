@@ -1301,15 +1301,15 @@ class RemoteServer:
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/phase/?"
                 )
-                # The alternate input slot, and which of the two is live.
+                # The alternate input slot. Which of the two is live is
+                # not asked: the Q225 answers main/alt_in 0.0 either way,
+                # so the worker tracks it from the desk's input bursts
+                # (INPUT_TYPE_PATTERN in ui/main_window.py).
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/alt_analog_gain/?"
                 )
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/alt_phantom/?"
-                )
-                self.command_queue.put(
-                    f"/Input_Channels/{channel}/Channel_Input/main/alt_in/?"
                 )
                 # The whole EQ, which each strip draws in miniature as its
                 # EQ button - see _eq_summary.
@@ -1457,12 +1457,13 @@ class RemoteServer:
     def _alt_available(worker, channel):
         """Whether the channel has an alt route patched on the console.
 
-        The console only sends alt_analog_gain for a channel that has an
-        alt route - an empty alt slot leaves the query unanswered - so the
-        value having arrived at all is the signal, whatever it is. 0 dB is
-        an ordinary gain for a patched alt, and it used to read as absent
-        here, which locked out the ALT button on a live route and dropped
-        it again the moment the channel went back to Main.
+        Taken as alt_analog_gain having arrived at all. That was thought
+        to happen only for a channel with an alt route, but the Q225 has
+        since answered 0.0 for channel 18 as well (2026-10-23), so in
+        practice this lets ALT be chosen on most channels. Reading the
+        value instead is no better: 0 dB is an ordinary gain for a patched
+        alt, and that rule locked out the ALT button on a live route. No
+        address seen so far says whether an alt is patched.
 
         A channel already running on alt counts too, in case its gain has
         not been reported yet.

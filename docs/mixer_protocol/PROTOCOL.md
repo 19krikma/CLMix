@@ -659,19 +659,35 @@ while main was empty still reported `input_type 0.0`. Which of the two
 slots is actually feeding the channel is a separate parameter,
 `Channel_Input/main/alt_in`.
 
-**Whether an alt route exists at all is told by `alt_analog_gain`
-arriving**, not by its value: the console only sends it for a channel
-with an alt patched (observed on the Q225, 2026-10-18). A patched alt
-at 0 dB with 48V off is an ordinary state, so the value cannot be used
-to tell patched from empty - see `_alt_available` in
+**Whether an alt route exists at all is not on the wire.** It was
+taken from `alt_analog_gain` arriving (2026-10-18: it seemed to be sent
+only for a channel with an alt patched), but on 2026-10-23 the Q225
+answered `alt_analog_gain 0.0` and `alt_phantom 0.0` for channel 18 as
+well. A patched alt at 0 dB with 48V off reads the same, so neither the
+value nor its arrival tells patched from empty - see `_alt_available` in
 `services/remote_server.py`.
 
-**Switching Main/ALT never sends `main/alt_in`** (observed on the Q225,
-2026-10-23). ALT going on arrives as `analog_gain`, `phantom` and
-`input_type ,f [2.0]`; ALT going off as `input_type` alone. So the
-switch can only be learnt by asking: CLMix's worker treats any
-`input_type` as the cue to re-query `main/alt_in` and both slots' gain
-and 48V for that channel (`INPUT_TYPE_PATTERN` in `ui/main_window.py`).
+**`main/alt_in` does not report the switch.** Captured on channel 18,
+2026-10-23, switching ALT from the desk surface - the burst, then
+CLMix's own queries straight after it:
+
+```
+ALT on   alt_analog_gain ,f [0.0]   (sent by the desk)
+         alt_phantom     ,f [0.0]   (sent by the desk)
+         input_type      ,f [2.0]   (sent by the desk)
+         main/alt_in     ,f [0.0]   (answer to a query)
+ALT off  input_type      ,f [2.0]   (sent by the desk)
+         main/alt_in     ,f [0.0]   (answer to a query)
+```
+
+`main/alt_in` reads `0.0` with ALT on, and is never sent by the desk
+on its own. What tells the two apart is the burst: the alt values
+followed by `input_type` means ALT went on, `input_type` alone means it
+went off. CLMix's worker tracks it that way (`INPUT_TYPE_PATTERN` in
+`ui/main_window.py`), ignoring alt values it asked for itself, and
+stores the result under `main/alt_in` in its cache. Until a channel is
+first switched after CLMix connects, it reads as Main. Whether writing
+`main/alt_in` from a remote actually switches the desk is untested.
 
 Only `0.0` and `2.0` have ever been observed, and `2.0` implies a `1.0`
 that nothing has yet produced - plausibly another source class. Test it

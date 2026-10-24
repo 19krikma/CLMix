@@ -625,11 +625,11 @@ class MockMixer:
             # plain flag after all, this seed is the thing to drop.
             put(f"{prefix}/Channel_Input/phase", float(PHASE_SEED.get(channel, 0)))
             # An alt route on every fourth channel - a spare mic, say - at
-            # its own gain, and no alt parameters at all everywhere else:
-            # the desk only answers for an alt slot that is patched, which
-            # is how the server tells the two apart. Channel 12's route
-            # sits at exactly 0 dB with 48V off, the case that has to
-            # still read as patched. Channel 8 starts on its alt.
+            # its own gain, and no alt parameters everywhere else (asked
+            # for, those answer 0.0, as the Q225 does - see handle_query).
+            # Channel 12's route sits at exactly 0 dB with 48V off.
+            # Channel 8 is stored as on its alt, though no query shows it:
+            # main/alt_in always reads 0.0, as on the desk.
             if channel % 4 == 0:
                 put(f"{prefix}/Channel_Input/alt_analog_gain",
                     0.0 if channel == 12 else float(30 + channel % 11))
@@ -945,6 +945,15 @@ class MockMixer:
             for parameter in self.strips.get(address, []):
                 self.send(parameter, self.params[parameter])
 
+        elif address.endswith("/Channel_Input/main/alt_in"):
+            # The Q225 answers 0.0 whichever slot is live.
+            self.send(address, [0.0])
+
+        elif re.search(r"/Channel_Input/alt_(analog_gain|phantom)$", address) \
+                and address not in self.params:
+            # And answers for an alt slot with no route too, at 0.0.
+            self.send(address, [0.0])
+
         elif address in self.params:
             self.send(address, self.params[address])
 
@@ -1002,18 +1011,18 @@ class MockMixer:
         self.send(address, [value])
 
     def announce_alt_switch(self, address, value):
-        """Main/ALT switched, told the way the Q225 tells it: no alt_in
-        echo at all. ALT going on sends analog_gain, phantom and
-        input_type 2.0; going off sends input_type alone. A client has
-        to ask for main/alt_in to learn which slot is live."""
+        """Main/ALT switched, told the way the Q225 tells it (captured on
+        channel 18, 2026-10-23): ALT going on sends alt_analog_gain,
+        alt_phantom and input_type; going off sends input_type alone.
+        main/alt_in itself is never sent, and asked for it reads 0.0
+        either way - see handle_query."""
         prefix = address[:-len("/main/alt_in")]
 
         if value:
-            for leaf in ("analog_gain", "phantom"):
-                self.send(f"{prefix}/{leaf}", self.params[f"{prefix}/{leaf}"])
-            self.send(f"{prefix}/input_type", [2.0])
-        else:
-            self.send(f"{prefix}/input_type", self.params[f"{prefix}/input_type"])
+            for leaf in ("alt_analog_gain", "alt_phantom"):
+                self.send(f"{prefix}/{leaf}",
+                          self.params.get(f"{prefix}/{leaf}", [0.0]))
+        self.send(f"{prefix}/input_type", self.params[f"{prefix}/input_type"])
 
     def send(self, address, args):
         if self.drop_rate and random.random() < self.drop_rate:
