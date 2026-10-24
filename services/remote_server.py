@@ -471,6 +471,16 @@ class RemoteServer:
             # long has this phone been on", which a clock change should
             # not rewrite.
             "connected_at": time.monotonic(),
+            # Desktop resync - see _follow_resync. Whether this phone has
+            # been told one is running, and the (worker, resync_epoch) it
+            # last saw, so one that ran entirely between two push frames
+            # is still announced.
+            "syncing": False,
+            "resync_seen": None,
+            # Whether the app understands "sync" - sent at login by
+            # phone apps new enough to (see _handle_login). One that does
+            # not is only paused through a resync, not sent anywhere.
+            "sync_aware": False,
         }
 
         # Registered once the state exists, so client_list() can never see
@@ -536,6 +546,18 @@ class RemoteServer:
         if not worker or not worker.is_alive() or not worker.loaded:
             await self._send(
                 websocket, {"type": "error", "message": "Mixer not connected"}
+            )
+            return
+
+        if state["syncing"] or worker.resyncing:
+            # Nothing is acted on mid-resync: the names and layout it
+            # would be acted on are being replaced. A phone that knows is
+            # already showing why; this says it again to whichever screen
+            # asked. An older one gets it as an error it can show.
+            await self._send(
+                websocket,
+                {"type": "sync", "syncing": True} if state["sync_aware"]
+                else {"type": "error", "message": "Server syncing - try again shortly"}
             )
             return
 
@@ -846,6 +868,9 @@ class RemoteServer:
     async def _handle_login(self, websocket, state, msg):
         token = msg.get("token")
 
+        features = msg.get("features")
+        state["sync_aware"] = isinstance(features, list) and "sync" in features
+
         if self.locked_reason is not None:
             # Refused before the token path too, or a phone that was
             # dropped would resume its session straight away. The token
@@ -1103,11 +1128,19 @@ class RemoteServer:
                 return
 
             worker = self.get_worker()
-            aux = state.get("aux")
             entry = state.get("permission")
 
             if not worker or not worker.is_alive() or entry is None:
                 continue
+
+            try:
+                if await self._follow_resync(websocket, state, worker):
+                    continue
+            except websockets.ConnectionClosed:
+                return
+
+            # Read after _follow_resync, which may have just cleared it.
+            aux = state.get("aux")
 
             if not self._has_selection(state):
                 continue
@@ -1210,6 +1243,49 @@ class RemoteServer:
     # explicit query first a channel nobody has touched this session has
     # no cached value at all - which is what used to leave every strip
     # reading as unmuted until something happened to move.
+    async def _follow_resync(self, websocket, state, worker):
+        """Tell this phone about a desktop resync. True while one runs.
+
+        Starting, the phone is sent {"type": "sync", "syncing": true} and
+        its selection is dropped, so nothing it has open keeps writing to
+        strips whose names and layout are being replaced: it goes back to
+        its aux list, or to the AUX Only / Mixer Control choice, and
+        shows "Server Syncing" there. Done, it gets "syncing": false and
+        asks again for whatever it needs, as after logging in.
+        """
+        key = (id(worker), worker.resync_epoch)
+        seen = state["resync_seen"]
+
+        # A different epoch on the same worker is a resync that began and
+        # may have finished between two frames. A different worker is a
+        # reconnect, which is not one.
+        missed = seen is not None and seen[0] == key[0] and seen != key
+
+        if (worker.resyncing or missed) and not state["syncing"]:
+            state["syncing"] = True
+
+            # An app from before this existed would ignore the message and
+            # sit on a screen that had stopped updating, with no way to
+            # tell. So it keeps its selection, is only paused, and picks
+            # up where it was afterwards (the resync bumps snapshot_epoch,
+            # which re-reads its strips).
+            if state["sync_aware"]:
+                state["mode"] = "aux"
+                state["aux"] = None
+                state["eq_channel"] = None
+                state["dyn_channel"] = None
+                worker.release_meters(state["meter_source"])
+                await self._send(websocket, {"type": "sync", "syncing": True})
+
+        if state["syncing"] and not worker.resyncing:
+            state["syncing"] = False
+
+            if state["sync_aware"]:
+                await self._send(websocket, {"type": "sync", "syncing": False})
+
+        state["resync_seen"] = key
+        return state["syncing"]
+
     async def _meter_loop(self, websocket, state):
         last = None
 

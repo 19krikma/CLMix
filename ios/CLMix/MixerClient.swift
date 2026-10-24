@@ -29,6 +29,10 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidReceiveEq(_ eq: ChannelEq)
     /// The open Dynamics screen's channel, on the levels cadence.
     func mixerDidReceiveDynamics(_ dynamics: ChannelDynamics)
+    /// The desktop began (true) or finished (false) resyncing with the
+    /// console. The server has dropped this phone's selection for the
+    /// duration - see AppModel.mixerDidReceiveSync.
+    func mixerDidReceiveSync(_ syncing: Bool)
 }
 
 /// What AppModel drives, so a demo session (DemoMixer) can stand in for a
@@ -231,8 +235,14 @@ final class MixerClient: NSObject, MixerBackend {
     }
 
     func login(username: String, password: String) {
-        send(["action": "login", "username": username, "password": password])
+        send(["action": "login", "username": username, "password": password,
+              "features": Self.features])
     }
+
+    /// What this app understands beyond the original protocol, sent with
+    /// every login so the server can tell it from an older one. "sync":
+    /// it handles the desktop's resync - see AppModel.mixerDidReceiveSync.
+    private static let features = ["sync"]
 
     /// Resumes a session saved by SessionStore instead of asking for
     /// credentials again. The server answers with the same login_result
@@ -240,7 +250,7 @@ final class MixerClient: NSObject, MixerBackend {
     /// false result with "Session expired" if the token has aged out or
     /// the desktop app restarted since it was issued.
     func login(token: String) {
-        send(["action": "login", "token": token])
+        send(["action": "login", "token": token, "features": Self.features])
     }
 
     /// Explicit logout: revokes the token server-side (RemoteServer pops
@@ -654,6 +664,9 @@ final class MixerClient: NSObject, MixerBackend {
             case "error":
                 let raw = json["message"] as? String ?? "Unknown error"
                 delegate?.mixerDidFail(message: friendlyServerMessage(raw))
+
+            case "sync":
+                delegate?.mixerDidReceiveSync(json["syncing"] as? Bool ?? false)
 
             default:
                 break

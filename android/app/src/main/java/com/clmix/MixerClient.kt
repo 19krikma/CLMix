@@ -62,7 +62,7 @@ interface MixerClientListener {
  * set_level/set_pan/set_mute/set_eq/set_dyn/set_personal_name/
  * list_presets/save_preset/load_preset out,
  * login_result/auxes/banks/levels/eq/dynamics/presets/preset_saved/
- * preset_loaded/
+ * preset_loaded/sync/
  * error in.
  *
  * The server rejects every action until a successful "login" - callers
@@ -304,6 +304,7 @@ object MixerClient {
         gainRange = HEAD_AMP_GAIN_RANGE
         trimRange = HEAD_AMP_TRIM_RANGE
         appContext?.let(MixerConnectionService::stop)
+        onMain { ServerSync.reset() }
     }
 
     /**
@@ -336,6 +337,7 @@ object MixerClient {
             .put("action", "login")
             .put("username", username)
             .put("password", password)
+            .put("features", features())
     )
 
     // Resumes a previously-issued session (see SessionStore) instead of
@@ -345,7 +347,13 @@ object MixerClient {
         JSONObject()
             .put("action", "login")
             .put("token", token)
+            .put("features", features())
     )
+
+    // What this app understands beyond the original protocol, sent with
+    // every login so the server can tell it from an older one. "sync":
+    // it handles the desktop's resync - see ServerSync.
+    private fun features() = JSONArray().put("sync")
 
     // Explicit logout: revokes the token server-side (RemoteServer pops it
     // from _sessions) before the socket closes, so a copy of the token
@@ -765,6 +773,13 @@ object MixerClient {
             "error" -> {
                 val message = json.optString("message", "Unknown error")
                 onMain { listener?.onError(friendlyServerMessage(message)) }
+            }
+
+            // Not through the screen listener: it moves the app between
+            // screens, which is no one screen's job.
+            "sync" -> {
+                val syncing = json.optBoolean("syncing", false)
+                onMain { ServerSync.onSyncState(syncing) }
             }
         }
     }

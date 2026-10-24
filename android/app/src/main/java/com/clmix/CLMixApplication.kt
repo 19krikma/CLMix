@@ -9,5 +9,6 @@ class CLMixApplication : Application() {
         // is already in effect when the first one inflates.
         ThemeStore.apply(this)
         MixerClient.init(this)
+        registerActivityLifecycleCallbacks(ServerSync)
     }
 }

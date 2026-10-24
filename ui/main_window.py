@@ -33,10 +33,12 @@ from services.remote_server import RemoteServer
 # without this one badly-encoded channel name ends the worker thread and
 # the connection with it. See services/osc_text.py.
 osc_text.install()
+from services.traffic_analyzer import IN, OUT, analyzer
 from services.update_checker import check_for_update
 from services.user_store import UserStore
 from ui.app_icon import ICON_PNG_BASE64
 from ui.about_window import AboutWindow
+from ui.analyzer_window import AnalyzerWindow
 from ui.access_window import AccessPanel
 from ui.aux_window import AuxPanel
 from ui.backup_window import BackupWindow
@@ -314,6 +316,19 @@ class MixerWorker(threading.Thread):
         self.banks = {}
         self.loaded = False
 
+        # Resync - see request_resync. Cache keys whose values predate
+        # the resync, so the boot sequence asks for them again, and
+        # whether it is running. The cache itself is left full: the
+        # phones and the panels go on reading it throughout, and an
+        # emptied one would leave them nothing to read.
+        self._resync_requested = False
+        self.resyncing = False
+        self._stale = set()
+        # Bumped as each resync begins, so a phone whose push loop slept
+        # through a short one still learns it happened - see
+        # RemoteServer._follow_resync.
+        self.resync_epoch = 0
+
         self.snapshot_name = None
         self._snapshot_name_requested = False
         self.snapshot_names = {}
@@ -477,6 +492,9 @@ class MixerWorker(threading.Thread):
             self.request_next_parameter()
 
             while self.running:
+                if self._resync_requested:
+                    self._begin_resync()
+
                 self.receive_osc()
                 self._flush_meter_log()
                 self._check_heartbeat()
@@ -487,7 +505,7 @@ class MixerWorker(threading.Thread):
                 # not) would stall it with nothing left to restart it.
                 # The in-flight check makes this a no-op until the
                 # outstanding query has actually timed out.
-                if not self.loaded:
+                if not self.loaded or self.resyncing:
                     self.request_next_parameter()
 
         except Exception as ex:
@@ -581,6 +599,8 @@ class MixerWorker(threading.Thread):
         )
 
     def _dispatch_message(self, address, args, data, sender, depth=0):
+        analyzer.record(IN, address, args, self._type_tags(data), data)
+
         # Meters are stored here rather than pushed through
         # message_queue as state, but they are logged like any other
         # message unless the Logs window has turned that down - at which
@@ -596,6 +616,8 @@ class MixerWorker(threading.Thread):
                 self._count_meter_packet(args)
 
             return
+
+        self._stale.discard(address)
 
         sink = self.message_sink
         recorded = sink is not None and sink(address, args, self._type_tags(data))
@@ -624,7 +646,7 @@ class MixerWorker(threading.Thread):
         if not recorded:
             self._log_received(sender, self._describe(address, args, data), depth)
 
-        if not self.loaded:
+        if not self.loaded or self.resyncing:
             self.request_next_parameter()
 
     def _track_alt_switch(self, address):
@@ -717,6 +739,8 @@ class MixerWorker(threading.Thread):
 
     def _log_unparsed(self, data, sender, depth=0):
         """Report a datagram no decoder accepted, rather than dropping it."""
+        analyzer.record(IN, "(undecodable datagram)", data=data)
+
         preview = data[:self.RAW_PREVIEW_BYTES]
         printable = "".join(
             chr(byte) if 32 <= byte < 127 else "." for byte in preview
@@ -876,6 +900,46 @@ class MixerWorker(threading.Thread):
         if channels:
             self.banks[name] = channels
 
+    def request_resync(self):
+        """Pull the console's layout, names and snapshot again without
+        dropping the connection. Any thread; the worker picks it up on
+        its next pass. Phones stay connected throughout."""
+        self._resync_requested = True
+
+    def _begin_resync(self):
+        """Run the boot sequence again over the connection that is up.
+
+        Everything loading asked for is marked stale rather than removed,
+        so it is asked again while readers keep the old values until the
+        new ones land.
+        """
+        self._resync_requested = False
+
+        if not self.loaded or self.resyncing:
+            return
+
+        log("info", "Resyncing with the mixer")
+
+        self._stale = set(self.cache)
+        self.resyncing = True
+        self.resync_epoch += 1
+        self._pending_request = (None, 0.0)
+
+        # Asked again, but the name in hand is kept until the answer
+        # lands: a phone on a snapshot-scoped account cannot act while
+        # it is None (RemoteServer._snapshot_allowed), and a resync is
+        # no reason to lock it out.
+        self._snapshot_name_requested = False
+        self._request_snapshot_name()
+
+        self.message_queue.put(("status", "Resyncing"))
+        self.request_next_parameter()
+
+    def _missing(self, address):
+        """Whether the boot sequence still has to ask for address -
+        never received, or received before a resync began."""
+        return address not in self.cache or address in self._stale
+
     def _next_boot_query(self):
         """(query, stage) for the next boot parameter still missing.
 
@@ -886,31 +950,31 @@ class MixerWorker(threading.Thread):
         query because the counts that make it useful ("Channels 12/72")
         are only known here.
         """
-        if "/Console/Input_Channels" not in self.cache:
+        if self._missing("/Console/Input_Channels"):
             return "/Console/Channels/?", "Console"
 
-        if "/Console/Aux_Outputs/modes" not in self.cache:
+        if self._missing("/Console/Aux_Outputs/modes"):
             return "/Console/Aux_Outputs/modes/?", "Aux layout"
 
         # Needed before the first meter subscription, since it decides how
         # many slots each channel takes - see subscribe_meters().
-        if "/Console/Input_Channels/modes" not in self.cache:
+        if self._missing("/Console/Input_Channels/modes"):
             return "/Console/Input_Channels/modes/?", "Channel layout"
 
         aux_modes = self.cache["/Console/Aux_Outputs/modes"]
         total = len(aux_modes)
         for i in range(1, total + 1):
             address = f"/Aux_Outputs/{i}/Buss_Trim/name"
-            if address not in self.cache:
+            if self._missing(address):
                 return f"{address}/?", f"Auxes {i}/{total}"
 
         channel_count = int(self.cache["/Console/Input_Channels"][0])
         for i in range(1, channel_count + 1):
             address = f"/Input_Channels/{i}/Channel_Input/name"
-            if address not in self.cache:
+            if self._missing(address):
                 return f"{address}/?", f"Channels {i}/{channel_count}"
 
-        if "/Snapshots/Current_Snapshot" not in self.cache:
+        if self._missing("/Snapshots/Current_Snapshot"):
             return "/Snapshots/Current_Snapshot/?", "Snapshots"
 
         return None, None
@@ -933,7 +997,21 @@ class MixerWorker(threading.Thread):
             # query below is genuinely what is outstanding there.
             self.loading_stage = "Layout"
             self.loaded = True
-            log("info", "Mixer fully loaded and ready")
+
+            if self.resyncing:
+                self.resyncing = False
+                self._stale.clear()
+                # Rebuilt from the answer to the query below, so a bank
+                # deleted on the desk does not linger.
+                self.banks = {}
+                # Everything else in the cache - levels, pans, mutes, EQ
+                # - is re-read by whoever shows it, the same way as after
+                # a snapshot recall.
+                self.snapshot_epoch += 1
+                log("info", "Mixer resynced")
+            else:
+                log("info", "Mixer fully loaded and ready")
+
             self.message_queue.put(("status", "Loaded"))
             self.send_osc("/Layout/Layout/Banks/?", [])
             return
@@ -1214,6 +1292,8 @@ class MixerWorker(threading.Thread):
 
         if not self._sendto(dgram, address):
             return
+
+        analyzer.record(OUT, address, args, self._type_tags(dgram), dgram)
 
         bridge = self.bridge
         if bridge is not None:
@@ -2072,6 +2152,9 @@ class AuxLevelsPanel:
         # console to tell us what the banks are. See _open_default_bank().
         self.current_bank = None
         self._bank_wait_started_at = None
+        # The bank to reopen once a resync's layout lands - see
+        # on_mixer_resynced.
+        self._preferred_bank = None
         # Last worker.snapshot_epoch this panel has re-queried for.
         self._snapshot_epoch_seen = 0
         self.meter_ticked_at = time.monotonic()
@@ -2319,6 +2402,28 @@ class AuxLevelsPanel:
         if self.worker is not None:
             self.worker.subscribe_meters(self.channels)
 
+    def on_mixer_resynced(self, worker):
+        """Rebuild from what a resync pulled, keeping the operator's place.
+
+        Like on_mixer_loaded, but the aux and the bank on screen stay
+        selected where the desk still has them - the operator asked to
+        refresh, not to be sent back to the start.
+        """
+        self.worker = worker
+
+        channel_count = int(worker.cache["/Console/Input_Channels"][0])
+        self.all_channels = list(range(1, channel_count + 1))
+
+        self._preferred_bank = self.current_bank
+        self.current_bank = None
+        self.set_channels([])
+        self._bank_wait_started_at = time.monotonic()
+        self._snapshot_epoch_seen = worker.snapshot_epoch
+        self.bank_names_shown = None
+        self.build_bank_buttons()
+
+        self.refresh_aux_list()
+
     def refresh_aux_list(self):
         # Called when the operator hides/shows an aux via the Aux window,
         # so the dropdown reflects it immediately rather than only after
@@ -2352,6 +2457,9 @@ class AuxLevelsPanel:
         # console to tell us what the banks are. See _open_default_bank().
         self.current_bank = None
         self._bank_wait_started_at = None
+        # The bank to reopen once a resync's layout lands - see
+        # on_mixer_resynced.
+        self._preferred_bank = None
         # Last worker.snapshot_epoch this panel has re-queried for.
         self._snapshot_epoch_seen = 0
 
@@ -2445,6 +2553,29 @@ class AuxLevelsPanel:
             return
 
         bank_names = tuple(self.worker.banks.keys())
+        waited = self._bank_wait_started_at is not None and \
+            time.monotonic() - self._bank_wait_started_at > \
+            self.BANK_WAIT_SECONDS
+
+        if self._preferred_bank is not None:
+            # After a resync: the banks arrive one message at a time, so
+            # the one that was open may simply not have landed yet.
+            if self._preferred_bank in bank_names:
+                bank = self._preferred_bank
+            elif waited and bank_names:
+                bank = bank_names[0]
+            else:
+                bank = None
+
+            if bank is not None:
+                self._preferred_bank = None
+                self.select_bank(bank)
+                return
+
+            if not waited:
+                return
+
+            self._preferred_bank = None
 
         if bank_names:
             self.select_bank(bank_names[0])
@@ -3254,6 +3385,7 @@ class MainWindow:
         self.show_backup_window = None
         self.copy_to_window = None
         self.logs_window = None
+        self.analyzer_window = None
         self.presets_window = None
         self.phones_window = None
         self.remote_server = None
@@ -3284,6 +3416,8 @@ class MainWindow:
         # Whether this attempt ever finished loading, which is what
         # separates "could not reach the mixer" from "the mixer went away".
         self._was_loaded = False
+        # A resync in progress - see on_sync_button.
+        self._resyncing = False
 
         # Last check_for_update() result, from the startup check below or
         # from the About window's own Check button. Held here rather than
@@ -3370,11 +3504,22 @@ class MainWindow:
         def divider(side="top"):
             ttk.Separator(sidebar).pack(side=side, fill="x", pady=6)
 
+        connect_row = ttk.Frame(sidebar)
+        connect_row.pack(fill="x", pady=(0, 6))
+
         self.connect_btn = ttk.Button(
-            sidebar, text="Connect", style="Accent.TButton",
+            connect_row, text="Connect", style="Accent.TButton",
             command=self.on_connect_button
         )
-        self.connect_btn.pack(fill="x", pady=(0, 6))
+        self.connect_btn.pack(side="left", fill="x", expand=True)
+
+        # Beside Disconnect, only while connected - see on_sync_button.
+        # A glyph rather than an image, like the tick boxes elsewhere: no
+        # asset, and it follows the theme's text color.
+        self.sync_btn = ttk.Button(
+            connect_row, text="\u21bb", width=3, style="Sync.TButton",
+            command=self.on_sync_button
+        )
 
         entry("Presets", self.open_presets_window)
         divider()
@@ -3400,6 +3545,7 @@ class MainWindow:
         # Kept so the startup update check can relabel it.
         self.about_button = entry("About", self.open_about_window, side="bottom")
         entry("Backup", self.open_backup_window, side="bottom")
+        entry("Analyzer", self.open_analyzer_window, side="bottom")
 
     def build_back_panel(self):
         """What the sidebar shows while a page is open: the way back to
@@ -3700,6 +3846,10 @@ class MainWindow:
         style.configure("Sidebar.Toolbutton", anchor="w", padding=(10, 3))
         # Squeezed so the info bar stays a single text line tall.
         style.configure("InfoBar.Toolbutton", padding=(6, 0))
+        # The resync glyph, big enough to read as an icon. Padding taken
+        # off to match so it stays level with Disconnect beside it.
+        style.configure("Sync.TButton", font=("TkDefaultFont", 13),
+                        padding=(4, 0))
 
     # Bigger than any toolbutton gets, so the blank rest image is never
     # tiled - see _use_flat_toolbutton.
@@ -4098,6 +4248,12 @@ class MainWindow:
                     host, lambda: self.worker, self.command_queue
                 ),
                 True, "copy_to_window"
+            ),
+            "Analyzer": (
+                lambda host: AnalyzerWindow(
+                    host, lambda: self.worker, self.command_queue
+                ),
+                True, "analyzer_window"
             ),
         }
 
@@ -4794,6 +4950,15 @@ class MainWindow:
             style="TButton" if active else "Accent.TButton"
         )
 
+        shown = self._status_phase == "ready" or self._resyncing
+        if shown and not self.sync_btn.winfo_manager():
+            self.sync_btn.pack(side="left", padx=(6, 0))
+        elif not shown and self.sync_btn.winfo_manager():
+            self.sync_btn.pack_forget()
+
+        # Greyed while one runs, rather than queueing a second.
+        self.sync_btn.state(["disabled" if self._resyncing else "!disabled"])
+
     def _status_text_and_color(self):
         """What the status line should read right now."""
         if self._status_phase == "connecting":
@@ -4804,7 +4969,8 @@ class MainWindow:
             # this names the parameter actually outstanding rather than
             # just saying "busy".
             stage = self.worker.loading_stage if self.worker else None
-            return f"Loading {stage}" if stage else "Loading", "orange"
+            verb = "Resyncing" if self._resyncing else "Loading"
+            return f"{verb} {stage}" if stage else verb, "orange"
 
         if self._status_phase == "ready":
             return "Connected", "green"
@@ -4851,6 +5017,27 @@ class MainWindow:
         self._status_phase = phase
         self._update_connect_button()
         self._render_status()
+
+    def on_sync_button(self):
+        """Pull the console's channel and aux names, layout, banks and
+        snapshot again, as Connect does, without disconnecting - so the
+        phones stay on. For a desk changed since connecting (strips
+        renamed, a different session loaded) that CLMix was not told
+        about."""
+        worker = self.worker
+
+        if worker is None or not worker.is_alive() or not worker.loaded:
+            return
+
+        if worker.bridge_only:
+            # Loading's queries go straight to the console, and would land
+            # in the middle of the DiGiCo app's session.
+            log("warning", "Resync is off while DiGiCo App Capture has "
+                "CLMix locked")
+            return
+
+        log("info", "Resync pressed")
+        worker.request_resync()
 
     def on_connect_button(self):
         if self._session_active():
@@ -5151,6 +5338,8 @@ class MainWindow:
         self._open_built_page("Mixer Backup")
     def open_copy_to_window(self):
         self._open_built_page("Copy To")
+    def open_analyzer_window(self):
+        self._open_built_page("Analyzer")
     def on_backup_restored(self, keys):
         if "settings" in keys:
             self.reload_settings()
@@ -5477,7 +5666,14 @@ class MainWindow:
         return "Connection failed"
 
     def _apply_mixer_status(self, value):
-        if value == "Connecting":
+        resynced = value == "Loaded" and self._resyncing
+        if value != "Resyncing":
+            self._resyncing = False
+
+        if value == "Resyncing":
+            self._resyncing = True
+            self._set_status_phase("loading")
+        elif value == "Connecting":
             self._set_status_phase("connecting")
         elif value == "Connected":
             # Socket is up; the boot sequence is now pulling parameters,
@@ -5518,7 +5714,9 @@ class MainWindow:
                 # is actually scheduled.
                 self._schedule_reconnect()
 
-        if value == "Loaded":
+        if resynced:
+            self.aux_panel.on_mixer_resynced(self.worker)
+        elif value == "Loaded":
             self.aux_panel.on_mixer_loaded(self.worker)
 
             if self.settings.get("digico_capture"):

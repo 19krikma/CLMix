@@ -9,6 +9,14 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.8.0
+
+- **Server Syncing.** When the CLMix server refreshes its information
+  from the mixer, the app goes back to the AUX Only / Mixer Control
+  choice (or to the aux list) and shows "Server Syncing" with a spinner
+  until it is done. The aux list refreshes afterwards, so renamed auxes
+  show their new names.
+
 ## 1.7.0
 
 - **Permissions check.** A gear button beside the light/dark toggle on

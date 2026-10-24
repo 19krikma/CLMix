@@ -20,6 +20,10 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityAuxListBinding
     private var auxes: ArrayList<AuxBus> = arrayListOf()
 
+    // Set while waiting on the list refreshAuxes asked for - the server
+    // pushes an aux list for other reasons too.
+    private var awaitingRefresh = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -79,6 +83,24 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
     override fun onPause() {
         super.onPause()
         MixerClient.releaseListener(this)
+    }
+
+    /**
+     * Ask for the aux list again - after a desktop resync (see
+     * ServerSync), which may have renamed, added or hidden any of them.
+     */
+    fun refreshAuxes() {
+        awaitingRefresh = true
+        MixerClient.requestAuxes()
+    }
+
+    override fun onAuxes(auxes: List<AuxBus>) {
+        if (!awaitingRefresh) return
+
+        awaitingRefresh = false
+        this.auxes.clear()
+        this.auxes.addAll(auxes)
+        binding.auxRecycler.adapter?.notifyDataSetChanged()
     }
 
     private fun openMixer(aux: AuxBus) {

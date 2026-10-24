@@ -22,8 +22,17 @@ final class AppModel: NSObject, ObservableObject {
         didSet {
             // The only screen that locks out landscape - see AppDelegate.
             AppDelegate.lockedToPortrait = (screen == .connect)
+
+            // However the session ended - logout, a dropped socket, a
+            // rejection - a sync it was waiting on is moot.
+            if screen == .connect { endSync() }
         }
     }
+    /// The desktop is resyncing with the console - see mixerDidReceiveSync.
+    /// CLMixApp puts the "Server Syncing" cover up while it is set.
+    @Published var serverSyncing = false
+    private var syncShownAt = Date.distantPast
+    private var syncEndTask: Task<Void, Never>?
     @Published var statusMessage = ""
     // True while statusMessage describes a failure rather than progress -
     // ConnectView reads it to color the message red instead of secondary.
@@ -745,6 +754,63 @@ extension AppModel: MixerClientDelegate {
             statusMessage = "Logging in..."
             backend.login(username: pendingUsername, password: pendingPassword)
         }
+    }
+
+    /// A resync over a LAN can finish in a few milliseconds; the cover
+    /// stays up at least this long once shown, so it reads as a message
+    /// rather than a flicker.
+    private static let minSyncShown: TimeInterval = 0.8
+
+    /// The desktop's resync, announced by the server. Starting, it has
+    /// dropped whatever this phone had selected, so the app goes back to
+    /// where that choice is made - AUX Only / Mixer Control for an
+    /// account that has it, the aux list otherwise - and the cover goes
+    /// up over it. Finishing, the cover comes down and the aux list is
+    /// asked for again, since aux names may have changed.
+    /// Mirrors Android's ServerSync.
+    func mixerDidReceiveSync(_ syncing: Bool) {
+        guard screen != .connect else { return }
+
+        if syncing {
+            syncEndTask?.cancel()
+            syncEndTask = nil
+
+            if !serverSyncing {
+                serverSyncing = true
+                syncShownAt = Date()
+            }
+
+            closeEq()
+            closeDynamics()
+            channels = []
+            banks = []
+            selectedBank = nil
+            awaitingAuxes = false
+            MeterCenter.shared.clear()
+            screen = mixerControlAllowed ? .controlChoice : .auxList
+            return
+        }
+
+        guard serverSyncing, syncEndTask == nil else { return }
+
+        let wait = max(0, Self.minSyncShown - Date().timeIntervalSince(syncShownAt))
+        syncEndTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+
+            self.syncEndTask = nil
+            self.serverSyncing = false
+
+            if self.screen == .auxList {
+                self.backend.requestAuxes()
+            }
+        }
+    }
+
+    private func endSync() {
+        syncEndTask?.cancel()
+        syncEndTask = nil
+        serverSyncing = false
     }
 
     func mixerDidDisconnect() {

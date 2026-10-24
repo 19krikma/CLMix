@@ -38,6 +38,13 @@ struct CLMixApp: App {
                 .statusBarHidden(isChannelScreen)
                 .persistentSystemOverlays(isChannelScreen ? .hidden : .automatic)
             }
+            // Over every screen, the choice screens it sends the app back
+            // to included - see AppModel.mixerDidReceiveSync.
+            .overlay {
+                if model.serverSyncing {
+                    ServerSyncingCover()
+                }
+            }
             .environmentObject(model)
             .environmentObject(themeStore)
             // One choice for the whole app, the connect screen included:
@@ -50,5 +57,29 @@ struct CLMixApp: App {
             // one.
             .preferredColorScheme(themeStore.colorScheme)
         }
+    }
+}
+
+/// "Server Syncing" while the desktop resyncs with the console. Takes
+/// every touch, so nothing underneath can be picked until it is done -
+/// the server would refuse it anyway. Mirrors Android's ServerSync dialog.
+struct ServerSyncingCover: View {
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+
+            HStack(spacing: 16) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Server Syncing")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.clmixOnSurface)
+            }
+            .padding(24)
+            .background(Color.clmixSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .transition(.opacity)
     }
 }

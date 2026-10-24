@@ -3,6 +3,16 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.12.0
+
+Needs desktop 1.19.0 or later.
+
+- **Server Syncing.** When the desktop resyncs with the console, the app
+  goes back to the AUX Only / Mixer Control choice (or to the aux list,
+  for an account without Mixer Control) and shows "Server Syncing" with
+  a spinner until it is done. The aux list refreshes afterwards, so
+  renamed auxes show their new names.
+
 ## 2.11.0
 
 - **Permissions check.** A gear button beside the light/dark toggle on

@@ -98,7 +98,7 @@ targets:
         # which ships on its own schedule and carries its own numbering;
         # neither is it tied to version.py, which is the desktop app and
         # the server this talks to.
-        MARKETING_VERSION: "1.7.0"
+        MARKETING_VERSION: "1.8.0"
         # Every new upload needs a build number App Store Connect hasn't
         # seen before for this bundle ID, even for a new marketing version
         # - so this moves on every upload, including a resubmission of the
