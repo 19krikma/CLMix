@@ -105,9 +105,33 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/Channel_Input/alt_analog_gain$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/alt_phantom$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/main/alt_in$"),
+
+    # EQ, filters and dynamics, for Full Mixer Control's strip thumbnails
+    # and its EQ and Dynamics screens (_eq_state / _dyn_state in
+    # services/remote_server.py). The gain-reduction meters under
+    # Dynamics carry no value and are left out.
+    re.compile(r"^/Input_Channels/\d+/EQ/[^/]+$"),
+    re.compile(r"^/Input_Channels/\d+/Filters/[^/]+$"),
+    re.compile(r"^/Input_Channels/\d+/Dynamics/(?!GR_meter)[^/]+$"),
 ]
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
+
+# The console's word that a channel's input changed - patched, unpatched,
+# or switched between its main and alt slot. Switching is the case that
+# matters: the Q225 announces ALT going on as analog_gain, phantom and
+# input_type, and ALT going off as input_type alone, and never sends
+# main/alt_in either way. So the cached alt_in would stay as it was and
+# the phones would keep showing the old slot. input_type is taken as the
+# cue to ask the console for the channel's whole input state again.
+INPUT_TYPE_PATTERN = re.compile(
+    r"^/Input_Channels/(\d+)/Channel_Input/input_type$"
+)
+
+# What an input_type re-reads - see INPUT_TYPE_PATTERN.
+INPUT_STATE_LEAVES = (
+    "main/alt_in", "analog_gain", "phantom", "alt_analog_gain", "alt_phantom",
+)
 
 # The console broadcasts these immediately when a snapshot is recalled
 # (from the surface or the recall list), with the new snapshot number
@@ -568,11 +592,25 @@ class MixerWorker(threading.Thread):
         elif any(pattern.match(address) for pattern in CACHEABLE_ADDRESSES):
             self.cache[address] = args
 
+        # Not while a backup is reading the desk: it asks for input_type
+        # on every channel, which is no news about any of them.
+        input_changed = INPUT_TYPE_PATTERN.match(address)
+        if input_changed and self.loaded and sink is None:
+            self._request_input_state(input_changed.group(1))
+
         if not recorded:
             self._log_received(sender, self._describe(address, args, data), depth)
 
         if not self.loaded:
             self.request_next_parameter()
+
+    def _request_input_state(self, channel):
+        """Re-read a channel's input after the console reported input_type
+        for it - see INPUT_TYPE_PATTERN."""
+        for leaf in INPUT_STATE_LEAVES:
+            self.send_osc(
+                f"/Input_Channels/{channel}/Channel_Input/{leaf}/?", []
+            )
 
     def _describe(self, address, args, data):
         """One message written out in full: what it says it is, what it

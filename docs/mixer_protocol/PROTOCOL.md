@@ -666,6 +666,13 @@ at 0 dB with 48V off is an ordinary state, so the value cannot be used
 to tell patched from empty - see `_alt_available` in
 `services/remote_server.py`.
 
+**Switching Main/ALT never sends `main/alt_in`** (observed on the Q225,
+2026-10-23). ALT going on arrives as `analog_gain`, `phantom` and
+`input_type ,f [2.0]`; ALT going off as `input_type` alone. So the
+switch can only be learnt by asking: CLMix's worker treats any
+`input_type` as the cue to re-query `main/alt_in` and both slots' gain
+and 48V for that channel (`INPUT_TYPE_PATTERN` in `ui/main_window.py`).
+
 Only `0.0` and `2.0` have ever been observed, and `2.0` implies a `1.0`
 that nothing has yet produced - plausibly another source class. Test it
 as **non-zero means patched** rather than `== 2.0`.

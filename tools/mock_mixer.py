@@ -992,10 +992,28 @@ class MockMixer:
 
         self.params[address] = [value]
 
+        if address.endswith("/Channel_Input/main/alt_in"):
+            self.announce_alt_switch(address, value)
+            return
+
         # Real consoles echo every parameter change back to remote
         # listeners - CLMix relies on that echo to update its cache
         # rather than assuming its own command succeeded.
         self.send(address, [value])
+
+    def announce_alt_switch(self, address, value):
+        """Main/ALT switched, told the way the Q225 tells it: no alt_in
+        echo at all. ALT going on sends analog_gain, phantom and
+        input_type 2.0; going off sends input_type alone. A client has
+        to ask for main/alt_in to learn which slot is live."""
+        prefix = address[:-len("/main/alt_in")]
+
+        if value:
+            for leaf in ("analog_gain", "phantom"):
+                self.send(f"{prefix}/{leaf}", self.params[f"{prefix}/{leaf}"])
+            self.send(f"{prefix}/input_type", [2.0])
+        else:
+            self.send(f"{prefix}/input_type", self.params[f"{prefix}/input_type"])
 
     def send(self, address, args):
         if self.drop_rate and random.random() < self.drop_rate:
