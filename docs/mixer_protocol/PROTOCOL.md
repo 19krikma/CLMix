@@ -667,27 +667,33 @@ well. A patched alt at 0 dB with 48V off reads the same, so neither the
 value nor its arrival tells patched from empty - see `_alt_available` in
 `services/remote_server.py`.
 
-**`main/alt_in` does not report the switch.** Captured on channel 18,
-2026-10-23, switching ALT from the desk surface - the burst, then
-CLMix's own queries straight after it:
+**Patching and removing an ALT route** (captured on channel 18,
+2026-10-23 and again 2026-10-24 with the operator's own notes, "set
+route for ALT input" / "removed route for ALT input"; main stayed
+patched throughout):
 
 ```
-ALT on   alt_analog_gain ,f [0.0]   (sent by the desk)
-         alt_phantom     ,f [0.0]   (sent by the desk)
-         input_type      ,f [2.0]   (sent by the desk)
-         main/alt_in     ,f [0.0]   (answer to a query)
-ALT off  input_type      ,f [2.0]   (sent by the desk)
-         main/alt_in     ,f [0.0]   (answer to a query)
+ALT route set      alt_analog_gain ,f [0.0]
+                   alt_phantom     ,f [0.0]
+                   input_type      ,f [2.0]
+ALT route removed  input_type      ,f [2.0]
 ```
 
-`main/alt_in` reads `0.0` with ALT on, and is never sent by the desk
-on its own. What tells the two apart is the burst: the alt values
-followed by `input_type` means ALT went on, `input_type` alone means it
-went off. CLMix's worker tracks it that way (`INPUT_TYPE_PATTERN` in
-`ui/main_window.py`), ignoring alt values it asked for itself, and
-stores the result under `main/alt_in` in its cache. Until a channel is
-first switched after CLMix connects, it reads as Main. Whether writing
-`main/alt_in` from a remote actually switches the desk is untested.
+The 2026-10-23 capture was first read as the Main/ALT *switch*, and
+1.18.2 drove the phones' ALT selection from it - wrongly: it is the alt
+slot's version of the patch burst above. CLMix's worker now uses it only
+to learn whether a channel has an alt route (`MixerWorker.alt_routed`,
+`INPUT_TYPE_PATTERN` in `ui/main_window.py`), which is what enables a
+phone's ALT button. It tells the three cases apart by what precedes
+`input_type` within 0.5 s - alt values, main values, or neither -
+ignoring head-amp values it asked for itself, and treats `0.0` straight
+after `2.0` as the main route going. A route patched before CLMix
+connected cannot be seen, so it reads as absent until patched again.
+
+The Main/ALT switch itself is `main/alt_in`, cached and asked for like
+any other parameter. That the desk sends it when the switch is pressed
+on the surface is not yet captured (the 2026-09-17 patching capture did
+see it arrive unbidden).
 
 Only `0.0` and `2.0` have ever been observed, and `2.0` implies a `1.0`
 that nothing has yet produced - plausibly another source class. Test it

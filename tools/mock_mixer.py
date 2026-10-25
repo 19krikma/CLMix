@@ -628,8 +628,8 @@ class MockMixer:
             # its own gain, and no alt parameters everywhere else (asked
             # for, those answer 0.0, as the Q225 does - see handle_query).
             # Channel 12's route sits at exactly 0 dB with 48V off.
-            # Channel 8 is stored as on its alt, though no query shows it:
-            # main/alt_in always reads 0.0, as on the desk.
+            # Channel 8 starts on its alt. CLMix only learns a route from
+            # it being patched while connected - /Mock/Patch_Alt/{n}.
             if channel % 4 == 0:
                 put(f"{prefix}/Channel_Input/alt_analog_gain",
                     0.0 if channel == 12 else float(30 + channel % 11))
@@ -683,6 +683,10 @@ class MockMixer:
         """
         if address.startswith("/Mock/Surface_Recall/"):
             self.recall(int(address.rsplit("/", 1)[1]))
+
+        elif address.startswith(("/Mock/Patch_Alt/", "/Mock/Unpatch_Alt/")):
+            self.patch_alt(int(address.rsplit("/", 1)[1]),
+                           address.startswith("/Mock/Patch_Alt/"))
 
         elif address == "/Mock/Store_Snapshot":
             # The operator pressing Update on the current snapshot.
@@ -945,10 +949,6 @@ class MockMixer:
             for parameter in self.strips.get(address, []):
                 self.send(parameter, self.params[parameter])
 
-        elif address.endswith("/Channel_Input/main/alt_in"):
-            # The Q225 answers 0.0 whichever slot is live.
-            self.send(address, [0.0])
-
         elif re.search(r"/Channel_Input/alt_(analog_gain|phantom)$", address) \
                 and address not in self.params:
             # And answers for an alt slot with no route too, at 0.0.
@@ -1001,28 +1001,26 @@ class MockMixer:
 
         self.params[address] = [value]
 
-        if address.endswith("/Channel_Input/main/alt_in"):
-            self.announce_alt_switch(address, value)
-            return
-
         # Real consoles echo every parameter change back to remote
         # listeners - CLMix relies on that echo to update its cache
         # rather than assuming its own command succeeded.
         self.send(address, [value])
 
-    def announce_alt_switch(self, address, value):
-        """Main/ALT switched, told the way the Q225 tells it (captured on
-        channel 18, 2026-10-23): ALT going on sends alt_analog_gain,
-        alt_phantom and input_type; going off sends input_type alone.
-        main/alt_in itself is never sent, and asked for it reads 0.0
-        either way - see handle_query."""
-        prefix = address[:-len("/main/alt_in")]
-
-        if value:
+    def patch_alt(self, channel, patched):
+        """An ALT route patched or removed at the surface, told the way
+        the Q225 tells it (captured on channel 18, 2026-10-23/24): patched
+        sends alt_analog_gain, alt_phantom and input_type; removed sends
+        input_type alone. main/alt_in is left as it was."""
+        prefix = f"/Input_Channels/{channel}/Channel_Input"
+        if patched:
             for leaf in ("alt_analog_gain", "alt_phantom"):
-                self.send(f"{prefix}/{leaf}",
-                          self.params.get(f"{prefix}/{leaf}", [0.0]))
+                self.params.setdefault(f"{prefix}/{leaf}", [0.0])
+                self.send(f"{prefix}/{leaf}", self.params[f"{prefix}/{leaf}"])
+        else:
+            for leaf in ("alt_analog_gain", "alt_phantom"):
+                self.params.pop(f"{prefix}/{leaf}", None)
         self.send(f"{prefix}/input_type", self.params[f"{prefix}/input_type"])
+        print(f"* channel {channel} ALT route {'set' if patched else 'removed'}")
 
     def send(self, address, args):
         if self.drop_rate and random.random() < self.drop_rate:

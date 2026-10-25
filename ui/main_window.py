@@ -106,9 +106,7 @@ CACHEABLE_ADDRESSES = [
     # The alternate input slot and the switch between it and the main.
     re.compile(r"^/Input_Channels/\d+/Channel_Input/alt_analog_gain$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/alt_phantom$"),
-    # Not main/alt_in: the Q225 answers it 0.0 whether ALT is on or not.
-    # Which slot is live is worked out from the input bursts instead and
-    # stored under that address - see INPUT_TYPE_PATTERN.
+    re.compile(r"^/Input_Channels/\d+/Channel_Input/main/alt_in$"),
 
     # EQ, filters and dynamics, for Full Mixer Control's strip thumbnails
     # and its EQ and Dynamics screens (_eq_state / _dyn_state in
@@ -121,37 +119,41 @@ CACHEABLE_ADDRESSES = [
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
 
-# The console's word that a channel's input changed - patched, unpatched,
-# or switched between its main and alt slot. The Q225 never reports the
-# switch itself: main/alt_in reads 0.0 whether ALT is on or off (captured
-# on channel 18, 2026-10-23). What differs is the burst that ends in
-# input_type:
+# The console's word that a channel's input was patched or unpatched.
+# For the alt slot, the burst that ends in input_type says which
+# (captured on channel 18, 2026-10-23 and 2026-10-24, patching and
+# removing an ALT route from the surface):
 #
-#   ALT on   alt_analog_gain, alt_phantom, input_type
-#   ALT off  input_type alone
+#   ALT route set      alt_analog_gain, alt_phantom, input_type
+#   ALT route removed  input_type alone
 #
-# So an input_type that follows the channel's alt values within
-# ALT_BURST_SECONDS means ALT went on, and one that arrives without them
-# means it went off. Alt values the server asked for itself are not part
-# of any burst - see _alt_queries_pending. Until the channel is first
-# switched after CLMix connects, it reads as Main.
+# The main slot does the same with its own values (analog_gain, phantom,
+# input_type 2.0 when patched, input_type 0.0 alone when removed - see
+# PROTOCOL.md). So an input_type that follows the channel's alt values
+# within BURST_SECONDS means an alt route was patched; one that follows
+# the main values, or reads 0.0 straight after a 2.0, is the main route
+# coming or going; and one with neither means the alt route was removed.
+# Head-amp values the server asked for itself are not part of any burst
+# - see _queries_pending.
+# The result is MixerWorker.alt_routed, which is what lets a phone press
+# ALT. Nothing on the wire says whether a route patched before CLMix
+# connected is there, so until the channel is patched again it reads as
+# having none. Which slot is live is a separate thing, main/alt_in.
 INPUT_TYPE_PATTERN = re.compile(
     r"^/Input_Channels/(\d+)/Channel_Input/input_type$"
 )
-ALT_VALUE_PATTERN = re.compile(
-    r"^/Input_Channels/(\d+)/Channel_Input/alt_(?:analog_gain|phantom)$"
+HEAD_AMP_PATTERN = re.compile(
+    r"^/Input_Channels/(\d+)/Channel_Input/(alt_)?(?:analog_gain|phantom)$"
 )
-ALT_BURST_SECONDS = 0.5
-# How long an alt query of ours is waited on. The desk answers within
+BURST_SECONDS = 0.5
+# How long a head-amp query of ours is waited on. The desk answers within
 # milliseconds; one it never answers must not go on swallowing real
 # bursts on that channel.
-ALT_QUERY_SECONDS = 0.5
+QUERY_SECONDS = 0.5
 
-# What an input_type re-reads - see INPUT_TYPE_PATTERN. Only the main
-# head amp: the alt values come in the burst itself when ALT goes on, and
-# every alt query of ours is one more answer that must not be mistaken
-# for a burst. main/alt_in is left out, having nothing to say.
-INPUT_STATE_LEAVES = ("analog_gain", "phantom")
+# What an input_type re-reads - see INPUT_TYPE_PATTERN. Not the alt
+# head amp: its values come in the burst itself when a route is patched.
+INPUT_STATE_LEAVES = ("main/alt_in", "analog_gain", "phantom")
 
 # The console broadcasts these immediately when a snapshot is recalled
 # (from the surface or the recall list), with the new snapshot number
@@ -406,10 +408,14 @@ class MixerWorker(threading.Thread):
         # services/show_backup.py.
         self.message_sink = None
 
-        # ALT tracking - see INPUT_TYPE_PATTERN. Both only touched on the
-        # worker thread (send_osc runs there too).
-        self._alt_burst_at = {}
-        self._alt_queries_pending = {}
+        # ALT route tracking - see INPUT_TYPE_PATTERN. The private two
+        # are only touched on the worker thread (send_osc runs there too);
+        # alt_routed, channel numbers as strings, is read by the remote
+        # server.
+        self.alt_routed = set()
+        self._burst_at = {}
+        self._queries_pending = {}
+        self._input_type = {}
 
         # slot number -> (channel index, leg), mirroring whatever the UI
         # last subscribed via subscribe_meters(). /Meters/values reports
@@ -641,7 +647,7 @@ class MixerWorker(threading.Thread):
         # and the alt values on every channel, which is no news about any
         # of them.
         if self.loaded and sink is None:
-            self._track_alt_switch(address)
+            self._track_alt_route(address, args)
 
         if not recorded:
             self._log_received(sender, self._describe(address, args, data), depth)
@@ -649,17 +655,18 @@ class MixerWorker(threading.Thread):
         if not self.loaded or self.resyncing:
             self.request_next_parameter()
 
-    def _track_alt_switch(self, address):
-        """Which slot a channel is live on, from its input bursts - see
-        INPUT_TYPE_PATTERN."""
-        alt_value = ALT_VALUE_PATTERN.match(address)
-        if alt_value:
-            count, asked_at = self._alt_queries_pending.get(address, (0, 0.0))
-            if count and time.monotonic() - asked_at <= ALT_QUERY_SECONDS:
-                # The answer to our own question, not a switch.
-                self._alt_queries_pending[address] = (count - 1, asked_at)
+    def _track_alt_route(self, address, args):
+        """Whether a channel has an alt route, from its input bursts -
+        see INPUT_TYPE_PATTERN."""
+        head_amp = HEAD_AMP_PATTERN.match(address)
+        if head_amp:
+            count, asked_at = self._queries_pending.get(address, (0, 0.0))
+            if count and time.monotonic() - asked_at <= QUERY_SECONDS:
+                # The answer to our own question, not a patch.
+                self._queries_pending[address] = (count - 1, asked_at)
             else:
-                self._alt_burst_at[alt_value.group(1)] = time.monotonic()
+                slot = "alt" if head_amp.group(2) else "main"
+                self._burst_at[(head_amp.group(1), slot)] = time.monotonic()
             return
 
         input_changed = INPUT_TYPE_PATTERN.match(address)
@@ -667,12 +674,26 @@ class MixerWorker(threading.Thread):
             return
 
         channel = input_changed.group(1)
-        burst_at = self._alt_burst_at.pop(channel, None)
-        alt_on = burst_at is not None and \
-            time.monotonic() - burst_at <= ALT_BURST_SECONDS
+        now = time.monotonic()
+        alt_at = self._burst_at.pop((channel, "alt"), None)
+        main_at = self._burst_at.pop((channel, "main"), None)
+        try:
+            input_type = float(args[0])
+        except (IndexError, TypeError, ValueError):
+            input_type = None
+        previous = self._input_type.get(channel)
+        self._input_type[channel] = input_type
 
-        self.cache[f"/Input_Channels/{channel}/Channel_Input/main/alt_in"] = \
-            [1.0 if alt_on else 0.0]
+        if alt_at is not None and now - alt_at <= BURST_SECONDS:
+            self.alt_routed.add(channel)
+        elif main_at is not None and now - main_at <= BURST_SECONDS or \
+                input_type == 0.0 and previous != 0.0:
+            # The main route coming or going, which says nothing about
+            # the alt.
+            pass
+        else:
+            self.alt_routed.discard(channel)
+
         self._request_input_state(channel)
 
     def _request_input_state(self, channel):
@@ -1274,11 +1295,11 @@ class MixerWorker(threading.Thread):
         log("debug", f"send_osc: {address} {args}")
 
         # So their answers are not mistaken for an ALT burst - see
-        # _track_alt_switch.
-        if address.endswith("/?") and ALT_VALUE_PATTERN.match(address[:-2]):
+        # _track_alt_route.
+        if address.endswith("/?") and HEAD_AMP_PATTERN.match(address[:-2]):
             key = address[:-2]
-            count, _ = self._alt_queries_pending.get(key, (0, 0.0))
-            self._alt_queries_pending[key] = (count + 1, time.monotonic())
+            count, _ = self._queries_pending.get(key, (0, 0.0))
+            self._queries_pending[key] = (count + 1, time.monotonic())
 
         builder = OscMessageBuilder(address=address)
 

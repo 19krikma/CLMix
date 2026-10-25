@@ -1377,10 +1377,13 @@ class RemoteServer:
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/phase/?"
                 )
-                # The alternate input slot. Which of the two is live is
-                # not asked: the Q225 answers main/alt_in 0.0 either way,
-                # so the worker tracks it from the desk's input bursts
+                # The alternate input slot and which of the two is live.
+                # Whether there is an alt route at all is not asked - the
+                # worker tracks it from the desk's input bursts
                 # (INPUT_TYPE_PATTERN in ui/main_window.py).
+                self.command_queue.put(
+                    f"/Input_Channels/{channel}/Channel_Input/main/alt_in/?"
+                )
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/alt_analog_gain/?"
                 )
@@ -1533,26 +1536,25 @@ class RemoteServer:
     def _alt_available(worker, channel):
         """Whether the channel has an alt route patched on the console.
 
-        Taken as alt_analog_gain having arrived at all. That was thought
-        to happen only for a channel with an alt route, but the Q225 has
-        since answered 0.0 for channel 18 as well (2026-10-23), so in
-        practice this lets ALT be chosen on most channels. Reading the
-        value instead is no better: 0 dB is an ordinary gain for a patched
-        alt, and that rule locked out the ALT button on a live route. No
-        address seen so far says whether an alt is patched.
+        No address answers this. The worker learns it from the burst the
+        desk sends when an alt route is patched or removed (alt_routed,
+        see INPUT_TYPE_PATTERN in ui/main_window.py), so a route patched
+        before CLMix connected reads as absent until it is patched again.
+        Neither the arrival nor the value of alt_analog_gain will do: the
+        Q225 answers it 0.0 for a channel with no alt route too.
 
-        A channel already running on alt counts too, in case its gain has
-        not been reported yet.
+        A channel already running on alt counts too, since it plainly has
+        one.
         """
         if worker is None:
             return False
 
-        prefix = f"/Input_Channels/{channel}/Channel_Input"
-
-        if f"{prefix}/alt_analog_gain" in worker.cache:
+        if str(channel) in worker.alt_routed:
             return True
 
-        args = worker.cache.get(f"{prefix}/main/alt_in")
+        args = worker.cache.get(
+            f"/Input_Channels/{channel}/Channel_Input/main/alt_in"
+        )
         try:
             return bool(float(args[0])) if args else False
         except (TypeError, ValueError):
