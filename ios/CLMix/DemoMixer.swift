@@ -167,7 +167,22 @@ final class DemoMixer: MixerBackend {
 
     // [aux index: [channel number: send]]
     private var sends: [Int: [Int: Send]] = [:]
-    private var presets: [String: [Int: Send]] = [:]
+    // [id: preset]. A preset belongs to the aux it was saved from, as on
+    // the real server, so the id is the aux and the name together - there
+    // being only the one owner here.
+    private var presets: [String: DemoPreset] = [:]
+
+    private struct DemoPreset {
+        let name: String
+        let aux: Int
+        let mix: [Int: Send]
+        var isPublic = false
+        var sharedWith: [String] = []
+    }
+
+    private static func presetID(aux: Int, name: String) -> String { "\(aux)/\(name)" }
+    private static let demoOwner = "demo"
+    private static let demoAccounts = ["Bass", "Drums", "Keys", "Vocals"]
     // [channel number: the console's own strip]
     private var console: [Int: Strip] = [:]
 
@@ -265,8 +280,10 @@ final class DemoMixer: MixerBackend {
         // Two presets to load straight away, so the Load sheet is not empty
         // the first time it is opened.
         presets = [
-            "Opening Set": sends[1] ?? [:],
-            "Acoustic Set": sends[4] ?? [:],
+            Self.presetID(aux: 1, name: "Opening Set"):
+                DemoPreset(name: "Opening Set", aux: 1, mix: sends[1] ?? [:]),
+            Self.presetID(aux: 4, name: "Acoustic Set"):
+                DemoPreset(name: "Acoustic Set", aux: 4, mix: sends[4] ?? [:]),
         ]
     }
 
@@ -709,9 +726,38 @@ final class DemoMixer: MixerBackend {
         console[channel]?.name = String(name.prefix(32))
     }
 
+    /// The presets of the aux on screen, as the real server lists them.
     func requestPresets() {
-        let names = presets.keys.sorted()
-        Task { @MainActor in self.delegate?.mixerDidReceivePresets(names) }
+        let list = presets
+            .filter { $0.value.aux == selectedAux }
+            .sorted { $0.key < $1.key }
+            .map { id, preset in
+                Preset(serverID: id, name: preset.name, owner: Self.demoOwner, mine: true,
+                       isPublic: preset.isPublic, sharedWithMe: false,
+                       sharedWith: preset.sharedWith, aux: preset.aux,
+                       auxName: Self.auxes.first { $0.index == preset.aux }?.name)
+            }
+        Task { @MainActor in self.delegate?.mixerDidReceivePresets(list) }
+    }
+
+    func deletePreset(id: String) {
+        presets[id] = nil
+        requestPresets()
+    }
+
+    func setPresetPublic(id: String, isPublic: Bool) {
+        presets[id]?.isPublic = isPublic
+        requestPresets()
+    }
+
+    func sharePreset(id: String, users: [String]) {
+        presets[id]?.sharedWith = users.sorted()
+        requestPresets()
+    }
+
+    func requestShareTargets(id: String) {
+        let users = Self.demoAccounts
+        Task { @MainActor in self.delegate?.mixerDidReceiveShareTargets(users) }
     }
 
     func savePreset(name: String) {
@@ -721,26 +767,34 @@ final class DemoMixer: MixerBackend {
             Task { @MainActor in self.delegate?.mixerDidFail(message: "No aux selected") }
             return
         }
-        presets[name] = mix
+        let id = Self.presetID(aux: aux, name: name)
+        // Saving over a preset keeps who it is shared with.
+        var preset = DemoPreset(name: name, aux: aux, mix: mix)
+        preset.isPublic = presets[id]?.isPublic ?? false
+        preset.sharedWith = presets[id]?.sharedWith ?? []
+        presets[id] = preset
 
         Task { @MainActor in self.delegate?.mixerDidSavePreset(name) }
     }
 
-    func loadPreset(name: String) {
-        guard let aux = selectedAux, let stored = presets[name] else {
+    func loadPreset(_ preset: Preset) {
+        let id = preset.serverID.isEmpty
+            ? Self.presetID(aux: selectedAux ?? 0, name: preset.name)
+            : preset.serverID
+        guard let aux = selectedAux, let stored = presets[id], stored.aux == aux else {
             Task { @MainActor in self.delegate?.mixerDidFail(message: "Preset not found") }
             return
         }
 
         // Applied as ordinary level/pan changes, exactly as the desktop app
         // recalls a preset - the next push reflects it like any other move.
-        for (channel, send) in stored {
+        for (channel, send) in stored.mix {
             sends[aux]?[channel]?.level = send.level
             sends[aux]?[channel]?.pan = send.pan
         }
 
         pushLevels()
-        Task { @MainActor in self.delegate?.mixerDidLoadPreset(name) }
+        Task { @MainActor in self.delegate?.mixerDidLoadPreset(stored.name) }
     }
 
     // MARK: - Pushing levels

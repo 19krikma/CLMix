@@ -1,46 +1,40 @@
 <resources>
-    <color name="primary">#3B6DF6</color>
-    <color name="on_primary">#FFFFFF</color>
-    <color name="secondary">#1FAA6B</color>
-    <color name="on_secondary">#FFFFFF</color>
+    <!-- CLMix is dark at all times - there is no light palette, so these
+         are the only colours and nothing is redefined under -night. -->
+    <color name="primary">#6C93FF</color>
+    <color name="on_primary">#0B1530</color>
+    <color name="secondary">#3FCF8E</color>
+    <color name="on_secondary">#052A18</color>
 
-    <color name="background">#F4F5F7</color>
-    <color name="surface">#FFFFFF</color>
-    <color name="surface_variant">#E7E9EE</color>
-    <color name="on_surface">#1B1D22</color>
-    <color name="on_surface_variant">#54585F</color>
+    <color name="background">#121317</color>
+    <color name="surface">#1B1D22</color>
+    <color name="surface_variant">#25272E</color>
+    <color name="on_surface">#ECEDF0</color>
+    <color name="on_surface_variant">#A9ACB4</color>
 
-    <color name="mute_active">#E5473F</color>
-    <color name="mute_inactive">#D3D6DC</color>
-    <color name="on_mute_inactive">#33363C</color>
+    <color name="mute_active">#FF6B62</color>
+    <color name="mute_inactive">#33363C</color>
+    <color name="on_mute_inactive">#D3D6DC</color>
 
-    <color name="track_background">#D3D6DC</color>
+    <color name="track_background">#33363C</color>
 
-    <!-- The fill of the connect screen's floating theme toggle: the
+    <!-- The fill of the connect screen's floating permissions button: the
          surface colour at 70%, so the wallpaper reads through it the way
          the iOS control's material does. A literal because a shape
          drawable cannot apply an alpha to ?attr/colorSurface itself. -->
-    <color name="login_control_fill">#B3FFFFFF</color>
+    <color name="login_control_fill">#B31B1D22</color>
 
     <!-- The connect screen's own outline: its boxes, rows, rule, fields
-         and the floating theme toggle. Near-black by day rather than the
-         grey below, because they are drawn over the wallpaper's frosted
-         band instead of over a flat surface - a grey line that reads
-         cleanly on the background goes soft against a picture, however
-         far the band has pushed it back. The same ink as the labels
-         inside them, so the form reads as one drawing. -->
-    <color name="login_outline">#1B1D22</color>
+         and the floating permissions button. -->
+    <color name="login_outline">#FFFFFF</color>
 
     <!-- Outlines on the connect screen's Discovered/Manual boxes and its
-         unselected server rows. Was hardcoded white, which vanished
-         against the light background - now that light mode is reachable
-         from the drawer's Dark mode switch, it needs a real day value. -->
-    <color name="outline">#9BA0A8</color>
+         unselected server rows. -->
+    <color name="outline">#FFFFFF</color>
 
     <!-- The EQ screen: one colour per band and one for both filters,
          kept the same on the graph's handles and on the chips that select
-         them. Mid-brightness hues that hold up on both the day and night
-         surfaces, so they are not redefined for night. -->
+         them. -->
     <color name="eq_band_lf">#F07A2E</color>
     <color name="eq_band_lmf">#D9A400</color>
     <color name="eq_band_hmf">#21A870</color>

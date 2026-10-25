@@ -123,18 +123,6 @@
 
         <!-- Presets are per-aux-send, so the aux screen's Presets button
              has nothing to act on here and is deliberately absent. -->
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/dark_mode_switch"
-            style="@style/Widget.Material3.CompoundButton.MaterialSwitch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="14dp"
-            android:layout_marginTop="16dp"
-            android:minHeight="48dp"
-            android:text="Dark mode"
-            android:saveEnabled="false"
-            android:textColor="?attr/colorOnSurface" />
-
         <!-- Back returns to the AUX Only / Mixer Control choice; Log Out
              ends the session outright. Side by side because they are the
              same kind of action at different depths. -->

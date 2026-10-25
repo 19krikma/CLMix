@@ -412,9 +412,9 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
         binding.freqValue.text = formatEqFreq(hz)
     }
 
-    // Band and filter colours are mid-brightness in both palettes, so
-    // white reads on every one of them; EQ IN passes on_primary instead,
-    // which is dark on the night palette's lighter blue.
+    // Band and filter colours are mid-brightness, so white reads on every
+    // one of them; EQ IN passes on_primary instead, which is dark on the
+    // palette's light blue.
     private fun tint(
         button: MaterialButton,
         lit: Boolean,

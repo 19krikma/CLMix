@@ -24,9 +24,7 @@ straight out of the live one - the same "read a Tcl variable the theme
 owns" trick as ui/main_window.py's panel_bg, one level deeper.
 
 Colours are sampled when the widget is built. That's enough because the
-only password field lives in a modal dialog: the theme control sits in
-the Setup window's Config tab, which is behind the dialog's grab while it
-is open, so the theme can't change out from under a live icon.
+theme never changes - CLMix is dark at all times.
 """
 
 import base64
@@ -36,7 +34,6 @@ import tkinter as tk
 import zlib
 from tkinter import ttk
 
-import sv_ttk
 
 ICON_SIZE = 16
 
@@ -144,7 +141,8 @@ def _png_base64(alpha, rgb):
 
 
 def _theme_namespace():
-    return "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
+    # CLMix is dark at all times.
+    return "sv_dark"
 
 
 def _theme_colour(widget, key):

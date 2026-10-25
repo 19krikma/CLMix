@@ -18,12 +18,23 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
+        android:layout_marginBottom="4dp"
         android:gravity="center"
         android:text="Load Preset"
         android:textSize="16sp"
         android:textStyle="bold"
         android:textColor="?attr/colorOnSurface" />
+
+    <!-- Which aux this is for - a preset belongs to the aux it was
+         saved from, and only loads back onto it. -->
+    <TextView
+        android:id="@+id/preset_load_aux_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:gravity="center"
+        android:textSize="13sp"
+        android:textColor="?attr/colorOnSurfaceVariant" />
 
     <TextView
         android:id="@+id/preset_load_empty_label"
@@ -31,7 +42,7 @@
         android:layout_height="wrap_content"
         android:layout_marginVertical="24dp"
         android:gravity="center"
-        android:text="No presets saved yet"
+        android:text="No presets for this aux yet"
         android:textColor="?attr/colorOnSurfaceVariant"
         android:visibility="gone" />
 

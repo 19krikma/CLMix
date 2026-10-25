@@ -4,15 +4,11 @@
      offers setBoxStrokeColorStateList() but no getter, so there is no way
      to capture Material's own default and restore it afterwards. These
      are the same theme attributes Material3's OutlinedBox style resolves,
-     so the field looks exactly as it did before - except the resting
-     border, which follows the connect screen's own outline rather than
-     Material's grey, so the fields and the boxes above them are drawn in
-     one ink over the wallpaper. The night copy of this file keeps
-     Material's own, which is what the dark screen has always shown. -->
+     so the field looks exactly as it did before. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_enabled="false" android:alpha="0.12"
         android:color="?attr/colorOnSurface" />
     <item android:state_focused="true" android:color="?attr/colorPrimary" />
     <item android:state_hovered="true" android:color="?attr/colorOnSurface" />
-    <item android:color="@color/login_outline" />
+    <item android:color="?attr/colorOutline" />
 </selector>

@@ -2,7 +2,9 @@ import SwiftUI
 
 /// Captures every channel's current level+pan for the active aux under a
 /// name - the server reads the actual values from its own cache, so this
-/// only needs to send the name. Mirrors Android's PresetSaveBottomSheet.
+/// only needs to send the name. The preset belongs to that aux and only
+/// loads back onto it, so the sheet says which aux it is. Mirrors
+/// Android's PresetSaveBottomSheet.
 struct PresetSaveSheet: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -21,8 +23,15 @@ struct PresetSaveSheet: View {
                 .frame(width: 40, height: 4)
                 .padding(.top, 8)
 
-            Text("Save Preset")
-                .font(.system(size: 16, weight: .bold))
+            VStack(spacing: 4) {
+                Text("Save Preset")
+                    .font(.system(size: 16, weight: .bold))
+                if let aux = model.currentAux {
+                    Text("From \(aux.name)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.clmixOnSurfaceVariant)
+                }
+            }
 
             TextField("Preset Name", text: $name)
                 .padding(.horizontal, 14)

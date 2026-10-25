@@ -136,14 +136,6 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
-        // Checked state before the listener, as on the aux screen: the
-        // assignment fires it, which would otherwise record a preference
-        // the user never expressed.
-        binding.darkModeSwitch.isChecked = ThemeStore.isDarkMode(this)
-        binding.darkModeSwitch.setOnCheckedChangeListener { _, isChecked ->
-            ThemeStore.setDarkMode(this, isChecked)
-        }
-
         // Back to the AUX Only / Mixer Control choice, which is still
         // underneath in the back stack - finishing returns to it rather
         // than building a second copy. The session stays up; only this

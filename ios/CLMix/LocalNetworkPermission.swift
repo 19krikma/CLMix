@@ -30,7 +30,12 @@ final class LocalNetworkPermission: ObservableObject {
         case inconclusive
     }
 
+    /// Only `.checking` on the very first check. A recheck leaves the last
+    /// answer showing until the new one replaces it, so the badge never
+    /// blinks out every time the app comes back to the foreground.
     @Published private(set) var status: Status = .unchecked
+
+    private var inFlight = false
 
     private static let serviceType = "_clmix-check._tcp"
 
@@ -45,8 +50,9 @@ final class LocalNetworkPermission: ObservableObject {
     private var timeoutTask: Task<Void, Never>?
 
     func check() {
-        guard status != .checking else { return }
-        status = .checking
+        guard !inFlight else { return }
+        inFlight = true
+        if status == .unchecked { status = .checking }
 
         let listener: NWListener
         do {
@@ -90,7 +96,8 @@ final class LocalNetworkPermission: ObservableObject {
     }
 
     private func finish(_ result: Status) {
-        guard status == .checking else { return }
+        guard inFlight else { return }
+        inFlight = false
         status = result
 
         timeoutTask?.cancel()

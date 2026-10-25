@@ -1,7 +1,6 @@
 package com.clmix
 
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -30,14 +29,8 @@ import kotlin.math.roundToInt
  * the controls occupy, easing away towards the screen's edges, where the
  * picture is left as it is.
  *
- * There are two cuts of the artwork, picked the way the banner before it
- * picked its own: the original, which is black, and a day one of the same
- * room with the lights up - drawable-night-nodpi and drawable-nodpi, so the
- * swap is the resource system's rather than this view's. What this view does
- * have to know is which way the band pushes, since the frost's job is to put
- * the picture at a distance from the color the labels are drawn in, and that
- * is in opposite directions in the two themes: black into the night cut,
- * white into the day one.
+ * The artwork is black, and so is the band: the frost's job is to put the
+ * picture at a distance from the white the labels are drawn in.
  *
  * Nothing here animates or observes anything. The frost is composed once per
  * size change and the view then sits still, which is why a saveLayer in
@@ -62,15 +55,9 @@ class LoginBackgroundView @JvmOverloads constructor(
         alpha = (BLUR_STRENGTH * 255f).roundToInt()
     }
 
-    /** Whether the resource system handed us the night cut - which is also
-     *  which way the band pushes, and what the backdrop under the picture
-     *  has to be. Read once: a theme change recreates the activity. */
-    private val night = resources.configuration.uiMode and
-        Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-
     private val veilPaint = Paint().apply {
-        color = if (night) NIGHT_VEIL else DAY_VEIL
-        alpha = ((if (night) DARKENING else LIGHTENING) * 255f).roundToInt()
+        color = Color.BLACK
+        alpha = (DARKENING * 255f).roundToInt()
     }
     private val maskPaint = Paint().apply {
         xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
@@ -87,10 +74,10 @@ class LoginBackgroundView @JvmOverloads constructor(
 
     init {
         bitmap = BitmapFactory.decodeResource(resources, R.drawable.clmix_login_background)
-        // The artwork's own corner color, sampled from each cut: anything the
-        // image does not reach - an aspect ratio it was never cut for - then
-        // reads as more picture rather than as a gap beside it.
-        setBackgroundColor(if (night) NIGHT_BACKDROP else DAY_BACKDROP)
+        // The artwork's own corner color: anything the image does not reach -
+        // an aspect ratio it was never cut for - then reads as more picture
+        // rather than as a gap beside it.
+        setBackgroundColor(Color.BLACK)
     }
 
     /**
@@ -340,30 +327,9 @@ class LoginBackgroundView @JvmOverloads constructor(
 
         /** How far the band pushes the picture away from the labels drawn
          *  over it, on top of the blur, and how much of the blur is let
-         *  through over the sharp picture underneath.
-         *
-         *  Two figures because the two cuts are pushed opposite ways. The day
-         *  one is the larger because the pale cut's own detail - the logo,
-         *  which is white, and the light strings, which are nearly so -
-         *  starts much closer to the near-black it has to stay behind than
-         *  anything in the night cut starts to white. */
+         *  through over the sharp picture underneath. */
         private const val DARKENING = 0.48f
-        private const val LIGHTENING = 0.55f
         private const val BLUR_STRENGTH = 0.80f
-
-        /** What the band is made of in each theme. Grey rather than white on
-         *  the day side: white at this strength bleached the band to a flat
-         *  panel, and lowering the strength instead would have let the logo
-         *  and the light strings back up through the controls. A tone off the
-         *  palette's own light neutral keeps the band a shade darker than the
-         *  form's labels need and still buries what is under it. */
-        private const val NIGHT_VEIL = Color.BLACK
-        private const val DAY_VEIL = 0xFFD3D6DC.toInt()
-
-        /** What fills whatever the picture does not reach, sampled from each
-         *  cut's own corners. */
-        private const val NIGHT_BACKDROP = Color.BLACK
-        private const val DAY_BACKDROP = 0xFF94A7C0.toInt()
 
         /** Width the artwork is shrunk to before being stretched back over
          *  the screen - the blur's radius, in effect. */

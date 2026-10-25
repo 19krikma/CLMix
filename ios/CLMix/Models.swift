@@ -421,3 +421,43 @@ enum DynWrite {
     case bandIn(Int, Bool)
     case value(DynParam, Double)
 }
+
+/// A preset this account can see: its own, one shared with it, or a
+/// public one - see the server's PresetStore. `owner` is nil for presets
+/// saved before owners existed. `sharedWith` is only ever filled in on
+/// the account's own presets. An empty `serverID` means a server from
+/// before owners, which lists and loads by name alone. Mirrors Android's
+/// Preset.
+struct Preset: Identifiable, Equatable {
+    let serverID: String
+    let name: String
+    let owner: String?
+    let mine: Bool
+    let isPublic: Bool
+    let sharedWithMe: Bool
+    let sharedWith: [String]
+    /// The aux it was saved from, and only loads onto - nil for a preset
+    /// from before auxes were recorded, which loads onto any.
+    var aux: Int? = nil
+    var auxName: String? = nil
+
+    /// Stable across refreshes; names are unique on an old server.
+    var id: String { serverID.isEmpty ? name : serverID }
+
+    /// The line under the name in the Load sheet.
+    var subtitle: String {
+        ownership + (aux == nil ? " \u{00B7} Any aux" : "")
+    }
+
+    private var ownership: String {
+        if mine && isPublic { return "Yours \u{00B7} Public" }
+        if mine && !sharedWith.isEmpty {
+            return "Yours \u{00B7} Shared with \(sharedWith.joined(separator: ", "))"
+        }
+        if mine { return "Yours \u{00B7} Private" }
+        // Someone else's, shared with this account or public: who it
+        // belongs to is what matters.
+        if let owner { return "Owner: \(owner)" }
+        return "Public"
+    }
+}

@@ -355,3 +355,38 @@ fun DynSection.band(n: Int): DynSection {
         }
     )
 }
+
+/**
+ * A preset this account can see: its own, one shared with it, or a
+ * public one - see the server's PresetStore. owner is null for presets
+ * saved before owners existed. sharedWith is only ever filled in on the
+ * account's own presets; who else has someone else's is not its
+ * business. An id of "" means a server from before owners, which lists
+ * and loads by name alone.
+ */
+data class Preset(
+    val id: String,
+    val name: String,
+    val owner: String?,
+    val mine: Boolean,
+    val public: Boolean,
+    val sharedWithMe: Boolean,
+    val sharedWith: List<String>,
+    // The aux it was saved from, and only loads onto - null for a preset
+    // from before auxes were recorded, which loads onto any.
+    val aux: Int? = null,
+    val auxName: String? = null
+) {
+    /** The line under the name in the Load sheet. */
+    val subtitle: String
+        get() = when {
+            mine && public -> "Yours · Public"
+            mine && sharedWith.isNotEmpty() ->
+                "Yours · Shared with ${sharedWith.joinToString(", ")}"
+            mine -> "Yours · Private"
+            // Someone else's, shared with this account or public: who it
+            // belongs to is what matters.
+            owner != null -> "Owner: $owner"
+            else -> "Public"
+        } + if (aux == null) " · Any aux" else ""
+}

@@ -16,26 +16,13 @@ import SwiftUI
 /// glow rather than as a picture somebody put a form on top of, and
 /// nothing on the screen has a hard edge for the eye to catch.
 ///
-/// There are two cuts of the artwork, picked by colorScheme the way
-/// FadingBannerView picks its banner: the original, which is black, and
-/// a day one of the same room with the lights up. The band swaps with
-/// them - black over the night cut, white over the day one - because
-/// what the frost is for is pushing the picture away from the color the
-/// labels are drawn in, and that is in opposite directions in the two
-/// themes. Everything about the band's shape is shared; only the two
-/// colors here know which theme they are in.
+/// The artwork is black, and so is the band: what the frost is for is
+/// pushing the picture away from the white the labels are drawn in.
 ///
 /// Nothing here observes AppModel, deliberately: discovery adds and
 /// removes server rows every few seconds while this screen is up, and a
 /// blurred full-screen image has no business being re-rendered for that.
 struct LoginBackgroundView: View {
-    /// Which cut of the artwork is on screen, and which way the band
-    /// pushes it. The connect screen used to be pinned to the dark
-    /// palette whatever the theme said, there being no day cut to pin it
-    /// for; now that there is one, it follows the theme like every other
-    /// screen (see CLMixApp).
-    @Environment(\.colorScheme) private var colorScheme
-
     /// Where the form's first box starts, in points from the top of the
     /// screen. The frost fades in just above it, so the strip of
     /// artwork over the form - the hanging lights, the best of the
@@ -94,35 +81,13 @@ struct LoginBackgroundView: View {
     /// over it, on top of the blur. The material alone only frosts; this
     /// is what makes the artwork recede far enough for a thin outlined
     /// box to read against it.
-    ///
-    /// Two numbers because the two cuts are pushed opposite ways: black
-    /// into the night artwork, a pale grey into the day one. The day
-    /// figure is the larger because the pale cut's own detail - the
-    /// logo, which is white, and the light strings, which are nearly
-    /// so - starts much closer to the near-black it has to stay behind
-    /// than anything in the night cut starts to white.
     private static let darkening: CGFloat = 0.48
-    private static let lightening: CGFloat = 0.55
 
-    /// What the band is made of in each theme. Grey rather than white on
-    /// the day side: white at this strength bleached the band to a flat
-    /// panel, and lowering the strength instead would have let the logo
-    /// and the light strings back up through the controls. A tone off
-    /// the palette's own light neutral keeps the band a shade darker
-    /// than the form's labels need and still buries what is under it.
-    private static let nightVeil = Color.black
-    private static let dayVeil = Color(
-        red: 211 / 255, green: 214 / 255, blue: 220 / 255
-    )
-
-    /// What fills whatever the picture does not reach. Sampled from each
-    /// cut's own corners rather than taken from the palette: the point
-    /// is that an aspect ratio the artwork was never cut for reads as
-    /// more picture instead of as a gap beside it.
-    private static let nightBackdrop = Color.black
-    private static let dayBackdrop = Color(
-        red: 148 / 255, green: 167 / 255, blue: 192 / 255
-    )
+    /// What fills whatever the picture does not reach. Sampled from the
+    /// artwork's own corners rather than taken from the palette: the
+    /// point is that an aspect ratio the artwork was never cut for reads
+    /// as more picture instead of as a gap beside it.
+    private static let backdrop = Color.black
 
     /// How strongly the frost's blur comes through, independent of
     /// `darkening`. Material has no blur-radius knob of its own - this
@@ -138,18 +103,16 @@ struct LoginBackgroundView: View {
             // squarer frames, then show the top of the picture - the
             // hanging lights - rather than whichever slice happened to
             // land in the middle.
-            Image(colorScheme == .dark
-                  ? "clmix_login_background_dark"
-                  : "clmix_login_background_light")
+            Image("clmix_login_background_dark")
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 .clipped()
                 .overlay { frost(height: geo.size.height) }
         }
-        // The artwork's own corner color rather than the themed one -
-        // see nightBackdrop/dayBackdrop.
-        .background(colorScheme == .dark ? Self.nightBackdrop : Self.dayBackdrop)
+        // The artwork's own corner color rather than the palette's - see
+        // backdrop.
+        .background(Self.backdrop)
     }
 
     /// The blurred, darkened band itself. A material rather than a
@@ -161,8 +124,8 @@ struct LoginBackgroundView: View {
         ZStack {
             Rectangle().fill(.ultraThinMaterial)
                 .opacity(Self.blurStrength)
-            (colorScheme == .dark ? Self.nightVeil : Self.dayVeil)
-                .opacity(colorScheme == .dark ? Self.darkening : Self.lightening)
+            Color.black
+                .opacity(Self.darkening)
         }
         // Two masks multiplied: across, the fade out to the margins;
         // down, the fade in above the form and back out over the floor.

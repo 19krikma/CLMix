@@ -138,6 +138,13 @@ SESSION_TTL_SECONDS = 12 * 60 * 60
 # verbatim, and "connection lost" would send its user chasing the Wi-Fi.
 KICK_MESSAGE = "Disconnected by the sound engineer"
 
+# Everything gated by an account's presets permission - see
+# RemoteServer._handle_preset_action.
+PRESET_ACTIONS = frozenset({
+    "list_presets", "list_share_targets", "save_preset", "load_preset",
+    "delete_preset", "set_preset_public", "share_preset",
+})
+
 # Advertised over mDNS/DNS-SD so phone apps can find this server on the
 # local network instead of the user typing in an IP - Android's NsdManager
 # and iOS's NWBrowser both browse for this exact service type.
@@ -851,41 +858,14 @@ class RemoteServer:
             # channel mute like any other.
             self._set_mute(state, msg.get("channel"), msg.get("muted"))
 
-        elif action == "list_presets":
+        elif action in PRESET_ACTIONS:
             if not entry.get("presets", False):
                 await self._send(
                     websocket, {"type": "error", "message": "Not permitted for presets"}
                 )
                 return
 
-            await self._send(websocket, {
-                "type": "presets",
-                "presets": [name for name, _ in self.preset_store.list_presets()],
-            })
-
-        elif action == "save_preset":
-            if not entry.get("presets", False):
-                await self._send(
-                    websocket, {"type": "error", "message": "Not permitted for presets"}
-                )
-                return
-
-            await self._save_preset(websocket, worker, state, msg.get("name"))
-
-        elif action == "load_preset":
-            if not entry.get("presets", False):
-                await self._send(
-                    websocket, {"type": "error", "message": "Not permitted for presets"}
-                )
-                return
-
-            if not self._aux_allowed(worker, entry, state.get("aux")):
-                await self._send(
-                    websocket, {"type": "error", "message": "Not permitted for this aux"}
-                )
-                return
-
-            await self._load_preset(websocket, state, msg.get("name"))
+            await self._handle_preset_action(websocket, worker, state, action, msg)
 
         else:
             await self._send(
@@ -1884,6 +1864,144 @@ class RemoteServer:
         low, high = bounds
         return round(min(high, max(low, number)), digits)
 
+    async def _handle_preset_action(self, websocket, worker, state, action, msg):
+        """Everything behind the presets permission, already checked.
+
+        A preset is private to the account that saved it until its owner
+        makes it public or shares it with other accounts (see PresetStore),
+        and belongs to the aux it was saved from: a phone is only ever
+        offered, and may only load, the presets of the aux it is on.
+        Anyone who can see one may load it; only its owner may delete it
+        or change who sees it - the desktop can do those for any preset,
+        from its own page.
+        Every change answers with the caller's fresh list, so a phone
+        never has to work out the result for itself.
+        """
+        user = state["user"]
+
+        aux = state.get("aux")
+
+        if action == "list_presets":
+            await self._send_presets(websocket, user, aux)
+
+        elif action == "list_share_targets":
+            # For one preset where the phone names it, so the list is
+            # only accounts that can use that preset's aux.
+            preset = self.preset_store.get(msg.get("id")) if msg.get("id") else None
+            await self._send(websocket, {
+                "type": "share_targets",
+                "id": msg.get("id"),
+                "users": self._share_targets(worker, user, preset),
+            })
+
+        elif action == "save_preset":
+            await self._save_preset(websocket, worker, state, msg.get("name"))
+
+        elif action == "load_preset":
+            if not self._aux_allowed(worker, state["permission"], state.get("aux")):
+                await self._send(
+                    websocket, {"type": "error", "message": "Not permitted for this aux"}
+                )
+                return
+
+            # By id from builds that know about owners; by name from older
+            # ones, which only ever saw a list of names.
+            if msg.get("id"):
+                preset = self.preset_store.get(msg["id"])
+                if preset is not None and not self.preset_store.can_see(preset, user):
+                    preset = None
+            else:
+                preset = self.preset_store.find_visible(user, msg.get("name"), aux)
+
+            if preset is not None and not self.preset_store.fits_aux(preset, aux):
+                await self._send(websocket, {
+                    "type": "error",
+                    "message": "This preset belongs to "
+                    f"{self._aux_name(worker, preset['aux'])}",
+                })
+                return
+
+            await self._load_preset(websocket, state, preset)
+
+        else:
+            # delete_preset / set_preset_public / share_preset: the owner's
+            # alone.
+            preset = self.preset_store.get(msg.get("id"))
+
+            if preset is None or not self.preset_store.can_see(preset, user):
+                await self._send(
+                    websocket, {"type": "error", "message": "Preset not found"}
+                )
+                return
+
+            if preset["owner"] != user:
+                await self._send(
+                    websocket,
+                    {"type": "error", "message": "Only the preset's owner can change it"}
+                )
+                return
+
+            if action == "delete_preset":
+                self.preset_store.delete_preset(preset["id"])
+                log("info", f"User {user!r} deleted preset {preset['name']!r}")
+            elif action == "set_preset_public":
+                public = bool(msg.get("public"))
+                self.preset_store.set_public(preset["id"], public)
+                log("info", f"User {user!r} made preset {preset['name']!r} "
+                    f"{'public' if public else 'private'}")
+            else:
+                allowed = set(self._share_targets(worker, user, preset))
+                users = [u for u in (msg.get("users") or [])
+                         if isinstance(u, str) and u in allowed]
+                self.preset_store.set_shared_with(preset["id"], users)
+                log("info", f"User {user!r} shared preset {preset['name']!r} "
+                    f"with {users!r}")
+
+            await self._send_presets(websocket, user, aux)
+
+    async def _send_presets(self, websocket, user, aux):
+        presets = self.preset_store.visible_to(user, aux)
+        items = []
+
+        for preset in presets:
+            mine = preset["owner"] == user
+            item = {
+                "id": preset["id"],
+                "name": preset["name"],
+                "owner": preset["owner"],
+                "mine": mine,
+                "public": preset["public"],
+                "shared_with_me": user in preset["shared_with"],
+                # None for a preset from before auxes were recorded,
+                # which loads onto any aux.
+                "aux": preset["aux"],
+                "aux_name": preset["aux_name"],
+            }
+            # Who else has it is the owner's business only.
+            if mine:
+                item["shared_with"] = preset["shared_with"]
+            items.append(item)
+
+        await self._send(websocket, {
+            "type": "presets",
+            # Names alone for builds from before owners, which list and
+            # load by name - see load_preset.
+            "presets": sorted({p["name"] for p in presets}),
+            "items": items,
+        })
+
+    def _share_targets(self, worker, user, preset=None):
+        """Who an account can share a preset with: every other account
+        that has preset access and may use the preset's aux, since nobody
+        else could load it."""
+        aux = preset["aux"] if preset else None
+        return [
+            name for name, record in self.user_store.list_users()
+            if name != user and record.get("presets", False)
+            and (aux is None or worker is None
+                 or self._aux_allowed(worker, record, aux))
+        ]
+
     async def _save_preset(self, websocket, worker, state, name):
         name = (name or "").strip()
 
@@ -1915,17 +2033,19 @@ class RemoteServer:
 
             channels.append({"channel": channel, "level": level, "pan": pan})
 
-        self.preset_store.save_preset(name, channels)
+        self.preset_store.save_preset(
+            state["user"], name, aux, self._aux_name(worker, aux), channels
+        )
         await self._send(websocket, {"type": "preset_saved", "name": name})
 
-    async def _load_preset(self, websocket, state, name):
-        preset = self.preset_store.get(name)
-
+    async def _load_preset(self, websocket, state, preset):
         if preset is None:
             await self._send(
                 websocket, {"type": "error", "message": "Preset not found"}
             )
             return
+
+        name = preset["name"]
 
         # Reuses _set_level/_set_pan (the same path a fader/pan drag takes)
         # so a loaded preset is enqueued as ordinary OSC set commands -

@@ -40,8 +40,12 @@ class AccessPanel:
     away or deleted.
     """
 
-    def __init__(self, parent, user_store, get_worker, get_hidden_auxes=None):
+    def __init__(self, parent, user_store, get_worker, get_hidden_auxes=None,
+                 on_user_deleted=None):
         self.user_store = user_store
+        # Told the name of every account deleted here - the presets shared
+        # with it have to let go of it.
+        self.on_user_deleted = on_user_deleted or (lambda username: None)
         self.get_worker = get_worker
         self.get_hidden_auxes = get_hidden_auxes or (lambda: set())
 
@@ -213,6 +217,7 @@ class AccessPanel:
             "Delete user", f"Delete user '{username}'?", parent=self.window
         ):
             self.user_store.delete_user(username)
+            self.on_user_deleted(username)
             self.refresh_list()
 
 

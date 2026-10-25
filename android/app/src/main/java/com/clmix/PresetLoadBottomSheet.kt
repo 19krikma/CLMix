@@ -12,27 +12,36 @@ import com.clmix.databinding.ItemPresetBinding
 import com.google.android.material.bottomsheet.BottomSheetDialog
 
 /**
- * Lists every saved preset (populated via MixerClient.requestPresets/
- * onPresets) and requires picking one, then pressing Load to confirm -
- * unlike the aux list this doesn't apply on tap alone, since loading a
- * preset overwrites every channel's current level+pan on the active aux.
+ * Lists every preset this account can see - its own, ones shared with it,
+ * and public ones (populated via MixerClient.requestPresets/onPresets) -
+ * and requires picking one, then pressing Load to confirm - unlike the
+ * aux list this doesn't apply on tap alone, since loading a preset
+ * overwrites every channel's current level+pan on the active aux.
+ *
+ * Each row says whose preset it is and who can see it; the account's own
+ * carry a button into PresetManageBottomSheet.
  */
 class PresetLoadBottomSheet(
     context: Context,
-    private val onLoad: (String) -> Unit
+    auxName: String,
+    private val onLoad: (Preset) -> Unit,
+    onManage: (Preset) -> Unit
 ) {
     private val dialog = BottomSheetDialog(context)
     private val binding = BottomSheetPresetLoadBinding.inflate(dialog.layoutInflater)
-    private val adapter = PresetAdapter { updateLoadButtonEnabled() }
+    private val adapter = PresetAdapter({ updateLoadButtonEnabled() }, onManage)
 
     init {
         dialog.setContentView(binding.root)
+        // The server only lists this aux's presets - see
+        // RemoteServer._handle_preset_action.
+        binding.presetLoadAuxLabel.text = "For $auxName"
 
         binding.presetListRecycler.layoutManager = LinearLayoutManager(context)
         binding.presetListRecycler.adapter = adapter
 
         binding.presetLoadConfirmButton.setOnClickListener {
-            adapter.selectedName?.let(onLoad)
+            adapter.selected?.let(onLoad)
         }
     }
 
@@ -44,34 +53,43 @@ class PresetLoadBottomSheet(
         dialog.setOnDismissListener { action() }
     }
 
-    fun setPresets(names: List<String>) {
-        adapter.submit(names)
-        binding.presetLoadEmptyLabel.visibility = if (names.isEmpty()) View.VISIBLE else View.GONE
-        binding.presetListRecycler.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+    fun setPresets(presets: List<Preset>) {
+        adapter.submit(presets)
+        binding.presetLoadEmptyLabel.visibility = if (presets.isEmpty()) View.VISIBLE else View.GONE
+        binding.presetListRecycler.visibility = if (presets.isEmpty()) View.GONE else View.VISIBLE
         updateLoadButtonEnabled()
     }
 
     private fun updateLoadButtonEnabled() {
-        binding.presetLoadConfirmButton.isEnabled = adapter.selectedName != null
+        binding.presetLoadConfirmButton.isEnabled = adapter.selected != null
     }
 }
 
 private class PresetAdapter(
-    private val onSelectionChanged: () -> Unit
+    private val onSelectionChanged: () -> Unit,
+    private val onManage: (Preset) -> Unit
 ) : RecyclerView.Adapter<PresetAdapter.ViewHolder>() {
 
-    private var items: List<String> = emptyList()
+    private var items: List<Preset> = emptyList()
 
-    var selectedName: String? = null
-        private set
+    // By key rather than by object: a fresh list after a share or a
+    // public toggle carries new Preset values for the same presets, and
+    // the selection should survive that.
+    private var selectedKey: String? = null
+
+    val selected: Preset?
+        get() = items.firstOrNull { key(it) == selectedKey }
 
     class ViewHolder(val binding: ItemPresetBinding) : RecyclerView.ViewHolder(binding.root)
 
-    fun submit(names: List<String>) {
-        items = names
+    // An old server gives no ids, and names are unique there.
+    private fun key(preset: Preset) = preset.id.ifEmpty { preset.name }
 
-        if (selectedName != null && selectedName !in names) {
-            selectedName = null
+    fun submit(presets: List<Preset>) {
+        items = presets
+
+        if (selected == null) {
+            selectedKey = null
         }
 
         notifyDataSetChanged()
@@ -85,19 +103,23 @@ private class PresetAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val name = items[position]
+        val preset = items[position]
         val context = holder.binding.root.context
         val density = context.resources.displayMetrics.density
-        val isSelected = name == selectedName
+        val isSelected = key(preset) == selectedKey
 
-        holder.binding.presetName.text = name
+        holder.binding.presetName.text = preset.name
+        holder.binding.presetSubtitle.text = preset.subtitle
         holder.binding.root.strokeColor = ContextCompat.getColor(
             context, if (isSelected) R.color.primary else R.color.surface_variant
         )
         holder.binding.root.strokeWidth = ((if (isSelected) 2 else 1) * density).toInt()
 
+        holder.binding.presetManageButton.visibility = if (preset.mine) View.VISIBLE else View.GONE
+        holder.binding.presetManageButton.setOnClickListener { onManage(preset) }
+
         holder.binding.root.setOnClickListener {
-            selectedName = name
+            selectedKey = key(preset)
             notifyDataSetChanged()
             onSelectionChanged()
         }

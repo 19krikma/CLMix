@@ -8,12 +8,10 @@ import SwiftUI
 ///
 /// The aux picker is the bottom sheet, within thumb reach (AuxSheetView).
 /// The menu button opens what is left of Android's side drawer - Presets
-/// (expands in place to Save/Load), Dark mode, Log Out - as one sheet,
+/// (expands in place to Save/Load), Log Out - as one sheet,
 /// since iOS has no equivalent slide-out drawer.
 struct MixerView: View {
     @EnvironmentObject var model: AppModel
-    @EnvironmentObject var themeStore: ThemeStore
-    @Environment(\.colorScheme) var systemColorScheme
     let aux: AuxBus
 
     @State private var banksExpanded = false
@@ -58,17 +56,6 @@ struct MixerView: View {
     // being pulled down and released: it arrives rather than stopping
     // dead.
     private let bankPanelAnimation = Animation.easeOut(duration: 0.1)
-
-    // What the toggle should show. With no saved choice there's nothing
-    // stored to read, so this falls back to what's actually on screen
-    // right now - mirrors Android's ThemeStore.isDarkMode, so the switch
-    // starts out agreeing with the system rather than always starting off.
-    private var darkModeBinding: Binding<Bool> {
-        Binding(
-            get: { themeStore.isDarkMode ?? (systemColorScheme == .dark) },
-            set: { themeStore.isDarkMode = $0 }
-        )
-    }
 
     var body: some View {
         GeometryReader { geo in
@@ -585,10 +572,6 @@ struct MixerView: View {
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
             }
-
-            Toggle("Dark mode", isOn: darkModeBinding)
-                .padding(.horizontal, 14)
-                .padding(.top, 16)
 
             // Back returns to the AUX Only / Mixer Control choice; Log
             // Out ends the session outright. Side by side because they

@@ -154,7 +154,20 @@ object DemoMixer {
 
     // [aux index: [channel number: send]]
     private val sends = HashMap<Int, HashMap<Int, Send>>()
-    private val presets = HashMap<String, Map<Int, Send>>()
+    // [id: preset]. A preset belongs to the aux it was saved from, as on
+    // the real server, so the id is the aux and the name together - there
+    // being only the one owner here.
+    private val presets = HashMap<String, DemoPreset>()
+
+    private class DemoPreset(
+        val name: String,
+        val aux: Int,
+        val mix: Map<Int, Send>,
+        var public: Boolean = false,
+        var sharedWith: List<String> = emptyList()
+    )
+
+    private fun presetId(aux: Int, name: String) = "$aux/$name"
     // [channel number: the console's own strip]
     private val console = HashMap<Int, Strip>()
 
@@ -184,6 +197,11 @@ object DemoMixer {
      *  several shows; there is only one show here, but the name is still
      *  reported so the rename dialog reads exactly as it does for real. */
     private const val SNAPSHOT = "Demo Show"
+
+    // The demo account, as the owner of its presets, and the other
+    // accounts it can share them with - names only, nobody behind them.
+    private const val DEMO_OWNER = "demo"
+    private val DEMO_ACCOUNTS = listOf("Bass", "Drums", "Keys", "Vocals")
 
     // MARK: - Lifecycle
 
@@ -297,8 +315,8 @@ object DemoMixer {
         // Two presets to load straight away, so the Load sheet is not
         // empty the first time it is opened.
         presets.clear()
-        presets["Opening Set"] = copyOf(sends[1])
-        presets["Acoustic Set"] = copyOf(sends[4])
+        presets[presetId(1, "Opening Set")] = DemoPreset("Opening Set", 1, copyOf(sends[1]))
+        presets[presetId(4, "Acoustic Set")] = DemoPreset("Acoustic Set", 4, copyOf(sends[4]))
     }
 
     /**
@@ -597,14 +615,35 @@ object DemoMixer {
                 afterBanksChanged()
             }
 
-            "list_presets" -> deliver(
-                JSONObject()
-                    .put("type", "presets")
-                    .put("presets", JSONArray(presets.keys.sorted()))
+            "list_presets" -> deliverPresets()
+
+            "list_share_targets" -> deliver(
+                JSONObject().put("type", "share_targets").put("users", JSONArray(DEMO_ACCOUNTS))
             )
 
             "save_preset" -> savePreset(message.optString("name"))
-            "load_preset" -> loadPreset(message.optString("name"))
+            "load_preset" -> loadPreset(
+                message.optString("id").ifEmpty {
+                    presetId(selectedAux ?: 0, message.optString("name"))
+                }
+            )
+
+            "delete_preset" -> {
+                presets.remove(message.optString("id"))
+                deliverPresets()
+            }
+
+            "set_preset_public" -> {
+                presets[message.optString("id")]?.public = message.optBoolean("public")
+                deliverPresets()
+            }
+
+            "share_preset" -> {
+                val users = message.optJSONArray("users") ?: JSONArray()
+                presets[message.optString("id")]?.sharedWith =
+                    (0 until users.length()).map { users.getString(it) }.sorted()
+                deliverPresets()
+            }
         }
     }
 
@@ -767,6 +806,32 @@ object DemoMixer {
         )
     }
 
+    /** The presets of the aux on screen, as the real server lists them. */
+    private fun deliverPresets() {
+        val here = presets.filterValues { it.aux == selectedAux }.toSortedMap()
+        val items = JSONArray()
+        for ((id, preset) in here) {
+            items.put(
+                JSONObject()
+                    .put("id", id)
+                    .put("name", preset.name)
+                    .put("owner", DEMO_OWNER)
+                    .put("mine", true)
+                    .put("public", preset.public)
+                    .put("shared_with_me", false)
+                    .put("shared_with", JSONArray(preset.sharedWith))
+                    .put("aux", preset.aux)
+                    .put("aux_name", auxes.firstOrNull { it.index == preset.aux }?.name)
+            )
+        }
+        deliver(
+            JSONObject()
+                .put("type", "presets")
+                .put("presets", JSONArray(here.values.map { it.name }.sorted()))
+                .put("items", items)
+        )
+    }
+
     private fun savePreset(name: String) {
         val mix = currentMix()
         if (mix == null) {
@@ -776,13 +841,20 @@ object DemoMixer {
             return
         }
 
-        presets[name] = copyOf(mix)
+        val aux = selectedAux ?: return
+        val id = presetId(aux, name)
+        val existing = presets[id]
+        // Saving over a preset keeps who it is shared with.
+        presets[id] = DemoPreset(
+            name, aux, copyOf(mix),
+            existing?.public ?: false, existing?.sharedWith.orEmpty()
+        )
         deliver(JSONObject().put("type", "preset_saved").put("name", name))
     }
 
-    private fun loadPreset(name: String) {
+    private fun loadPreset(id: String) {
         val mix = currentMix()
-        val stored = presets[name]
+        val stored = presets[id]
         if (mix == null || stored == null) {
             deliver(errorMessage("Preset not found"))
             return
@@ -791,13 +863,13 @@ object DemoMixer {
         // Applied as ordinary level/pan changes, exactly as the desktop
         // app recalls a preset - the next push reflects it like any
         // other move.
-        for ((channel, send) in stored) {
+        for ((channel, send) in stored.mix) {
             mix[channel]?.level = send.level
             mix[channel]?.pan = send.pan
         }
 
         pushLevels()
-        deliver(JSONObject().put("type", "preset_loaded").put("name", name))
+        deliver(JSONObject().put("type", "preset_loaded").put("name", stored.name))
     }
 
     private fun errorMessage(text: String): JSONObject =

@@ -105,6 +105,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     private var panSheet: PanBottomSheet? = null
     private var presetSaveSheet: PresetSaveBottomSheet? = null
     private var presetLoadSheet: PresetLoadBottomSheet? = null
+    private var presetManageSheet: PresetManageBottomSheet? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -321,20 +322,6 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.presetsButton.setOnClickListener { togglePresetsExpanded() }
         binding.presetSaveButton.setOnClickListener { showPresetSaveSheet() }
         binding.presetLoadButton.setOnClickListener { showPresetLoadSheet() }
-
-        // Checked state first, listener second - assigning isChecked
-        // fires the listener, which would otherwise save a "choice" the
-        // user never made and pin the app to whatever the system theme
-        // happened to be. The switch also carries saveEnabled="false" for
-        // the same reason: view-state restore runs after this, with the
-        // listener already attached, so a rebuild would replay its
-        // restored state as a fresh user choice - pinning someone who had
-        // never touched it. ThemeStore is the authority on what this
-        // shows, and it is read fresh on every create anyway.
-        binding.darkModeSwitch.isChecked = ThemeStore.isDarkMode(this)
-        binding.darkModeSwitch.setOnCheckedChangeListener { _, isChecked ->
-            ThemeStore.setDarkMode(this, isChecked)
-        }
 
         // Back goes to the AUX Only / Mixer Control choice, which sits
         // two down from here with the aux list in between - so it is
@@ -849,7 +836,9 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun showPresetSaveSheet() {
-        val sheet = PresetSaveBottomSheet(this) { name -> MixerClient.savePreset(name) }
+        val sheet = PresetSaveBottomSheet(this, currentAuxName()) { name ->
+            MixerClient.savePreset(name)
+        }
 
         sheet.setOnDismissListener {
             if (presetSaveSheet === sheet) presetSaveSheet = null
@@ -860,7 +849,12 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun showPresetLoadSheet() {
-        val sheet = PresetLoadBottomSheet(this) { name -> MixerClient.loadPreset(name) }
+        val sheet = PresetLoadBottomSheet(
+            this,
+            currentAuxName(),
+            onLoad = { preset -> MixerClient.loadPreset(preset) },
+            onManage = { preset -> showPresetManageSheet(preset) }
+        )
 
         sheet.setOnDismissListener {
             if (presetLoadSheet === sheet) presetLoadSheet = null
@@ -1023,7 +1017,22 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         panSheet = null
     }
 
+    private fun currentAuxName(): String =
+        auxBuses.firstOrNull { it.index == auxIndex }?.name ?: "Aux $auxIndex"
+
+    private fun showPresetManageSheet(preset: Preset) {
+        presetManageSheet?.dismiss()
+        val sheet = PresetManageBottomSheet(this, preset)
+        sheet.setOnDismissListener {
+            if (presetManageSheet === sheet) presetManageSheet = null
+        }
+        presetManageSheet = sheet
+        sheet.show()
+    }
+
     private fun dismissPresetSheets() {
+        presetManageSheet?.dismiss()
+        presetManageSheet = null
         presetSaveSheet?.dismiss()
         presetSaveSheet = null
         presetLoadSheet?.dismiss()
@@ -1112,8 +1121,15 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         }
     }
 
-    override fun onPresets(names: List<String>) {
-        presetLoadSheet?.setPresets(names)
+    override fun onPresets(presets: List<Preset>) {
+        presetLoadSheet?.setPresets(presets)
+        presetManageSheet?.let { sheet ->
+            sheet.update(presets.firstOrNull { it.id == sheet.presetId })
+        }
+    }
+
+    override fun onShareTargets(users: List<String>) {
+        presetManageSheet?.setShareTargets(users)
     }
 
     override fun onPresetSaved(name: String) {

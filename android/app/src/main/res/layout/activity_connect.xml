@@ -335,8 +335,7 @@
              mark while something is missing. -->
         <FrameLayout
             android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginEnd="12dp">
+            android:layout_height="48dp">
 
             <ImageButton
                 android:id="@+id/permissions_button"
@@ -362,17 +361,6 @@
                 android:visibility="gone" />
 
         </FrameLayout>
-
-        <ImageButton
-            android:id="@+id/theme_toggle"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="@drawable/login_circle_button"
-            android:foreground="?attr/selectableItemBackgroundBorderless"
-            android:padding="12dp"
-            android:src="@drawable/ic_dark_mode"
-            android:tint="?attr/colorPrimary"
-            android:contentDescription="Switch between light and dark mode" />
 
     </LinearLayout>
 

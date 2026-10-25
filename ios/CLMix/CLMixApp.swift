@@ -4,7 +4,6 @@ import SwiftUI
 struct CLMixApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
-    @StateObject private var themeStore = ThemeStore.shared
 
     private var isChannelScreen: Bool {
         switch model.screen {
@@ -46,16 +45,12 @@ struct CLMixApp: App {
                 }
             }
             .environmentObject(model)
-            .environmentObject(themeStore)
-            // One choice for the whole app, the connect screen included:
-            // its wallpaper has a day cut now (see LoginBackgroundView),
-            // so nothing is left that has to be dark whatever the theme
-            // says. Above the switch rather than inside any one screen,
-            // which is what carries the choice to the status bar's clock
-            // and icons over the top of the artwork - a
-            // .preferredColorScheme set deeper in the tree loses to this
-            // one.
-            .preferredColorScheme(themeStore.colorScheme)
+            // CLMix is dark at all times, whatever the phone is set to -
+            // UIUserInterfaceStyle in Info.plist says the same to the
+            // system. Above the switch rather than inside any one screen,
+            // which is what carries it to the status bar's clock and icons
+            // and to every sheet.
+            .preferredColorScheme(.dark)
         }
     }
 }

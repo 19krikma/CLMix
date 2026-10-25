@@ -3,6 +3,25 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.14.0
+
+Needs desktop 1.21.0 or later for private and shared presets.
+
+- **Presets are private.** A preset you save is yours alone until you
+  share it. The Load list shows "Owner: name" under presets other
+  accounts have shared with you or made public.
+- **Presets belong to their aux.** A preset loads back only onto the aux
+  it was saved from. Save and Load both say which aux, and Load lists only
+  that aux's presets. Presets saved before this load onto any aux.
+- **Share presets.** Tap the ⋮ on one of your own presets to make it
+  public, share it with particular accounts, or delete it.
+- **Dark mode, always.** CLMix is now dark at all times, whatever the
+  phone is set to. The light theme is gone, along with the sun/moon
+  button on the login screen and the Dark mode switch in the menu.
+- **Permissions badge always shows.** The gear on the login screen now
+  carries a green tick whenever everything CLMix needs is allowed, or a
+  red mark when something is missing, without having to tap it first.
+
 ## 2.13.0
 
 Needs desktop 1.20.0 or later for the multiband and de-esser controls.

@@ -16,7 +16,6 @@ from tkinter import font as tkfont
 from tkinter import messagebox
 from tkinter import ttk
 
-import sv_ttk
 
 from services import updater
 from services.update_checker import REPO, check_for_update
@@ -220,15 +219,14 @@ class Spinner:
         self.canvas.destroy()
 
 
-def _load_artwork(widget, theme):
+def _load_artwork(widget):
     """The feature graphic, cropped and halved, or None if it isn't there.
 
     An unreadable file is not worth failing the window over - the About
     window's real content is the text below it - so the caller just leaves
     the banner out.
     """
-    variant = "" if theme == "dark" else "-light"
-    path = resource_path("images", f"clmix-feature-graphic{variant}.png")
+    path = resource_path("images", "clmix-feature-graphic.png")
 
     try:
         source = tk.PhotoImage(master=widget, file=str(path))
@@ -255,9 +253,9 @@ def _load_artwork(widget, theme):
     return artwork
 
 
-def _build_banner(widget, theme, width, background):
+def _build_banner(widget, width, background):
     """The artwork, widened to `width` and faded out into `background`."""
-    artwork = _load_artwork(widget, theme)
+    artwork = _load_artwork(widget)
 
     if artwork is None:
         return None
@@ -547,12 +545,10 @@ class AboutWindow:
         return label
 
     def apply_theme(self):
-        """Re-renders the theme-dependent pieces for the theme now in force.
+        """Renders the theme-dependent pieces: the banner, and the link
+        labels, which ttk leaves alone once explicitly colored.
 
-        Called on open and again from MainWindow.apply_theme: the light and
-        dark feature graphics are two separate files rather than one image
-        the theme engine can recolor, and ttk leaves an explicitly colored
-        link label alone.
+        Called on open and again from MainWindow._recolor_widgets.
         """
         # Deferred rather than imported at module scope: main_window
         # imports this module, so a top-level import back into it would be
@@ -581,7 +577,7 @@ class AboutWindow:
         # Held on the instance because Tk keeps no reference of its own -
         # a locally-scoped PhotoImage is collected and the label blanks.
         self.banner_image = _build_banner(
-            self.banner_label, sv_ttk.get_theme(), width, background
+            self.banner_label, width, background
         )
 
         if self.banner_image is None:
@@ -589,8 +585,8 @@ class AboutWindow:
             return
 
         self.banner_label.configure(image=self.banner_image, bg=background)
-        # `before` rather than a bare pack(): re-packing after a theme
-        # switch would otherwise drop the banner below the body.
+        # `before` rather than a bare pack(): re-packing on a recolor
+        # would otherwise drop the banner below the body.
         self.banner_label.pack(fill="x", before=self.body)
 
     def refresh(self):

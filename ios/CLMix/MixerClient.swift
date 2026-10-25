@@ -21,7 +21,9 @@ protocol MixerClientDelegate: AnyObject {
     /// to pick from. Both arrive together because the editor needs both
     /// and neither is worth a round trip of its own.
     func mixerDidReceiveCustomBanks(banks: [CustomBank], channels: [BankChannel])
-    func mixerDidReceivePresets(_ names: [String])
+    func mixerDidReceivePresets(_ presets: [Preset])
+    /// The accounts this one can share a preset with.
+    func mixerDidReceiveShareTargets(_ users: [String])
     func mixerDidSavePreset(_ name: String)
     func mixerDidLoadPreset(_ name: String)
     /// The open EQ screen's channel, on the levels cadence, for as long
@@ -85,7 +87,14 @@ protocol MixerBackend: AnyObject {
     func resetCustomBanks()
     func requestPresets()
     func savePreset(name: String)
-    func loadPreset(name: String)
+    func loadPreset(_ preset: Preset)
+    // The owner's alone - each is answered with a fresh presets list.
+    func deletePreset(id: String)
+    func setPresetPublic(id: String, isPublic: Bool)
+    func sharePreset(id: String, users: [String])
+    /// Named, so the server lists only the accounts that can use that
+    /// preset's aux.
+    func requestShareTargets(id: String)
 }
 
 /// Talks to the CLMix desktop app's RemoteServer
@@ -468,8 +477,57 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "save_preset", "name": name])
     }
 
-    func loadPreset(name: String) {
-        send(["action": "load_preset", "name": name])
+    // By id where the server gave one; by name on a server from before
+    // owners, which never did.
+    func loadPreset(_ preset: Preset) {
+        if preset.serverID.isEmpty {
+            send(["action": "load_preset", "name": preset.name])
+        } else {
+            send(["action": "load_preset", "id": preset.serverID])
+        }
+    }
+
+    func deletePreset(id: String) {
+        send(["action": "delete_preset", "id": id])
+    }
+
+    func setPresetPublic(id: String, isPublic: Bool) {
+        send(["action": "set_preset_public", "id": id, "public": isPublic])
+    }
+
+    func sharePreset(id: String, users: [String]) {
+        send(["action": "share_preset", "id": id, "users": users])
+    }
+
+    func requestShareTargets(id: String) {
+        send(["action": "list_share_targets", "id": id])
+    }
+
+    /// A server from before owners sends names alone, all of them open to
+    /// everyone - which is what they become here.
+    private static func parsePresets(_ json: [String: Any]) -> [Preset] {
+        guard let items = json["items"] as? [[String: Any]] else {
+            return (json["presets"] as? [String] ?? []).map {
+                Preset(serverID: "", name: $0, owner: nil, mine: false,
+                       isPublic: true, sharedWithMe: false, sharedWith: [])
+            }
+        }
+
+        return items.compactMap { item in
+            guard let id = item["id"] as? String,
+                  let name = item["name"] as? String else { return nil }
+            return Preset(
+                serverID: id,
+                name: name,
+                owner: item["owner"] as? String,
+                mine: item["mine"] as? Bool ?? false,
+                isPublic: item["public"] as? Bool ?? false,
+                sharedWithMe: item["shared_with_me"] as? Bool ?? false,
+                sharedWith: item["shared_with"] as? [String] ?? [],
+                aux: item["aux"] as? Int,
+                auxName: item["aux_name"] as? String
+            )
+        }
     }
 
     /// `completion` runs once the frame has been written (or immediately
@@ -652,7 +710,10 @@ final class MixerClient: NSObject, MixerBackend {
                 delegate?.mixerDidReceiveMeters(sequence: meterSequence, meters: frame)
 
             case "presets":
-                delegate?.mixerDidReceivePresets(json["presets"] as? [String] ?? [])
+                delegate?.mixerDidReceivePresets(Self.parsePresets(json))
+
+            case "share_targets":
+                delegate?.mixerDidReceiveShareTargets(json["users"] as? [String] ?? [])
 
             case "preset_saved":
                 if let name = json["name"] as? String {

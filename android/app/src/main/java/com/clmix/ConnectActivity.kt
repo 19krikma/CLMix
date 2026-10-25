@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
-import android.content.res.Configuration
 import android.net.Uri
 import android.provider.Settings
 import android.text.Editable
@@ -73,9 +72,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     // just went wrong.
     private var showingError = false
 
-    // The button's normal look, captured before anything recolors it -
-    // the day/night resources behind these are resolved at inflation, and
-    // a theme change recreates this activity, so they stay correct.
+    // The button's normal look, captured before anything recolors it.
     private var buttonBackground: ColorStateList? = null
 
     // Runs the blue <-> red tint change. Held so a second result landing
@@ -110,18 +107,12 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     private var loading = false
 
     // Asks for whatever runtimePermissions() reports missing - at launch for
-    // notifications alone, and from the permissions button for the lot. Its
-    // badge only reports once it has been tapped, so a refusal at launch does
-    // not mark the button before anybody asked it anything.
+    // notifications alone, and from the permissions button for the lot. The
+    // badge is brought up to date with whatever the dialog decided.
     private val permissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            if (permissionsChecked) updatePermissionsBadge()
+            updatePermissionsBadge()
         }
-
-    // Set by the first tap on the permissions button. From then on its badge
-    // shows the live answer, re-read in onResume - which is what brings it
-    // up to date on the way back from the system's app settings.
-    private var permissionsChecked = false
 
     // Top system-bar inset, cached from the last insets pass so the banner
     // offset can be recomputed on a width change without waiting for another.
@@ -157,11 +148,9 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
 
         // The wallpaper runs to the very top of the window, under the status
         // bar, so what the clock and icons sit on is the artwork rather than
-        // the window background - and which artwork that is now follows the
-        // theme (see LoginBackgroundView), so they go dark over the day cut's
-        // pale wall and stay white over the night one.
+        // the window background - which is dark, so they stay white.
         WindowCompat.getInsetsController(window, window.decorView)
-            .isAppearanceLightStatusBars = !isNightMode()
+            .isAppearanceLightStatusBars = false
 
         // Android 15+ (targetSdk 35+) draws this activity edge-to-edge by
         // default now - pad the scrolling content by the system bar insets
@@ -277,21 +266,6 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
 
         // REMOVE WITH DEMO MODE.
         binding.demoContainer.setOnClickListener { if (!loading) enterDemoMode() }
-
-        // The one place the theme can be set before there is a mixer
-        // screen to set it from - useful for a phone that has been
-        // handed to someone, or for an operator who wants the light
-        // palette up before the lights go down. This screen now answers
-        // it too, wallpaper included, which costs the usual recreate:
-        // setDefaultNightMode rebuilds whatever is running, so the form
-        // comes back as it would on a fresh launch. The drawer's switch
-        // stays as it is and the two agree, since both read and write
-        // ThemeStore.
-        updateThemeToggle()
-        binding.themeToggle.setOnClickListener {
-            ThemeStore.setDarkMode(this, !ThemeStore.isDarkMode(this))
-            updateThemeToggle()
-        }
 
         binding.manualButton.setOnClickListener {
             val expanding = binding.manualFields.visibility != View.VISIBLE
@@ -601,7 +575,6 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
      * the app's own settings page instead, the one place left to turn it on.
      */
     private fun onPermissionsTapped() {
-        permissionsChecked = true
         updatePermissionsBadge()
 
         val missing = missingPermissions()
@@ -625,9 +598,10 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     }
 
     /**
-     * The gear's badge: a green tick once everything is allowed, a red
-     * mark while something is missing, nothing until the button has been
-     * tapped. The words go to the button's content description, there
+     * The gear's badge, always showing the live answer: a green tick once
+     * everything is allowed, a red mark while something is missing. Re-read
+     * in onResume, which is what brings it up to date on the way back from
+     * the system's app settings. The words go to the button's content description, there
      * being no room for them on screen.
      */
     private fun updatePermissionsBadge() {
@@ -636,10 +610,6 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         val badge = binding.permissionsBadge
 
         when {
-            !permissionsChecked -> {
-                badge.visibility = View.GONE
-                binding.permissionsButton.contentDescription = "Check permissions"
-            }
             missing.isEmpty() -> {
                 badge.setImageResource(R.drawable.ic_check_circle)
                 badge.imageTintList = ColorStateList.valueOf(
@@ -673,7 +643,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         MixerClient.claimListener(this)
         mdnsDiscovery.start(this)
         openScanWindow()
-        if (permissionsChecked) updatePermissionsBadge()
+        updatePermissionsBadge()
     }
 
     override fun onPause() {
@@ -754,15 +724,6 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         TransitionManager.beginDelayedTransition(binding.content, AutoTransition())
         binding.manualContainer.visibility = visibility
         binding.manualDivider.visibility = visibility
-    }
-
-    private fun updateThemeToggle() {
-        val dark = ThemeStore.isDarkMode(this)
-        binding.themeToggle.setImageResource(
-            if (dark) R.drawable.ic_dark_mode else R.drawable.ic_light_mode
-        )
-        binding.themeToggle.contentDescription =
-            if (dark) "Switch to light mode" else "Switch to dark mode"
     }
 
     private fun setScanning(scanning: Boolean) {
@@ -1064,10 +1025,8 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
 
     // Unselected: transparent fill with a plain outline, matching the
     // discovered/manual boxes around it. Selected: filled with the app's
-    // blue accent (colorPrimary, via its day/night color resources) so the
-    // chosen server stands out. Every color here comes from the day/night
-    // resources rather than a literal, since the drawer's Dark mode switch
-    // means either palette can be in force on this screen.
+    // blue accent (colorPrimary) so the chosen server stands out. Every
+    // color here comes from the color resources rather than a literal.
     private fun setRowSelected(row: MaterialButton, selected: Boolean) {
         if (selected) {
             row.strokeWidth = 0
@@ -1086,14 +1045,6 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     }
 
     private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
-
-    // This activity's own configuration rather than ThemeStore's saved
-    // choice: with nothing saved the app follows the phone, and it is what
-    // the window was actually inflated against that the status bar icons
-    // have to agree with.
-    private fun isNightMode(): Boolean =
-        resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-            Configuration.UI_MODE_NIGHT_YES
 
     companion object {
         /**

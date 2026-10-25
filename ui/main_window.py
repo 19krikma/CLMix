@@ -1507,36 +1507,28 @@ def panel_bg(widget):
     # sv_ttk exposes its palette only as Tcl array variables, not
     # through the standard ttk::style lookup mechanism.
     #
-    # sv_ttk.get_theme() is called with no argument (relying on
-    # Tkinter's implicit default root) rather than passing this widget's
-    # toplevel - a Toplevel window is its own toplevel ancestor, so
-    # widget.winfo_toplevel() would return the Toplevel itself instead
-    # of the actual Tk root that sv_ttk requires.
-    name = "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
-    return widget.tk.eval(f"set ttk::theme::{name}::colors(-bg)")
+    # CLMix is dark at all times, so it is always sv_ttk's dark palette.
+    return widget.tk.eval("set ttk::theme::sv_dark::colors(-bg)")
 
 
 def panel_fg(widget):
-    name = "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
-    return widget.tk.eval(f"set ttk::theme::{name}::colors(-fg)")
+    return widget.tk.eval("set ttk::theme::sv_dark::colors(-fg)")
 
 
 def stripe_bg(widget):
     # A subtle alternate background for banding groups of rows apart -
     # reuses the exact shades sv_ttk itself uses for its own popup menus
-    # (one perceptual step off the base background), so it stays
-    # visually consistent across both themes instead of a single
-    # hardcoded gray that would vanish in dark mode or look muddy in light.
-    return "#292929" if sv_ttk.get_theme() == "dark" else "#e7e7e7"
+    # (one perceptual step off the base background).
+    return "#292929"
 
 
 def section_bg(widget):
     # The ground the channel strips sit on - a step darker than the
-    # window's own background in both themes, so every strip (including
+    # window's own background, so every strip (including
     # the un-striped ones, which used to be exactly panel_bg and so
     # melted into the page) reads as its own rounded panel raised off
     # the section rather than as part of it.
-    return "#0d0d0d" if sv_ttk.get_theme() == "dark" else "#dedede"
+    return "#0d0d0d"
 
 
 def channel_bg(widget):
@@ -1544,7 +1536,7 @@ def channel_bg(widget):
     # window background, sitting between section_bg below it and
     # stripe_bg's alternate above it, so the two parities still band
     # apart while both stay visible against the darker section.
-    return "#1a1a1a" if sv_ttk.get_theme() == "dark" else "#f0f0f0"
+    return "#1a1a1a"
 
 
 def configure_section_styles(widget):
@@ -1553,8 +1545,8 @@ def configure_section_styles(widget):
     ttk widgets take their background from the style, not from a
     per-instance option, so the frames that make up the mixer section
     need a style of their own to sit on section_bg instead of the theme's
-    lighter window background. Called on build and again on every theme
-    change, since sv_ttk re-sources its theme underneath us.
+    lighter window background. Called on build and again whenever sv_ttk
+    re-sources its theme underneath us.
 
     Labels are the exception and stay plain tk.Label: sv_ttk's themes are
     clam-parented, and a clam ttk.Label paints the *root* style's
@@ -1584,8 +1576,7 @@ def accent_color(widget):
     # fill via fixed PNG image assets sv_ttk ships, which a ttk style's
     # "background" option cannot recolor per-instance at all) still look
     # like they belong to the theme instead of a guessed hardcoded blue.
-    name = "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
-    return widget.tk.eval(f"set ttk::theme::{name}::colors(-selbg)")
+    return widget.tk.eval("set ttk::theme::sv_dark::colors(-selbg)")
 
 
 def _cumulative_weighted_fractions(gap_count):
@@ -3491,7 +3482,7 @@ class MainWindow:
         self.backup_store = BackupStore(backups_dir=self.settings.get("backup_dir"))
 
         self._palette_recolor_hooked = False
-        self.apply_theme(self.settings["theme"], persist=False)
+        self.apply_theme()
         self.build_ui()
         self._fit_window_size()
 
@@ -3587,18 +3578,6 @@ class MainWindow:
         entry("Copy To…", self.open_copy_to_window)
 
         # Packed bottom-up, so in reverse of how they read on screen.
-        self.dark_mode_var = tk.BooleanVar(
-            value=self.settings["theme"] == "dark"
-        )
-        ttk.Checkbutton(
-            sidebar, text="Dark Mode", style="Switch.TCheckbutton",
-            variable=self.dark_mode_var,
-            command=lambda: self.apply_theme(
-                "dark" if self.dark_mode_var.get() else "light"
-            )
-        ).pack(side="bottom", fill="x", padx=8, pady=(6, 2))
-
-        divider(side="bottom")
         # Kept so the startup update check can relabel it.
         self.about_button = entry("About", self.open_about_window, side="bottom")
         entry("Backup", self.open_backup_window, side="bottom")
@@ -3661,10 +3640,7 @@ class MainWindow:
     # The soft shadow around the selected tab: how strongly each 1px ring
     # outward from the outline is darkened toward black, nearest first.
     # Light needs far less than dark to read as the same depth.
-    SECTION_SHADOW = {
-        "dark": (0.45, 0.25, 0.1),
-        "light": (0.10, 0.05, 0.02),
-    }
+    SECTION_SHADOW = (0.45, 0.25, 0.1)
 
     def _show_page_sections(self, sections):
         """List a page's sections under its title in the Back panel.
@@ -3693,7 +3669,7 @@ class MainWindow:
         self._draw_sections()
 
     def _shadow_size(self):
-        return len(self.SECTION_SHADOW["dark"])
+        return len(self.SECTION_SHADOW)
 
     def _on_section_click(self, event):
         index = (event.y - self._shadow_size()) // self.SECTION_ROW_HEIGHT
@@ -3707,8 +3683,7 @@ class MainWindow:
     def _separator_color(self):
         # sv_ttk draws separators from a one-colour image rather than a
         # style colour, so the colour is read off the image itself.
-        name = "sv_dark" if sv_ttk.get_theme() == "dark" else "sv_light"
-        image = self.root.tk.eval(f"set ttk::theme::{name}::I(sep)")
+        image = self.root.tk.eval("set ttk::theme::sv_dark::I(sep)")
         red, green, blue = (
             int(part) for part in self.root.tk.eval(f"{image} get 0 0").split()
         )
@@ -3740,7 +3715,7 @@ class MainWindow:
 
             if label == self._selected_section:
                 # Outermost ring first, so each nearer one draws over it.
-                strengths = self.SECTION_SHADOW[sv_ttk.get_theme()]
+                strengths = self.SECTION_SHADOW
                 for ring in range(len(strengths), 0, -1):
                     self._draw_tab_outline(
                         shadow, top, bottom, right, ring,
@@ -4220,7 +4195,8 @@ class MainWindow:
 
         self.access_panel = AccessPanel(
             self.accounts_page, self.user_store, lambda: self.worker,
-            self.get_hidden_auxes
+            self.get_hidden_auxes,
+            on_user_deleted=self.preset_store.forget_user
         )
 
         self.aux_visibility_panel = AuxPanel(
@@ -4262,7 +4238,10 @@ class MainWindow:
         """
         return {
             "Presets": (
-                lambda host: PresetsWindow(host, self.preset_store),
+                lambda host: PresetsWindow(
+                    host, self.preset_store, self.user_store,
+                    aux_name_for=self._console_aux_name
+                ),
                 True, "presets_window"
             ),
             "Phone List": (
@@ -4881,7 +4860,6 @@ class MainWindow:
             # Empty means "any adapter" - see MainWindow._refresh_nic_choices.
             "mixer_bind_ip": "",
             "remote_bind_ip": "",
-            "theme": "dark",
             "hidden_auxes": [],
             "backup_dir": None,
             "digico_capture": False,
@@ -4918,14 +4896,11 @@ class MainWindow:
     def get_hidden_auxes(self):
         return set(self.settings.get("hidden_auxes", []))
 
-    def apply_theme(self, theme, persist=True):
-        sv_ttk.set_theme(theme)
+    def apply_theme(self):
+        # CLMix is dark at all times - there is no light theme to pick.
+        sv_ttk.set_theme("dark")
         self._hook_palette_recolor()
         self._recolor_widgets()
-
-        if persist:
-            self.settings["theme"] = theme
-            self.save_settings()
 
     def _hook_palette_recolor(self):
         """Re-apply our own colours *after* sv_ttk's palette pass.
@@ -4939,8 +4914,7 @@ class MainWindow:
         colour we had just set - the section-dark labels and canvas, the
         channel strips - was overwritten with the theme's generic
         background a moment later. Appending to the same binding sv_ttk
-        uses runs our pass straight after its own, on every theme change
-        from any source.
+        uses runs our pass straight after its own, every time it fires.
 
         Bound once, and only after the first set_theme(): sv_ttk sources
         the Tcl side that installs its binding on that call, and a "+"
@@ -5264,7 +5238,31 @@ class MainWindow:
         self.connect()
 
     def open_presets_window(self):
-        self._open_built_page("Presets")
+        build, fill, attribute = self._built_pages()["Presets"]
+        page = self._open_page(
+            "Presets", build=build, fill=fill,
+            sections=[(name, self._show_presets_section)
+                      for name in PresetsWindow.SECTIONS]
+        )
+
+        if page is not None:
+            setattr(self, attribute, page)
+
+    def _console_aux_name(self, index):
+        """An aux's name as the connected console has it, or None."""
+        worker = self.worker
+        key = f"/Aux_Outputs/{index}/Buss_Trim/name"
+
+        if worker is None or key not in worker.cache:
+            return None
+
+        return worker.cache[key][0]
+
+    def _show_presets_section(self, name):
+        # The page's owner is in place by now: _open_page builds it before
+        # it lists the sections, which is what selects the first one.
+        self._page[2].show_section(name)
+        self._mark_section(name)
     def open_phones_window(self):
         self._open_built_page("Phone List")
     def connected_phones(self):
@@ -5437,11 +5435,9 @@ class MainWindow:
         self.remote_nic_combo.set("")
         self._refresh_nic_choices()
 
-        self.dark_mode_var.set(self.settings["theme"] == "dark")
-        self.apply_theme(self.settings["theme"], persist=False)
-
         # The Aux tab picks up the restored hidden_auxes via the rebuild
-        # apply_theme() above already performs.
+        # this performs.
+        self._recolor_widgets()
         self.aux_panel.refresh_aux_list()
 
         # Otherwise the Backup page goes on listing - and writing new
@@ -5701,6 +5697,12 @@ class MainWindow:
 
             elif msg_type == "update_check":
                 self._apply_update_result(value)
+
+        # A phone saving, sharing or deleting a preset changes the store
+        # from the server's thread; the open Presets page catches up here.
+        if self.presets_window and self.presets_window.window.winfo_exists() \
+                and self.presets_window.seen_revision != self.preset_store.revision:
+            self.presets_window.refresh_list()
 
         self._refresh_capture_status()
         self._refresh_capture_view()

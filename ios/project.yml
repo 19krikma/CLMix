@@ -49,6 +49,8 @@ targets:
         # only cryptography is the system Keychain and the platform's own
         # TLS, neither of which counts, and the mixer socket is plain ws://.
         ITSAppUsesNonExemptEncryption: false
+        # CLMix is dark at all times, whatever the phone is set to.
+        UIUserInterfaceStyle: Dark
         # Portrait and both landscapes, matching the other mobile
         # platform - every screen there handles a rotation in place rather
         # than being locked to one orientation, and a phone laid flat on a
@@ -98,7 +100,7 @@ targets:
         # which ships on its own schedule and carries its own numbering;
         # neither is it tied to version.py, which is the desktop app and
         # the server this talks to.
-        MARKETING_VERSION: "1.9.0"
+        MARKETING_VERSION: "1.10.0"
         # Every new upload needs a build number App Store Connect hasn't
         # seen before for this bundle ID, even for a new marketing version
         # - so this moves on every upload, including a resubmission of the

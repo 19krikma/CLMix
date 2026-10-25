@@ -18,12 +18,23 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="18dp"
+        android:layout_marginBottom="4dp"
         android:gravity="center"
         android:text="Save Preset"
         android:textSize="16sp"
         android:textStyle="bold"
         android:textColor="?attr/colorOnSurface" />
+
+    <!-- Which aux this is for - a preset belongs to the aux it was
+         saved from, and only loads back onto it. -->
+    <TextView
+        android:id="@+id/preset_save_aux_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="18dp"
+        android:gravity="center"
+        android:textSize="13sp"
+        android:textColor="?attr/colorOnSurfaceVariant" />
 
     <com.google.android.material.textfield.TextInputLayout
         style="@style/Widget.Material3.TextInputLayout.OutlinedBox"

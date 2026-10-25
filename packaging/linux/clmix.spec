@@ -31,7 +31,7 @@ datas = collect_data_files("sv_ttk")
 # in images/.
 datas += [
     (os.path.join(PROJECT_ROOT, "images", name), "images")
-    for name in ("clmix-feature-graphic.png", "clmix-feature-graphic-light.png")
+    for name in ("clmix-feature-graphic.png",)
 ]
 
 a = Analysis(

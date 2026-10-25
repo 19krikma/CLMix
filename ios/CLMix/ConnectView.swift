@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ConnectView: View {
     @EnvironmentObject var model: AppModel
-    @EnvironmentObject var themeStore: ThemeStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
@@ -127,14 +126,11 @@ struct ConnectView: View {
                 LoginBackgroundView(bandTop: contentTopPadding)
                     .ignoresSafeArea()
             }
-            // Over the form rather than in it, so they keep their corner
-            // whatever the form is doing above them.
+            // Over the form rather than in it, so it keeps its corner
+            // whatever the form is doing above it.
             .overlay(alignment: .bottomTrailing) {
-                HStack(spacing: 12) {
-                    permissionsButton
-                    themeToggle
-                }
-                .padding(20)
+                permissionsButton
+                    .padding(20)
             }
         }
         // The artwork runs to the very top of the screen, under the
@@ -147,15 +143,16 @@ struct ConnectView: View {
         .onAppear {
             model.startDiscovery()
             model.resumeSessionIfPossible()
+            // Discovery has already raised the system prompt by now, so
+            // checking straight away asks the user nothing new.
+            localNetwork.check()
         }
         .onDisappear { model.stopDiscovery() }
         // Back from Settings, or from the system's own prompt (which
-        // takes the app out of the active state while it is up): once the
-        // box has been used it shows the live answer, so read it again.
+        // takes the app out of the active state while it is up): the
+        // badge always shows the live answer, so read it again.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active && localNetwork.status != .unchecked {
-                localNetwork.check()
-            }
+            if phase == .active { localNetwork.check() }
         }
         // Keyed on the generation, so a refresh cancels the window in
         // flight and opens a fresh one rather than letting the first
@@ -216,37 +213,6 @@ struct ConnectView: View {
         .animation(.easeInOut(duration: 0.2), value: showManual)
     }
 
-    /// Sun or moon in the bottom corner. This screen is the one place
-    /// the theme can be set before there is a mixer to set it from -
-    /// useful for a phone that has been handed to someone, or for an
-    /// operator who wants the light palette up before the lights go
-    /// down.
-    ///
-    /// The whole screen answers the tap now that the wallpaper has a day
-    /// cut of its own (see LoginBackgroundView) - palette, status bar
-    /// and artwork swap together, where before only this icon changed
-    /// and what the tap set was every screen past login.
-    private var themeToggle: some View {
-        let dark = themeStore.isDarkEffective
-
-        return Button {
-            themeStore.isDarkMode = !dark
-        } label: {
-            Image(systemName: dark ? "moon.fill" : "sun.max.fill")
-                .font(.system(size: 18, weight: .medium))
-                .frame(width: 48, height: 48)
-                // Frosted rather than filled, the same material the
-                // wallpaper's own band is made of, so the control reads
-                // as sitting on the picture rather than punched into it.
-                .background(Circle().fill(.ultraThinMaterial))
-                .overlay(Circle().stroke(Color.clmixLoginOutline, lineWidth: 1))
-                .contentShape(Circle())
-        }
-        .foregroundStyle(Color.clmixPrimary)
-        .animation(.easeInOut(duration: 0.2), value: dark)
-        .accessibilityLabel(dark ? "Switch to light mode" : "Switch to dark mode")
-    }
-
     /// The refresh control and the scan spinner share one slot, because
     /// they are the same thing in its two states: while a window is open
     /// the phone is already doing what the button asks for, and a button
@@ -302,9 +268,7 @@ struct ConnectView: View {
                 .frame(height: 44)
         }
         // Selected rows fill with the accent color, so their label needs
-        // on_primary rather than plain white - light mode's on_primary
-        // *is* white, but dark mode's is a dark navy, matching the accent
-        // fill's own light/dark swap.
+        // on_primary, a dark navy, rather than plain white.
         .foregroundStyle(selected ? Color.clmixOnPrimary : Color.primary)
         .background(selected ? Color.clmixPrimary : Color.clear)
         .overlay(
@@ -370,14 +334,15 @@ struct ConnectView: View {
         .disabled(model.isConnecting)
     }
 
-    /// A gear beside the theme toggle, drawn exactly as it is, that
+    /// A gear in the bottom corner that
     /// checks what CLMix needs from the phone and asks for whatever is
     /// missing - mirrors Android's permissions_button. On iOS that is
     /// local network access alone. Checking is what raises the system's
     /// prompt the first time; once refused, iOS never shows it again, so
     /// a tap on a refused button goes to this app's page in Settings,
     /// where the Local Network switch lives. The answer is the badge on
-    /// its corner: a green tick, or a red mark while access is refused.
+    /// its corner, always showing: a green tick, or a red mark whenever
+    /// access is refused or could not be confirmed.
     private var permissionsButton: some View {
         let status = localNetwork.status
 
@@ -425,9 +390,9 @@ struct ConnectView: View {
                 .background(Circle().fill(Color.clmixBackground))
         case .granted:
             badge("checkmark.circle.fill", Color.clmixSecondary)
-        case .denied:
+        case .denied, .inconclusive:
             badge("exclamationmark.circle.fill", Color.clmixMuteActive)
-        case .unchecked, .inconclusive:
+        case .unchecked:
             EmptyView()
         }
     }

@@ -34,9 +34,8 @@ import kotlin.math.roundToInt
  * the *content* on top of this view (it runs from the Discovered box down to
  * Manual - see ConnectActivity), not against the artwork's own proportions.
  *
- * There are two banners, picked by the night resource qualifier - black paper
- * at night, #F4F5F7 by day - so the tail colour is read off the bitmap rather
- * than named here, and follows whichever one got inflated.
+ * The tail colour is read off the bitmap rather than named here, so it
+ * follows the artwork if that is ever recut.
  */
 class FadingBannerView @JvmOverloads constructor(
     context: Context,

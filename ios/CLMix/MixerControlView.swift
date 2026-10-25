@@ -15,8 +15,6 @@ import SwiftUI
 /// Mirrors Android's MixerControlActivity.
 struct MixerControlView: View {
     @EnvironmentObject var model: AppModel
-    @EnvironmentObject var themeStore: ThemeStore
-    @Environment(\.colorScheme) var systemColorScheme
 
     @State private var banksExpanded = false
     @State private var showMenu = false
@@ -34,13 +32,6 @@ struct MixerControlView: View {
     // As the aux screen: short enough to read as a control being
     // operated mid-show rather than as a screen transition.
     private let bankPanelAnimation = Animation.easeOut(duration: 0.1)
-
-    private var darkModeBinding: Binding<Bool> {
-        Binding(
-            get: { themeStore.isDarkMode ?? (systemColorScheme == .dark) },
-            set: { themeStore.isDarkMode = $0 }
-        )
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -230,10 +221,6 @@ struct MixerControlView: View {
     private var menuSheet: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer()
-
-            Toggle("Dark mode", isOn: darkModeBinding)
-                .padding(.horizontal, 14)
-                .padding(.top, 16)
 
             // Back returns to the AUX Only / Mixer Control choice; Log Out
             // ends the session outright. Side by side because they are the

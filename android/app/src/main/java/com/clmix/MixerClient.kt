@@ -37,7 +37,10 @@ interface MixerClientListener {
     fun onMeters(sequence: Long, meters: Map<Int, MeterLevels>) {}
     fun onBanks(banks: List<String>) {}
     fun onLevels(aux: Int, channels: List<ChannelState>) {}
-    fun onPresets(names: List<String>) {}
+    fun onPresets(presets: List<Preset>) {}
+
+    /** The accounts this one can share a preset with. */
+    fun onShareTargets(users: List<String>) {}
     fun onPresetSaved(name: String) {}
     fun onPresetLoaded(name: String) {}
 
@@ -91,9 +94,8 @@ object MixerClient {
     private var demoMode = false
 
     // Screens claim this on resume and release it on pause. It is a
-    // stack rather than a single slot because a configuration change -
-    // the drawer's Dark mode switch, or the phone's own switchover at
-    // sunset - rebuilds every activity in the task, and the ones sitting
+    // stack rather than a single slot because a configuration change
+    // rebuilds every activity in the task, and the ones sitting
     // in the back stack each run onResume as they relaunch, in an order
     // Android does not guarantee. With one slot, whichever background
     // screen happened to resume last captured the push stream: pushes
@@ -597,11 +599,67 @@ object MixerClient {
             .put("name", name)
     )
 
-    fun loadPreset(name: String) = send(
+    // By id where the server gave one; by name on a server from before
+    // owners, which never did.
+    fun loadPreset(preset: Preset) = send(
         JSONObject()
             .put("action", "load_preset")
-            .put("name", name)
+            .apply {
+                if (preset.id.isEmpty()) put("name", preset.name) else put("id", preset.id)
+            }
     )
+
+    // The owner's alone - the server answers each with a fresh presets
+    // list, which is what updates the sheets.
+    fun deletePreset(id: String) = send(
+        JSONObject().put("action", "delete_preset").put("id", id)
+    )
+
+    fun setPresetPublic(id: String, public: Boolean) = send(
+        JSONObject().put("action", "set_preset_public").put("id", id).put("public", public)
+    )
+
+    fun sharePreset(id: String, users: List<String>) = send(
+        JSONObject().put("action", "share_preset").put("id", id).put("users", JSONArray(users))
+    )
+
+    // Named, so the server lists only the accounts that can use that
+    // preset's aux.
+    fun requestShareTargets(id: String) = send(
+        JSONObject().put("action", "list_share_targets").put("id", id)
+    )
+
+    private fun parsePresets(json: JSONObject): List<Preset> {
+        val items = json.optJSONArray("items")
+
+        // A server from before owners sends names alone, all of them open
+        // to everyone - which is what they become here.
+        if (items == null) {
+            val names = json.optJSONArray("presets") ?: JSONArray()
+            return (0 until names.length()).map {
+                Preset(
+                    id = "", name = names.getString(it), owner = null, mine = false,
+                    public = true, sharedWithMe = false, sharedWith = emptyList()
+                )
+            }
+        }
+
+        return (0 until items.length()).map {
+            val item = items.getJSONObject(it)
+            val shared = item.optJSONArray("shared_with") ?: JSONArray()
+            Preset(
+                id = item.getString("id"),
+                name = item.getString("name"),
+                owner = if (item.isNull("owner")) null else item.optString("owner"),
+                mine = item.optBoolean("mine", false),
+                public = item.optBoolean("public", false),
+                sharedWithMe = item.optBoolean("shared_with_me", false),
+                sharedWith = (0 until shared.length()).map { i -> shared.getString(i) },
+                aux = if (item.isNull("aux")) null else item.optInt("aux"),
+                auxName = if (item.isNull("aux_name")) null else item.optString("aux_name")
+            )
+        }
+    }
 
     private fun send(json: JSONObject) {
         // REMOVE WITH DEMO MODE.
@@ -759,9 +817,14 @@ object MixerClient {
             }
 
             "presets" -> {
-                val arr = json.getJSONArray("presets")
-                val list = (0 until arr.length()).map { arr.getString(it) }
+                val list = parsePresets(json)
                 onMain { listener?.onPresets(list) }
+            }
+
+            "share_targets" -> {
+                val arr = json.optJSONArray("users") ?: JSONArray()
+                val users = (0 until arr.length()).map { arr.getString(it) }
+                onMain { listener?.onShareTargets(users) }
             }
 
             "preset_saved" -> {

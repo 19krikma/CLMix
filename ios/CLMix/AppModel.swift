@@ -109,7 +109,10 @@ final class AppModel: NSObject, ObservableObject {
     }
     @Published var dynamics: ChannelDynamics?
     @Published var dynOpenedOnComp = true
-    @Published var presetNames: [String] = []
+    @Published var presets: [Preset] = []
+    /// Who the open manage sheet can share with - nil until the server
+    /// answers.
+    @Published var shareTargets: [String]?
     @Published var discoveredServers: [DiscoveredServer] = []
     // True while the session is a local demo rather than a real console.
     // Drives the DEMO badge on the mixer screen, so there is never any
@@ -689,9 +692,28 @@ final class AppModel: NSObject, ObservableObject {
         backend.savePreset(name: name)
     }
 
-    func loadPreset(name: String, onLoaded: @escaping () -> Void) {
+    // The owner's alone. The server answers each with a fresh list,
+    // which is what the sheets redraw from.
+    func deletePreset(_ preset: Preset) {
+        backend.deletePreset(id: preset.serverID)
+    }
+
+    func setPresetPublic(_ preset: Preset, isPublic: Bool) {
+        backend.setPresetPublic(id: preset.serverID, isPublic: isPublic)
+    }
+
+    func sharePreset(_ preset: Preset, users: [String]) {
+        backend.sharePreset(id: preset.serverID, users: users)
+    }
+
+    func requestShareTargets(for preset: Preset) {
+        shareTargets = nil
+        backend.requestShareTargets(id: preset.serverID)
+    }
+
+    func loadPreset(_ preset: Preset, onLoaded: @escaping () -> Void) {
         pendingPresetLoadCompletion = onLoaded
-        backend.loadPreset(name: name)
+        backend.loadPreset(preset)
     }
 
     /// Revokes the session server-side and drops the saved token before
@@ -738,7 +760,8 @@ final class AppModel: NSObject, ObservableObject {
         dynChannel = nil
         dynamics = nil
         awaitingAuxes = false
-        presetNames = []
+        presets = []
+        shareTargets = nil
         isConnecting = false
         statusIsError = false
         credentialsRejected = false
@@ -1083,8 +1106,12 @@ extension AppModel: MixerClientDelegate {
         bankChannels = channels
     }
 
-    func mixerDidReceivePresets(_ names: [String]) {
-        presetNames = names
+    func mixerDidReceivePresets(_ presets: [Preset]) {
+        self.presets = presets
+    }
+
+    func mixerDidReceiveShareTargets(_ users: [String]) {
+        shareTargets = users
     }
 
     func mixerDidSavePreset(_ name: String) {
