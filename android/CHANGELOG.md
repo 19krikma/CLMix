@@ -3,6 +3,13 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.12.1
+
+- **Dynamics 1 has no gate.** Opened from a strip's COMP button, the
+  Dynamics screen now shows Dynamics 1 alone - its compressor, multiband
+  or de-esser settings - with no COMP/GATE switch and no gate on the
+  graph. Opened from GATE it is unchanged.
+
 ## 2.12.0
 
 Needs desktop 1.19.0 or later.

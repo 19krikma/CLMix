@@ -30,7 +30,10 @@ private const val STATE_COMP = "comp"
  * One input channel's compressor and gate, full screen and on its side.
  *
  * The EQ screen's twin (EqActivity), opened from a strip's COMP or GATE
- * button with that section selected. The socket stays in mixer mode and
+ * button with that section selected. Opened from COMP it is Dynamics 1
+ * alone - compressor, multiband or de-esser, never a gate (captured on
+ * channel 43, 2026-10-24) - so there is no COMP/GATE switch and the graph
+ * draws the compressor only. Opened from GATE it offers both. The socket stays in mixer mode and
  * select_dyn has the server follow each levels push with a "dynamics"
  * frame for this channel.
  *
@@ -52,6 +55,7 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
     private var channel = 0
     private var dynamics = ChannelDynamics(0)
     private var compSelected = true
+    private var compOnly = false
 
     private val handler = Handler(Looper.getMainLooper())
     private val heldUntil = mutableMapOf<String, Long>()
@@ -75,17 +79,25 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
 
         channel = intent.getIntExtra(EXTRA_CHANNEL, 0)
         dynamics = ChannelDynamics(channel)
-        compSelected = savedInstanceState?.getBoolean(STATE_COMP)
-            ?: intent.getBooleanExtra(EXTRA_COMP, true)
+        compOnly = intent.getBooleanExtra(EXTRA_COMP, true)
+        compSelected = compOnly || savedInstanceState?.getBoolean(STATE_COMP) ?: false
 
         binding.channelNumber.text = channel.toString()
         binding.channelName.text = intent.getStringExtra(EXTRA_NAME) ?: "Ch $channel"
 
         binding.backButton.setOnClickListener { finish() }
-        binding.compChip.setOnClickListener { select(true) }
-        binding.gateChip.setOnClickListener { select(false) }
+        if (compOnly) {
+            // A heading rather than a switch: Dynamics 1 has no gate.
+            binding.compChip.text = "DYNAMICS 1"
+            binding.compChip.isClickable = false
+            binding.gateChip.visibility = View.GONE
+        } else {
+            binding.compChip.setOnClickListener { select(true) }
+            binding.gateChip.setOnClickListener { select(false) }
+        }
         binding.inButton.setOnClickListener { toggleIn() }
 
+        binding.dynGraph.compOnly = compOnly
         binding.dynGraph.onSelect = { comp -> select(comp) }
         binding.dynGraph.onThreshold = { comp, db ->
             setValue(if (comp) DynParam.COMP_THRESH else DynParam.GATE_THRESH, db)
@@ -296,8 +308,9 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
     /**
      * Names the mode when it is anything but the plain one the dials are
      * drawn for. The names follow the order the console's own parameter
-     * names list them in (comp-multiband-desser, gate-duck-comp); no desk
-     * has yet been seen running the other modes to confirm it.
+     * names list them in (comp-multiband-desser, gate-duck-comp). The
+     * compressor's are confirmed (channel 43, 2026-10-24: 1 multiband, 2
+     * de-esser); the gate slot's are not yet.
      */
     private fun modeText(section: DynSection): String {
         val mode = section.mode ?: return ""

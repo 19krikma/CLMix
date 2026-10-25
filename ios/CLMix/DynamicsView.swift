@@ -3,7 +3,10 @@ import SwiftUI
 /// One input channel's compressor and gate, full screen and on its side.
 ///
 /// The EQ screen's twin (EqView), opened from a strip's COMP or GATE
-/// button with that section selected. Each section has five dials and an
+/// button with that section selected. Opened from COMP it is Dynamics 1
+/// alone - compressor, multiband or de-esser, never a gate (captured on
+/// channel 43, 2026-10-24) - so there is no COMP/GATE switch and the graph
+/// draws the compressor only. Opened from GATE it offers both. Each section has five dials and an
 /// IN button; the graph shows the static curve both sections make
 /// together, with each threshold a handle to drag. Edits go through
 /// AppModel.editDynamics, which moves the screen at once and writes to the
@@ -17,6 +20,8 @@ struct DynamicsView: View {
     @EnvironmentObject var model: AppModel
 
     @State private var compSelected = true
+
+    private var compOnly: Bool { model.dynOpenedOnComp }
 
     private var dyn: ChannelDynamics {
         model.dynamics ?? ChannelDynamics(channel: model.dynChannel ?? 0)
@@ -39,6 +44,7 @@ struct DynamicsView: View {
                 DynGraphView(
                     dynamics: dyn,
                     compSelected: compSelected,
+                    compOnly: compOnly,
                     onSelect: { compSelected = $0 },
                     onThreshold: { comp, db in
                         setValue(comp ? .compThresh : .gateThresh, db)
@@ -98,9 +104,16 @@ struct DynamicsView: View {
     private var controlPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
-                chip("COMP", lit: compSelected, color: .clmixEqBandLF) { compSelected = true }
-                chip("GATE", lit: !compSelected, color: .clmixEqBandHMF) { compSelected = false }
-                    .padding(.trailing, 4)
+                if compOnly {
+                    // A heading rather than a switch: Dynamics 1 has no gate.
+                    chip("DYNAMICS 1", lit: true, color: .clmixEqBandLF) {}
+                        .allowsHitTesting(false)
+                        .padding(.trailing, 4)
+                } else {
+                    chip("COMP", lit: compSelected, color: .clmixEqBandLF) { compSelected = true }
+                    chip("GATE", lit: !compSelected, color: .clmixEqBandHMF) { compSelected = false }
+                        .padding(.trailing, 4)
+                }
                 chip("IN", lit: section.isIn == true, color: sectionColor, width: 64) {
                     let target = section.isIn != true
                     model.editDynamics(compSelected ? .compIn(target) : .gateIn(target), toggle: true)
@@ -135,8 +148,9 @@ struct DynamicsView: View {
 
     /// Names the mode when it is anything but the plain one the dials are
     /// drawn for. The names follow the order the console's own parameter
-    /// names list them in (comp-multiband-desser, gate-duck-comp); no desk
-    /// has yet been seen running the other modes to confirm it.
+    /// names list them in (comp-multiband-desser, gate-duck-comp). The
+    /// compressor's are confirmed (channel 43, 2026-10-24: 1 multiband, 2
+    /// de-esser); the gate slot's are not yet.
     private var modeText: String? {
         guard let mode = section.mode, mode != 0 else { return nil }
         let name: String
@@ -232,6 +246,8 @@ struct DynamicsView: View {
 struct DynGraphView: View {
     let dynamics: ChannelDynamics
     let compSelected: Bool
+    /// Dynamics 1 alone - the compressor's curve and handle, no gate.
+    let compOnly: Bool
     let onSelect: (Bool) -> Void
     let onThreshold: (Bool, Double) -> Void
     let onGestureEnd: () -> Void
@@ -259,7 +275,7 @@ struct DynGraphView: View {
             ZStack(alignment: .topLeading) {
                 Canvas { context, _ in draw(in: &context, plot: plot) }
 
-                handle(comp: !compSelected, plot: plot)
+                if !compOnly { handle(comp: !compSelected, plot: plot) }
                 handle(comp: compSelected, plot: plot)
             }
             .contentShape(Rectangle())
@@ -283,7 +299,7 @@ struct DynGraphView: View {
 
     /// Level out for level in, through whichever sections are in.
     private func transfer(_ input: Double) -> Double {
-        DynResponse.both(dynamics, input)
+        compOnly ? DynResponse.comp(dynamics.comp, input) : DynResponse.both(dynamics, input)
     }
 
     private func draw(in context: inout GraphicsContext, plot: CGRect) {
@@ -313,7 +329,7 @@ struct DynGraphView: View {
                        style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
 
         // The thresholds as lines down the whole graph.
-        for comp in [true, false] {
+        for comp in compOnly ? [true] : [true, false] {
             let section = comp ? dynamics.comp : dynamics.gate
             guard let thresh = section.values["thresh"] else { continue }
             var line = Path()
@@ -332,7 +348,7 @@ struct DynGraphView: View {
             if i == 0 { curve.move(to: point) } else { curve.addLine(to: point) }
         }
 
-        let anyIn = dynamics.comp.isIn == true || dynamics.gate.isIn == true
+        let anyIn = dynamics.comp.isIn == true || !compOnly && dynamics.gate.isIn == true
         var clipped = context
         clipped.clip(to: Path(plot))
         clipped.stroke(curve, with: .color(anyIn ? Color.clmixPrimary : Color.clmixOnSurfaceVariant.opacity(0.6)),
@@ -368,7 +384,7 @@ struct DynGraphView: View {
                     started = true
                     // Thresholds sit on vertical lines, so a touch anywhere
                     // up the line near one grabs it - the selected first.
-                    for comp in [compSelected, !compSelected] {
+                    for comp in compOnly ? [true] : [compSelected, !compSelected] {
                         let section = comp ? dynamics.comp : dynamics.gate
                         guard let thresh = section.values["thresh"] else { continue }
                         let hx = x(thresh, plot)

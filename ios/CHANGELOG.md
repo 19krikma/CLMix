@@ -9,6 +9,12 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.8.1
+
+- **Dynamics 1 has no gate.** Opened from a strip's COMP button, the
+  Dynamics screen now shows Dynamics 1 alone, with no COMP/GATE switch
+  and no gate on the graph. Opened from GATE it is unchanged.
+
 ## 1.8.0
 
 - **Server Syncing.** When the CLMix server refreshes its information

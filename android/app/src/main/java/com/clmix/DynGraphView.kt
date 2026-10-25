@@ -43,6 +43,14 @@ class DynGraphView @JvmOverloads constructor(
             invalidate()
         }
 
+    /** Dynamics 1 alone - the compressor's curve and handle, no gate.
+     *  See DynamicsActivity. */
+    var compOnly: Boolean = false
+        set(value) {
+            field = value
+            invalidate()
+        }
+
     /** A threshold handle was touched: true for the compressor's. */
     var onSelect: ((Boolean) -> Unit)? = null
 
@@ -130,7 +138,8 @@ class DynGraphView @JvmOverloads constructor(
         (MIN_DB + (px - plot.left) / plot.width() * -MIN_DB).coerceIn(MIN_DB, 0.0)
 
     /** Level out for level in, through whichever sections are in. */
-    private fun transfer(dyn: ChannelDynamics, input: Double): Double = DynResponse.both(dyn, input)
+    private fun transfer(dyn: ChannelDynamics, input: Double): Double =
+        if (compOnly) DynResponse.comp(dyn.comp, input) else DynResponse.both(dyn, input)
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawRect(plot, backgroundPaint)
@@ -166,7 +175,7 @@ class DynGraphView @JvmOverloads constructor(
             if (i == 0) curve.moveTo(px, py) else curve.lineTo(px, py)
         }
 
-        val anyIn = dyn.comp.isIn == true || dyn.gate.isIn == true
+        val anyIn = dyn.comp.isIn == true || !compOnly && dyn.gate.isIn == true
         curvePaint.color = if (anyIn) primary else withAlpha(muted, 160)
 
         canvas.save()
@@ -175,7 +184,7 @@ class DynGraphView @JvmOverloads constructor(
         canvas.restore()
 
         // The unselected handle first, so the selected one draws on top.
-        drawHandle(canvas, dyn, comp = !compSelected)
+        if (!compOnly) drawHandle(canvas, dyn, comp = !compSelected)
         drawHandle(canvas, dyn, comp = compSelected)
     }
 
@@ -216,7 +225,7 @@ class DynGraphView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 // Thresholds sit on vertical lines, so a touch anywhere up
                 // the line near one grabs it - the nearer, selected first.
-                val candidates = listOf(compSelected, !compSelected)
+                val candidates = if (compOnly) listOf(true) else listOf(compSelected, !compSelected)
                 val hit = candidates.firstOrNull { comp ->
                     val hx = handleX(dyn, comp) ?: return@firstOrNull false
                     abs(hx - event.x) < TOUCH_DP * density
