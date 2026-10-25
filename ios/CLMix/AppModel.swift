@@ -509,6 +509,9 @@ final class AppModel: NSObject, ObservableObject {
         case .gateIn(let isIn):
             current.gate.isIn = isIn
             key = "gate_in"
+        case .bandIn(let band, let isIn):
+            current.comp.values["band_in_\(band)"] = isIn ? 1 : 0
+            key = "comp_band_in_\(band)"
         case .value(let param, let value):
             if param.isComp {
                 current.comp.values[param.key] = value

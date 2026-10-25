@@ -3,32 +3,54 @@ import SwiftUI
 /// One input channel's compressor and gate, full screen and on its side.
 ///
 /// The EQ screen's twin (EqView), opened from a strip's COMP or GATE
-/// button with that section selected. Opened from COMP it is Dynamics 1
-/// alone - compressor, multiband or de-esser, never a gate (captured on
-/// channel 43, 2026-10-24) - so there is no COMP/GATE switch and the graph
-/// draws the compressor only. Opened from GATE it offers both. Each section has five dials and an
-/// IN button; the graph shows the static curve both sections make
-/// together, with each threshold a handle to drag. Edits go through
+/// button with that section selected. Edits go through
 /// AppModel.editDynamics, which moves the screen at once and writes to the
 /// desk at a capped rate.
 ///
-/// Only the compressor's ordinary single-band settings and the gate's are
-/// offered. When the console reports a section running another mode, the
-/// screen says so and shows the first band's settings - it never changes
-/// the mode itself. Mirrors Android's DynamicsActivity.
+/// Opened from COMP it is Dynamics 1 alone - never a gate (captured on
+/// channel 43, 2026-10-24) - headed with the mode the desk is running it
+/// in, and showing that mode's controls (DynMode.pages): the compressor's
+/// five dials; multiband's LOW, MID and HIGH bands, each with its own
+/// power button, and ALL for the overall threshold, gain and crossovers;
+/// or the de-esser's band with its frequency and width. The graph draws
+/// the shown band's curve. Opened from GATE it offers the compressor's
+/// single band and the gate side by side. The mode itself is never
+/// changed here. Mirrors Android's DynamicsActivity.
 struct DynamicsView: View {
     @EnvironmentObject var model: AppModel
 
     @State private var compSelected = true
 
+    @State private var page = 0
+
     private var compOnly: Bool { model.dynOpenedOnComp }
+
+    /// Dynamics 1's mode as the desk reports it.
+    private var mode: DynMode { DynMode(rawValue: dyn.comp.mode ?? 0) ?? .compressor }
+
+    /// The page shown - none outside Dynamics 1.
+    private var shownPage: DynMode.Page? {
+        guard compOnly else { return nil }
+        let pages = mode.pages
+        return pages[min(page, pages.count - 1)]
+    }
+
+    /// What the graph draws: the shown band in place of the compressor.
+    private var graphDyn: ChannelDynamics {
+        guard let shown = shownPage else { return dyn }
+        var out = dyn
+        out.comp = dyn.comp.band(shown.graphBand)
+        return out
+    }
 
     private var dyn: ChannelDynamics {
         model.dynamics ?? ChannelDynamics(channel: model.dynChannel ?? 0)
     }
 
     private var section: DynSection { compSelected ? dyn.comp : dyn.gate }
-    private var params: [DynParam] { compSelected ? DynParam.comp : DynParam.gate }
+    private var params: [DynParam] {
+        shownPage?.params ?? (compSelected ? DynParam.band(1) : DynParam.gate)
+    }
     private var sectionColor: Color { compSelected ? .clmixEqBandLF : .clmixEqBandHMF }
 
     private var channelName: String {
@@ -42,12 +64,12 @@ struct DynamicsView: View {
 
             HStack(spacing: 8) {
                 DynGraphView(
-                    dynamics: dyn,
+                    dynamics: graphDyn,
                     compSelected: compSelected,
                     compOnly: compOnly,
                     onSelect: { compSelected = $0 },
                     onThreshold: { comp, db in
-                        setValue(comp ? .compThresh : .gateThresh, db)
+                        setValue(comp ? DynParam.band(shownPage?.graphBand ?? 1)[0] : .gateThresh, db)
                     },
                     onGestureEnd: { model.flushDynWrites() }
                 )
@@ -61,6 +83,7 @@ struct DynamicsView: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear { compSelected = model.dynOpenedOnComp }
+        .onChange(of: dyn.comp.mode) { _, _ in page = 0 }
     }
 
     private var topBar: some View {
@@ -105,8 +128,10 @@ struct DynamicsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
                 if compOnly {
-                    // A heading rather than a switch: Dynamics 1 has no gate.
-                    chip("DYNAMICS 1", lit: true, color: .clmixEqBandLF) {}
+                    // A heading naming the mode rather than a switch:
+                    // Dynamics 1 has no gate.
+                    chip(dyn.comp.mode == nil ? "DYNAMICS 1" : mode.title,
+                         lit: true, color: .clmixEqBandLF) {}
                         .allowsHitTesting(false)
                         .padding(.trailing, 4)
                 } else {
@@ -114,14 +139,37 @@ struct DynamicsView: View {
                     chip("GATE", lit: !compSelected, color: .clmixEqBandHMF) { compSelected = false }
                         .padding(.trailing, 4)
                 }
-                chip("IN", lit: section.isIn == true, color: sectionColor, width: 64) {
+                chip("", icon: "power", lit: section.isIn == true, color: sectionColor, width: 64) {
                     let target = section.isIn != true
                     model.editDynamics(compSelected ? .compIn(target) : .gateIn(target), toggle: true)
                 }
+                .accessibilityLabel("Section in or out")
             }
             .frame(height: 36)
 
-            if let text = modeText {
+            if compOnly && mode.pages.count > 1 {
+                HStack(spacing: 4) {
+                    ForEach(Array(mode.pages.enumerated()), id: \.offset) { index, p in
+                        chip(p.tab ?? "", lit: index == min(page, mode.pages.count - 1),
+                             color: .clmixEqBandLF) { page = index }
+                    }
+
+                    if let band = shownPage?.band {
+                        chip("", icon: "power", lit: section.values["band_in_\(band)"] == 1,
+                             color: .clmixEqBandLF, width: 64) {
+                            let target = section.values["band_in_\(band)"] != 1
+                            model.editDynamics(.bandIn(band, target), toggle: true)
+                        }
+                        .padding(.leading, 4)
+                        .accessibilityLabel("Band in or out")
+                    } else {
+                        Color.clear.frame(width: 68)
+                    }
+                }
+                .frame(height: 32)
+            }
+
+            if !compOnly, let text = modeText {
                 Text(text)
                     .font(.system(size: 12))
                     .foregroundStyle(Color.clmixOnSurfaceVariant)
@@ -130,14 +178,19 @@ struct DynamicsView: View {
 
             Spacer(minLength: 0)
 
-            // Three over two, with an empty slot keeping the bottom row's
-            // dials the same width as the top's.
+            // Three over three; a page with fewer dials pads the rest so
+            // every dial keeps the same width.
             HStack(alignment: .top, spacing: 0) {
                 ForEach(params.prefix(3), id: \.self) { dialColumn($0) }
+                ForEach(0..<max(0, 3 - params.count), id: \.self) { _ in
+                    Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                }
             }
             HStack(alignment: .top, spacing: 0) {
-                ForEach(params.suffix(2), id: \.self) { dialColumn($0) }
-                Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                ForEach(Array(params.dropFirst(3)), id: \.self) { dialColumn($0) }
+                ForEach(0..<max(0, 3 - max(0, params.count - 3)), id: \.self) { _ in
+                    Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                }
             }
             .padding(.top, 4)
         }
@@ -220,15 +273,21 @@ struct DynamicsView: View {
     }
 
     private func chip(
-        _ title: String, lit: Bool, color: Color, width: CGFloat? = nil,
+        _ title: String, icon: String? = nil, lit: Bool, color: Color, width: CGFloat? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .frame(maxWidth: width == nil ? .infinity : nil, maxHeight: .infinity)
-                .frame(width: width)
+            Group {
+                if let icon {
+                    Image(systemName: icon).font(.system(size: 16, weight: .semibold))
+                } else {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: width == nil ? .infinity : nil, maxHeight: .infinity)
+            .frame(width: width)
         }
         .foregroundStyle(lit ? Color.white : Color.clmixOnMuteInactive)
         .background(lit ? color : Color.clmixMuteInactive)

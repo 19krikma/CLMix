@@ -326,13 +326,29 @@ final class DemoMixer: MixerBackend {
         let vocal = name.contains("Vox") || name.hasPrefix("BV")
         let drum = [Voice.kick, .snare, .toms].contains(entry.voice)
 
+        // One of each of Dynamics 1's other modes: the bass split three
+        // ways, and a de-esser on a backing vocal - the desk's own defaults
+        // for each (captured on channel 43, 2026-10-24).
+        let mode = name == "Bass DI" ? 1 : name == "BV Stage L" ? 2 : 0
+        var comp: [String: Double] = [
+            "thresh": vocal ? -24 : -18, "ratio": vocal ? 3 : 4,
+            "attack": 0.005, "release": 0.12, "gain": vocal ? 4 : 2,
+            "thresh_2": -20, "ratio_2": 2, "attack_2": 0.01, "release_2": 0.2, "gain_2": 0,
+            "thresh_3": -25, "ratio_3": 3, "attack_3": 0.005, "release_3": 0.1, "gain_3": 0,
+            "all_thresh": -20, "all_gain": 0,
+            "lp_xover": mode == 2 ? 5000 : 130, "hp_xover": mode == 2 ? 10000 : 1000,
+            "desser_freq": 216, "desser_width": 25,
+        ]
+        for band in 1...3 {
+            comp["band_in_\(band)"] = mode == 2 && band < 3 ? 0 : 1
+        }
+
         return ChannelDynamics(
             channel: entry.channel,
             comp: DynSection(
                 isIn: vocal || name.hasPrefix("Bass"),
-                values: ["thresh": vocal ? -24 : -18, "ratio": vocal ? 3 : 4,
-                         "attack": 0.005, "release": 0.12, "gain": vocal ? 4 : 2],
-                mode: 0, knee: 0
+                values: comp,
+                mode: mode, knee: 0
             ),
             gate: DynSection(
                 isIn: drum,
@@ -669,6 +685,7 @@ final class DemoMixer: MixerBackend {
         switch write {
         case .compIn(let isIn): dyn.comp.isIn = isIn
         case .gateIn(let isIn): dyn.gate.isIn = isIn
+        case .bandIn(let band, let isIn): dyn.comp.values["band_in_\(band)"] = isIn ? 1 : 0
         case .value(let param, let value):
             let clamped = min(param.range.upperBound, max(param.range.lowerBound, value))
             if param.isComp {

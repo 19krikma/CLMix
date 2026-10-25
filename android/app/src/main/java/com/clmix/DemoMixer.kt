@@ -137,6 +137,8 @@ object DemoMixer {
         // The compressor and gate, keyed as the server's dynamics frame
         // keys them (DynParam.key).
         var compIn: Boolean = false,
+        // Dynamics 1's mode, comp-multiband-desser's number (DynMode).
+        var compMode: Int = 0,
         val comp: MutableMap<String, Double> = mutableMapOf(),
         var gateIn: Boolean = false,
         val gate: MutableMap<String, Double> = mutableMapOf()
@@ -359,9 +361,31 @@ object DemoMixer {
                 "ratio" to if (vocal) 3.0 else 4.0,
                 "attack" to 0.005,
                 "release" to 0.12,
-                "gain" to if (vocal) 4.0 else 2.0
+                "gain" to if (vocal) 4.0 else 2.0,
+                "thresh_2" to -20.0, "ratio_2" to 2.0, "attack_2" to 0.01,
+                "release_2" to 0.2, "gain_2" to 0.0,
+                "thresh_3" to -25.0, "ratio_3" to 3.0, "attack_3" to 0.005,
+                "release_3" to 0.1, "gain_3" to 0.0,
+                "all_thresh" to -20.0, "all_gain" to 0.0,
+                "lp_xover" to 130.0, "hp_xover" to 1000.0,
+                "desser_freq" to 216.0, "desser_width" to 25.0
             )
         )
+        // One of each of Dynamics 1's other modes: the bass split three
+        // ways, and a de-esser on a backing vocal - the desk's own
+        // defaults for each (captured on channel 43, 2026-10-24).
+        strip.compMode = when (name) {
+            "Bass DI" -> 1
+            "BV Stage L" -> 2
+            else -> 0
+        }
+        for (band in 1..3) {
+            strip.comp["band_in_$band"] = if (strip.compMode == 2 && band < 3) 0.0 else 1.0
+        }
+        if (strip.compMode == 2) {
+            strip.comp["lp_xover"] = 5000.0
+            strip.comp["hp_xover"] = 10000.0
+        }
 
         strip.gateIn = drum
         strip.gate.putAll(
@@ -650,6 +674,8 @@ object DemoMixer {
         when (param) {
             "comp_in" -> strip.compIn = message.optBoolean("value")
             "gate_in" -> strip.gateIn = message.optBoolean("value")
+            "comp_band_in_1", "comp_band_in_2", "comp_band_in_3" ->
+                strip.comp[param.removePrefix("comp_")] = if (message.optBoolean("value")) 1.0 else 0.0
             else -> {
                 val target = DynParam.values().firstOrNull { it.wireName == param } ?: return
                 val value = message.optDouble("value")
@@ -664,8 +690,8 @@ object DemoMixer {
         val channel = dynChannel ?: return
         val strip = console[channel] ?: return
 
-        fun section(isIn: Boolean, values: Map<String, Double>): JSONObject {
-            val o = JSONObject().put("in", isIn).put("mode", 0)
+        fun section(isIn: Boolean, values: Map<String, Double>, mode: Int = 0): JSONObject {
+            val o = JSONObject().put("in", isIn).put("mode", mode)
             for ((key, value) in values) o.put(key, value)
             return o
         }
@@ -674,7 +700,7 @@ object DemoMixer {
             JSONObject()
                 .put("type", "dynamics")
                 .put("channel", channel)
-                .put("comp", section(strip.compIn, strip.comp).put("knee", 0))
+                .put("comp", section(strip.compIn, strip.comp, strip.compMode).put("knee", 0))
                 .put("gate", section(strip.gateIn, strip.gate))
         )
     }

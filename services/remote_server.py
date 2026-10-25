@@ -59,28 +59,55 @@ EQ_RANGES = {
     "q": (0.1, 20.0),
 }
 
-# The channel dynamics the Dynamics screen edits: the compressor's first
-# band (the whole compressor in its ordinary single-band mode) and the
-# gate. Each entry is (wire leaf, range); ranges are the official app's
-# dictionary, times in seconds (PROTOCOL.md, "Units"). Writes are clamped
-# to them here, as the EQ's are.
+# The channel dynamics the Dynamics screen edits: Dynamics 1 - the
+# compressor, in each of its three modes - and the gate. Each entry is
+# (wire leaf, range); ranges are the official app's dictionary, times in
+# seconds (PROTOCOL.md, "Units"). Writes are clamped to them here, as the
+# EQ's are.
 #
-# Deliberately absent: the knee, the compressor's multiband/de-esser mode
-# and the gate slot's gate/duck/comp mode are enums whose values have
-# never been seen to mean anything on a desk, so - as with eq_curve -
-# they are reported but never written.
+# comp-multiband-desser picks the mode: 0 compressor, 1 multiband, 2
+# de-esser (captured on channel 43, 2026-10-24). The compressor is band
+# 1's settings; multiband is bands 1-3 (low, mid, high) split at the two
+# crossovers, with an "all" threshold and gain over the lot; the de-esser
+# runs band 3 with bands 1 and 2 switched out, plus a centre frequency and
+# width the desk sends as 0-255 steps of a scale not yet mapped to Hz.
+#
+# Deliberately absent: the knee, the mode itself and the gate slot's
+# gate/duck/comp mode are reported but never written - changing the mode
+# is left to the desk.
 DYN_PARAMS = {
     "comp_thresh": ("comp_thresh_1", (-60.0, 0.0)),
     "comp_ratio": ("comp_ratio_1", (1.0, 50.0)),
     "comp_attack": ("comp_attack_1", (0.00002, 0.1)),
     "comp_release": ("comp_release_1", (0.001, 10.0)),
     "comp_gain": ("comp_gain_1", (0.0, 40.0)),
+    **{
+        f"comp_{name}_{band}": (f"comp_{name}_{band}", bounds)
+        for band in (2, 3)
+        for name, bounds in (
+            ("thresh", (-60.0, 0.0)),
+            ("ratio", (1.0, 50.0)),
+            ("attack", (0.00002, 0.1)),
+            ("release", (0.001, 10.0)),
+            ("gain", (0.0, 40.0)),
+        )
+    },
+    "comp_all_thresh": ("comp_all_thresh", (-60.0, 0.0)),
+    "comp_all_gain": ("comp_all_gain", (0.0, 40.0)),
+    "comp_lp_xover": ("comp_LP_crossover", (20.0, 20000.0)),
+    "comp_hp_xover": ("comp_HP_crossover", (20.0, 20000.0)),
+    "comp_desser_freq": ("desser_centre_freq", (0.0, 255.0)),
+    "comp_desser_width": ("desser_freq_width", (0.0, 255.0)),
     "gate_thresh": ("gate_thresh", (-60.0, 0.0)),
     "gate_range": ("gate_range", (0.0, 90.0)),
     "gate_attack": ("gate_attack", (0.00005, 0.1)),
     "gate_hold": ("gate_hold", (0.002, 2.0)),
     "gate_release": ("gate_release", (0.005, 10.0)),
 }
+
+# Multiband's per-band switches, written as flags like comp_in - see
+# _set_dyn. Reported in the comp section as band_in_1..3.
+DYN_BAND_FLAGS = ("comp_band_in_1", "comp_band_in_2", "comp_band_in_3")
 
 # The dynamics a strip's COMP and GATE thumbnails draw, in the order
 # _dyn_summary sends them: each section in or out, and the settings that
@@ -1740,14 +1767,15 @@ class RemoteServer:
         prefix = f"/Input_Channels/{channel}/Dynamics"
 
         for leaf in ("comp_in", "gate_in", "comp-multiband-desser",
-                     "gate-duck-comp", "comp_knee_1"):
+                     "gate-duck-comp", "comp_knee_1", *DYN_BAND_FLAGS):
             self.command_queue.put(f"{prefix}/{leaf}/?")
 
         for leaf, _ in DYN_PARAMS.values():
             self.command_queue.put(f"{prefix}/{leaf}/?")
 
     def _set_dyn(self, worker, channel, param, value):
-        """Writes one dynamics parameter: comp_in, gate_in, or a DYN_PARAMS key."""
+        """Writes one dynamics parameter: comp_in, gate_in, a multiband
+        band switch (DYN_BAND_FLAGS), or a DYN_PARAMS key."""
         channel = self._valid_channel(worker, channel)
 
         if channel is None or value is None:
@@ -1755,7 +1783,7 @@ class RemoteServer:
 
         prefix = f"/Input_Channels/{channel}/Dynamics"
 
-        if param in ("comp_in", "gate_in"):
+        if param in ("comp_in", "gate_in", *DYN_BAND_FLAGS):
             self.command_queue.put(f"{prefix}/{param} {1.0 if value else 0.0}")
             return
 
@@ -2321,6 +2349,9 @@ class RemoteServer:
             return values
 
         comp = section("comp")
+        for flag in DYN_BAND_FLAGS:
+            value = cls._cached_flag(worker, f"{prefix}/{flag}")
+            comp[flag[len("comp_"):]] = None if value is None else int(value)
         comp["mode"] = enum("comp-multiband-desser")
         comp["knee"] = enum("comp_knee_1")
 

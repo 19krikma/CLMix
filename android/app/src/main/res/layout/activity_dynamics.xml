@@ -129,13 +129,51 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/in_button"
                     style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="wrap_content"
+                    android:layout_width="64dp"
                     android:layout_height="match_parent"
-                    android:minWidth="64dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:text="IN"
-                    android:textSize="12sp"
+                    android:padding="0dp"
+                    android:contentDescription="Section in or out"
+                    app:icon="@drawable/ic_power"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="20dp"
+                    app:cornerRadius="8dp" />
+
+            </LinearLayout>
+
+            <!-- Multiband's pages - LOW, MID, HIGH, ALL - and the shown
+                 band's own in/out. Filled in by DynamicsActivity. -->
+            <LinearLayout
+                android:id="@+id/band_row"
+                android:layout_width="match_parent"
+                android:layout_height="32dp"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/band_tabs"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:orientation="horizontal" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/band_power"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="64dp"
+                    android:layout_height="match_parent"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:padding="0dp"
+                    android:contentDescription="Band in or out"
+                    app:icon="@drawable/ic_power"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="18dp"
                     app:cornerRadius="8dp" />
 
             </LinearLayout>

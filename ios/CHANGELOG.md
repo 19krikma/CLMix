@@ -9,6 +9,17 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.9.0
+
+- **Dynamics 1 shows its mode.** The heading reads COMPRESSOR, MULTIBAND
+  or DE-ESSER, whichever the console is running.
+- **Multiband controls.** LOW, MID and HIGH tabs, each with threshold,
+  ratio, attack, release, gain and its own power button, and ALL for the
+  overall threshold and gain and the two crossovers.
+- **De-esser controls.** Threshold, ratio, attack, release, frequency and
+  width. Frequency and width show the console's raw steps for now.
+- **Power icon.** The section's IN button is now a power button.
+
 ## 1.8.1
 
 - **Dynamics 1 has no gate.** Opened from a strip's COMP button, the

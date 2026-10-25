@@ -334,6 +334,9 @@ final class MixerClient: NSObject, MixerBackend {
         case .gateIn(let isIn):
             payload["param"] = "gate_in"
             payload["value"] = isIn
+        case .bandIn(let band, let isIn):
+            payload["param"] = "comp_band_in_\(band)"
+            payload["value"] = isIn
         case .value(let param, let value):
             payload["param"] = param.wireName
             payload["value"] = value
@@ -733,8 +736,9 @@ extension MixerClient {
         func section(_ key: String, _ params: [DynParam]) -> DynSection {
             let entry = json[key] as? [String: Any] ?? [:]
             var values: [String: Double] = [:]
-            for param in params {
-                if let value = entry[param.key] as? Double { values[param.key] = value }
+            // Multiband's band switches ride along as 0/1 under band_in_n.
+            for key in params.map(\.key) + (1...3).map({ "band_in_\($0)" }) {
+                if let value = (entry[key] as? NSNumber)?.doubleValue { values[key] = value }
             }
             return DynSection(
                 isIn: entry["in"] as? Bool, values: values,

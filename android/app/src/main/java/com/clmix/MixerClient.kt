@@ -519,6 +519,10 @@ object MixerClient {
 
     fun setGateIn(channel: Int, isIn: Boolean) = sendDyn(channel, "gate_in", isIn)
 
+    /** One multiband band (1..3) in or out. */
+    fun setBandIn(channel: Int, band: Int, isIn: Boolean) =
+        sendDyn(channel, "comp_band_in_$band", isIn)
+
     fun setDynamics(channel: Int, param: DynParam, value: Double) =
         sendDyn(channel, param.wireName, value)
 
@@ -870,7 +874,9 @@ object MixerClient {
     private fun parseDynamics(json: JSONObject): ChannelDynamics {
         fun section(key: String, params: List<DynParam>): DynSection {
             val o = json.optJSONObject(key) ?: return DynSection()
-            val values = params.mapNotNull { p -> o.optDoubleOrNull(p.key)?.let { p.key to it } }
+            // Multiband's band switches ride along as 0/1 under band_in_n.
+            val keys = params.map { it.key } + (1..3).map { "band_in_$it" }
+            val values = keys.mapNotNull { k -> o.optDoubleOrNull(k)?.let { k to it } }
             return DynSection(
                 isIn = o.optBoolOrNull("in"),
                 values = values.toMap(),

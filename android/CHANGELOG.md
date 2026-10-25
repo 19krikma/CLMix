@@ -3,6 +3,19 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.13.0
+
+Needs desktop 1.20.0 or later for the multiband and de-esser controls.
+
+- **Dynamics 1 shows its mode.** The heading reads COMPRESSOR, MULTIBAND
+  or DE-ESSER, whichever the desk is running.
+- **Multiband controls.** LOW, MID and HIGH tabs, each with threshold,
+  ratio, attack, release, gain and its own power button, and ALL for the
+  overall threshold and gain and the two crossovers.
+- **De-esser controls.** Threshold, ratio, attack, release, frequency and
+  width. Frequency and width show the desk's raw 0-255 steps for now.
+- **Power icon.** The section's IN button is now a power button.
+
 ## 2.12.1
 
 - **Dynamics 1 has no gate.** Opened from a strip's COMP button, the

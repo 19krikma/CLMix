@@ -210,11 +210,18 @@ object DynResponse {
         comp(dynamics.comp, gate(dynamics.gate, input))
 }
 
+/** How a dynamics dial's value reads. */
+enum class DynKind { DB, RATIO, TIME, FREQ, STEP }
+
 /**
  * One dial on the Dynamics screen. Ranges are the console's own parameter
- * table (docs/mixer_protocol/PROTOCOL.md); times are seconds on the wire.
- * log dials turn in octaves rather than in units - an attack running
- * 20 us..100 ms would otherwise spend all its travel on the slow end.
+ * table (docs/mixer_protocol/PROTOCOL.md); times are seconds on the wire,
+ * crossovers Hz. log dials turn in octaves rather than in units - an
+ * attack running 20 us..100 ms would otherwise spend all its travel on
+ * the slow end.
+ *
+ * Dynamics 1 has three modes (DynMode); which dials each one shows is
+ * DynMode.pages. Band 1's dials are the compressor's own.
  */
 enum class DynParam(
     val key: String,
@@ -222,38 +229,129 @@ enum class DynParam(
     val range: ClosedFloatingPointRange<Double>,
     val log: Boolean,
     val rate: Double,
-    val isComp: Boolean
+    val isComp: Boolean,
+    val kind: DynKind
 ) {
-    COMP_THRESH("thresh", "Thresh", -60.0..0.0, false, 0.6, true),
-    COMP_RATIO("ratio", "Ratio", 1.0..50.0, true, 0.2, true),
-    COMP_ATTACK("attack", "Attack", 0.00002..0.1, true, 0.25, true),
-    COMP_RELEASE("release", "Release", 0.001..10.0, true, 0.25, true),
-    COMP_GAIN("gain", "Gain", 0.0..40.0, false, 0.6, true),
-    GATE_THRESH("thresh", "Thresh", -60.0..0.0, false, 0.6, false),
-    GATE_RANGE("range", "Range", 0.0..90.0, false, 0.8, false),
-    GATE_ATTACK("attack", "Attack", 0.00005..0.1, true, 0.25, false),
-    GATE_HOLD("hold", "Hold", 0.002..2.0, true, 0.25, false),
-    GATE_RELEASE("release", "Release", 0.005..10.0, true, 0.25, false);
+    COMP_THRESH("thresh", "Thresh", -60.0..0.0, false, 0.6, true, DynKind.DB),
+    COMP_RATIO("ratio", "Ratio", 1.0..50.0, true, 0.2, true, DynKind.RATIO),
+    COMP_ATTACK("attack", "Attack", 0.00002..0.1, true, 0.25, true, DynKind.TIME),
+    COMP_RELEASE("release", "Release", 0.001..10.0, true, 0.25, true, DynKind.TIME),
+    COMP_GAIN("gain", "Gain", 0.0..40.0, false, 0.6, true, DynKind.DB),
+    COMP_THRESH_2("thresh_2", "Thresh", -60.0..0.0, false, 0.6, true, DynKind.DB),
+    COMP_RATIO_2("ratio_2", "Ratio", 1.0..50.0, true, 0.2, true, DynKind.RATIO),
+    COMP_ATTACK_2("attack_2", "Attack", 0.00002..0.1, true, 0.25, true, DynKind.TIME),
+    COMP_RELEASE_2("release_2", "Release", 0.001..10.0, true, 0.25, true, DynKind.TIME),
+    COMP_GAIN_2("gain_2", "Gain", 0.0..40.0, false, 0.6, true, DynKind.DB),
+    COMP_THRESH_3("thresh_3", "Thresh", -60.0..0.0, false, 0.6, true, DynKind.DB),
+    COMP_RATIO_3("ratio_3", "Ratio", 1.0..50.0, true, 0.2, true, DynKind.RATIO),
+    COMP_ATTACK_3("attack_3", "Attack", 0.00002..0.1, true, 0.25, true, DynKind.TIME),
+    COMP_RELEASE_3("release_3", "Release", 0.001..10.0, true, 0.25, true, DynKind.TIME),
+    COMP_GAIN_3("gain_3", "Gain", 0.0..40.0, false, 0.6, true, DynKind.DB),
+    COMP_ALL_THRESH("all_thresh", "Thresh", -60.0..0.0, false, 0.6, true, DynKind.DB),
+    COMP_ALL_GAIN("all_gain", "Gain", 0.0..40.0, false, 0.6, true, DynKind.DB),
+    COMP_LP_XOVER("lp_xover", "Low X", 20.0..20000.0, true, 0.25, true, DynKind.FREQ),
+    COMP_HP_XOVER("hp_xover", "High X", 20.0..20000.0, true, 0.25, true, DynKind.FREQ),
+    // 0-255 steps on the wire; how they map to Hz has not been captured.
+    COMP_DESSER_FREQ("desser_freq", "Freq", 0.0..255.0, false, 2.0, true, DynKind.STEP),
+    COMP_DESSER_WIDTH("desser_width", "Width", 0.0..255.0, false, 2.0, true, DynKind.STEP),
+    GATE_THRESH("thresh", "Thresh", -60.0..0.0, false, 0.6, false, DynKind.DB),
+    GATE_RANGE("range", "Range", 0.0..90.0, false, 0.8, false, DynKind.DB),
+    GATE_ATTACK("attack", "Attack", 0.00005..0.1, true, 0.25, false, DynKind.TIME),
+    GATE_HOLD("hold", "Hold", 0.002..2.0, true, 0.25, false, DynKind.TIME),
+    GATE_RELEASE("release", "Release", 0.005..10.0, true, 0.25, false, DynKind.TIME);
 
-    /** The set_dyn param name: comp_thresh, gate_hold and so on. */
+    /** The set_dyn param name: comp_thresh, comp_ratio_2, gate_hold and so on. */
     val wireName: String get() = (if (isComp) "comp_" else "gate_") + key
 
     fun format(value: Double?): String {
         if (value == null) return "--"
 
-        return when (key) {
-            "ratio" -> String.format("%.1f:1", value)
-            "attack", "release", "hold" -> when {
+        return when (kind) {
+            DynKind.RATIO -> String.format("%.1f:1", value)
+            DynKind.TIME -> when {
                 value < 0.01 -> String.format("%.2f ms", value * 1000)
                 value < 1 -> String.format("%.0f ms", value * 1000)
                 else -> String.format("%.2f s", value)
             }
-            else -> String.format("%.1f dB", value)
+            DynKind.FREQ ->
+                if (value < 1000) String.format("%.0f Hz", value)
+                else String.format("%.2f kHz", value / 1000)
+            DynKind.STEP -> String.format("%.0f", value)
+            DynKind.DB -> String.format("%.1f dB", value)
         }
     }
 
     companion object {
         val comp = values().filter { it.isComp }
         val gate = values().filter { !it.isComp }
+
+        /** The threshold, ratio, attack, release and gain of one band. */
+        fun band(n: Int): List<DynParam> = when (n) {
+            2 -> listOf(COMP_THRESH_2, COMP_RATIO_2, COMP_ATTACK_2, COMP_RELEASE_2, COMP_GAIN_2)
+            3 -> listOf(COMP_THRESH_3, COMP_RATIO_3, COMP_ATTACK_3, COMP_RELEASE_3, COMP_GAIN_3)
+            else -> listOf(COMP_THRESH, COMP_RATIO, COMP_ATTACK, COMP_RELEASE, COMP_GAIN)
+        }
     }
+}
+
+/**
+ * Dynamics 1's mode, the console's comp-multiband-desser (captured on
+ * channel 43, 2026-10-24). Each page is a set of dials; band is the
+ * multiband band a page edits (null for one that is not a band), and
+ * graphBand the band whose curve the graph draws.
+ */
+enum class DynMode(val wire: Int, val title: String) {
+    COMPRESSOR(0, "COMPRESSOR"),
+    MULTIBAND(1, "MULTIBAND"),
+    DE_ESSER(2, "DE-ESSER");
+
+    class Page(val tab: String?, val params: List<DynParam>, val band: Int?, val graphBand: Int)
+
+    val pages: List<Page>
+        get() = when (this) {
+            COMPRESSOR -> listOf(Page(null, DynParam.band(1), null, 1))
+            MULTIBAND -> listOf(
+                Page("LOW", DynParam.band(1), 1, 1),
+                Page("MID", DynParam.band(2), 2, 2),
+                Page("HIGH", DynParam.band(3), 3, 3),
+                Page(
+                    "ALL",
+                    listOf(DynParam.COMP_ALL_THRESH, DynParam.COMP_ALL_GAIN,
+                        DynParam.COMP_LP_XOVER, DynParam.COMP_HP_XOVER),
+                    null, 1
+                )
+            )
+            // Band 3 alone, with bands 1 and 2 switched out by the desk.
+            DE_ESSER -> listOf(
+                Page(
+                    null,
+                    listOf(DynParam.COMP_THRESH_3, DynParam.COMP_RATIO_3,
+                        DynParam.COMP_ATTACK_3, DynParam.COMP_RELEASE_3,
+                        DynParam.COMP_DESSER_FREQ, DynParam.COMP_DESSER_WIDTH),
+                    null, 3
+                )
+            )
+        }
+
+    companion object {
+        fun of(wire: Int?): DynMode? = values().firstOrNull { it.wire == wire }
+    }
+}
+
+/**
+ * One band of the compressor as a plain section - thresh, ratio and gain
+ * under the names DynResponse reads - so the graph can draw any band the
+ * way it draws the single-band compressor.
+ */
+fun DynSection.band(n: Int): DynSection {
+    if (n == 1) return this
+    val v = values
+    return copy(
+        isIn = isIn == true && v["band_in_$n"] != 0.0,
+        values = buildMap {
+            v["thresh_$n"]?.let { put("thresh", it) }
+            v["ratio_$n"]?.let { put("ratio", it) }
+            v["gain_$n"]?.let { put("gain", it) }
+        }
+    )
 }

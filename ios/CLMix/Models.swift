@@ -253,77 +253,163 @@ enum DynResponse {
     }
 }
 
+/// How a dynamics dial's value reads. Mirrors Android's DynKind.
+enum DynKind { case db, ratio, time, freq, step }
+
 /// One dial on the Dynamics screen. Ranges are the console's own parameter
-/// table (docs/mixer_protocol/PROTOCOL.md); times are seconds on the wire.
-/// Log dials turn in octaves rather than in units - an attack running
-/// 20 us...100 ms would otherwise spend all its travel on the slow end.
-/// Mirrors Android's DynParam.
+/// table (docs/mixer_protocol/PROTOCOL.md); times are seconds on the wire,
+/// crossovers Hz. Log dials turn in octaves rather than in units - an
+/// attack running 20 us...100 ms would otherwise spend all its travel on
+/// the slow end. Dynamics 1's three modes show different sets of these
+/// (DynMode.pages); band 1's dials are the compressor's own. Mirrors
+/// Android's DynParam.
 enum DynParam: CaseIterable, Hashable {
     case compThresh, compRatio, compAttack, compRelease, compGain
+    case compThresh2, compRatio2, compAttack2, compRelease2, compGain2
+    case compThresh3, compRatio3, compAttack3, compRelease3, compGain3
+    case compAllThresh, compAllGain, compLpXover, compHpXover
+    case compDesserFreq, compDesserWidth
     case gateThresh, gateRange, gateAttack, gateHold, gateRelease
 
-    static let comp: [DynParam] = [.compThresh, .compRatio, .compAttack, .compRelease, .compGain]
+    private struct Spec {
+        let key: String
+        let label: String
+        let range: ClosedRange<Double>
+        let log: Bool
+        let rate: Double
+        let kind: DynKind
+    }
+
+    private var spec: Spec {
+        switch self {
+        case .compThresh: return Spec(key: "thresh", label: "Thresh", range: -60...0, log: false, rate: 0.6, kind: .db)
+        case .compRatio: return Spec(key: "ratio", label: "Ratio", range: 1...50, log: true, rate: 0.2, kind: .ratio)
+        case .compAttack: return Spec(key: "attack", label: "Attack", range: 0.00002...0.1, log: true, rate: 0.25, kind: .time)
+        case .compRelease: return Spec(key: "release", label: "Release", range: 0.001...10, log: true, rate: 0.25, kind: .time)
+        case .compGain: return Spec(key: "gain", label: "Gain", range: 0...40, log: false, rate: 0.6, kind: .db)
+        case .compThresh2: return Spec(key: "thresh_2", label: "Thresh", range: -60...0, log: false, rate: 0.6, kind: .db)
+        case .compRatio2: return Spec(key: "ratio_2", label: "Ratio", range: 1...50, log: true, rate: 0.2, kind: .ratio)
+        case .compAttack2: return Spec(key: "attack_2", label: "Attack", range: 0.00002...0.1, log: true, rate: 0.25, kind: .time)
+        case .compRelease2: return Spec(key: "release_2", label: "Release", range: 0.001...10, log: true, rate: 0.25, kind: .time)
+        case .compGain2: return Spec(key: "gain_2", label: "Gain", range: 0...40, log: false, rate: 0.6, kind: .db)
+        case .compThresh3: return Spec(key: "thresh_3", label: "Thresh", range: -60...0, log: false, rate: 0.6, kind: .db)
+        case .compRatio3: return Spec(key: "ratio_3", label: "Ratio", range: 1...50, log: true, rate: 0.2, kind: .ratio)
+        case .compAttack3: return Spec(key: "attack_3", label: "Attack", range: 0.00002...0.1, log: true, rate: 0.25, kind: .time)
+        case .compRelease3: return Spec(key: "release_3", label: "Release", range: 0.001...10, log: true, rate: 0.25, kind: .time)
+        case .compGain3: return Spec(key: "gain_3", label: "Gain", range: 0...40, log: false, rate: 0.6, kind: .db)
+        case .compAllThresh: return Spec(key: "all_thresh", label: "Thresh", range: -60...0, log: false, rate: 0.6, kind: .db)
+        case .compAllGain: return Spec(key: "all_gain", label: "Gain", range: 0...40, log: false, rate: 0.6, kind: .db)
+        case .compLpXover: return Spec(key: "lp_xover", label: "Low X", range: 20...20000, log: true, rate: 0.25, kind: .freq)
+        case .compHpXover: return Spec(key: "hp_xover", label: "High X", range: 20...20000, log: true, rate: 0.25, kind: .freq)
+        // 0-255 steps on the wire; how they map to Hz has not been captured.
+        case .compDesserFreq: return Spec(key: "desser_freq", label: "Freq", range: 0...255, log: false, rate: 2, kind: .step)
+        case .compDesserWidth: return Spec(key: "desser_width", label: "Width", range: 0...255, log: false, rate: 2, kind: .step)
+        case .gateThresh: return Spec(key: "thresh", label: "Thresh", range: -60...0, log: false, rate: 0.6, kind: .db)
+        case .gateRange: return Spec(key: "range", label: "Range", range: 0...90, log: false, rate: 0.8, kind: .db)
+        case .gateAttack: return Spec(key: "attack", label: "Attack", range: 0.00005...0.1, log: true, rate: 0.25, kind: .time)
+        case .gateHold: return Spec(key: "hold", label: "Hold", range: 0.002...2, log: true, rate: 0.25, kind: .time)
+        case .gateRelease: return Spec(key: "release", label: "Release", range: 0.005...10, log: true, rate: 0.25, kind: .time)
+        }
+    }
+
+    /// Every compressor parameter, for parsing; the gate's five.
+    static let comp: [DynParam] = allCases.filter { $0.isComp }
     static let gate: [DynParam] = [.gateThresh, .gateRange, .gateAttack, .gateHold, .gateRelease]
 
-    var isComp: Bool { DynParam.comp.contains(self) }
-
-    var key: String {
-        switch self {
-        case .compThresh, .gateThresh: return "thresh"
-        case .compRatio: return "ratio"
-        case .compAttack, .gateAttack: return "attack"
-        case .compRelease, .gateRelease: return "release"
-        case .compGain: return "gain"
-        case .gateRange: return "range"
-        case .gateHold: return "hold"
+    /// The threshold, ratio, attack, release and gain of one band.
+    static func band(_ n: Int) -> [DynParam] {
+        switch n {
+        case 2: return [.compThresh2, .compRatio2, .compAttack2, .compRelease2, .compGain2]
+        case 3: return [.compThresh3, .compRatio3, .compAttack3, .compRelease3, .compGain3]
+        default: return [.compThresh, .compRatio, .compAttack, .compRelease, .compGain]
         }
     }
 
-    /// The set_dyn param name: comp_thresh, gate_hold and so on.
+    var isComp: Bool { !DynParam.gate.contains(self) }
+    var key: String { spec.key }
+    var label: String { spec.label }
+    var range: ClosedRange<Double> { spec.range }
+    var log: Bool { spec.log }
+    var rate: Double { spec.rate }
+
+    /// The set_dyn param name: comp_thresh, comp_ratio_2, gate_hold and so on.
     var wireName: String { (isComp ? "comp_" : "gate_") + key }
-
-    var label: String { key == "thresh" ? "Thresh" : key.capitalized }
-
-    var range: ClosedRange<Double> {
-        switch self {
-        case .compThresh, .gateThresh: return -60...0
-        case .compRatio: return 1...50
-        case .compAttack: return 0.00002...0.1
-        case .compRelease: return 0.001...10
-        case .compGain: return 0...40
-        case .gateRange: return 0...90
-        case .gateAttack: return 0.00005...0.1
-        case .gateHold: return 0.002...2
-        case .gateRelease: return 0.005...10
-        }
-    }
-
-    var log: Bool {
-        switch key {
-        case "ratio", "attack", "release", "hold": return true
-        default: return false
-        }
-    }
-
-    var rate: Double {
-        switch key {
-        case "thresh", "gain": return 0.6
-        case "range": return 0.8
-        case "ratio": return 0.2
-        default: return 0.25
-        }
-    }
 
     func format(_ value: Double?) -> String {
         guard let value else { return "--" }
-        switch key {
-        case "ratio": return String(format: "%.1f:1", value)
-        case "attack", "release", "hold":
+        switch spec.kind {
+        case .ratio: return String(format: "%.1f:1", value)
+        case .time:
             if value < 0.01 { return String(format: "%.2f ms", value * 1000) }
             if value < 1 { return String(format: "%.0f ms", value * 1000) }
             return String(format: "%.2f s", value)
-        default: return String(format: "%.1f dB", value)
+        case .freq:
+            return value < 1000 ? String(format: "%.0f Hz", value)
+                : String(format: "%.2f kHz", value / 1000)
+        case .step: return String(format: "%.0f", value)
+        case .db: return String(format: "%.1f dB", value)
         }
+    }
+}
+
+/// Dynamics 1's mode, the console's comp-multiband-desser (captured on
+/// channel 43, 2026-10-24). Each page is a set of dials; band is the
+/// multiband band a page edits (nil for one that is not a band), and
+/// graphBand the band whose curve the graph draws. Mirrors Android's
+/// DynMode.
+enum DynMode: Int {
+    case compressor = 0, multiband = 1, deEsser = 2
+
+    struct Page {
+        let tab: String?
+        let params: [DynParam]
+        let band: Int?
+        let graphBand: Int
+    }
+
+    var title: String {
+        switch self {
+        case .compressor: return "COMPRESSOR"
+        case .multiband: return "MULTIBAND"
+        case .deEsser: return "DE-ESSER"
+        }
+    }
+
+    var pages: [Page] {
+        switch self {
+        case .compressor:
+            return [Page(tab: nil, params: DynParam.band(1), band: nil, graphBand: 1)]
+        case .multiband:
+            return [
+                Page(tab: "LOW", params: DynParam.band(1), band: 1, graphBand: 1),
+                Page(tab: "MID", params: DynParam.band(2), band: 2, graphBand: 2),
+                Page(tab: "HIGH", params: DynParam.band(3), band: 3, graphBand: 3),
+                Page(tab: "ALL", params: [.compAllThresh, .compAllGain, .compLpXover, .compHpXover],
+                     band: nil, graphBand: 1),
+            ]
+        case .deEsser:
+            // Band 3 alone, with bands 1 and 2 switched out by the desk.
+            return [Page(tab: nil,
+                         params: [.compThresh3, .compRatio3, .compAttack3, .compRelease3,
+                                  .compDesserFreq, .compDesserWidth],
+                         band: nil, graphBand: 3)]
+        }
+    }
+}
+
+extension DynSection {
+    /// One band of the compressor as a plain section - thresh, ratio and
+    /// gain under the names DynResponse reads - so the graph can draw any
+    /// band the way it draws the single-band compressor.
+    func band(_ n: Int) -> DynSection {
+        if n == 1 { return self }
+        var out = self
+        out.isIn = isIn == true && values["band_in_\(n)"] != 0
+        out.values = [:]
+        for name in ["thresh", "ratio", "gain"] {
+            if let value = values["\(name)_\(n)"] { out.values[name] = value }
+        }
+        return out
     }
 }
 
@@ -331,5 +417,7 @@ enum DynParam: CaseIterable, Hashable {
 enum DynWrite {
     case compIn(Bool)
     case gateIn(Bool)
+    /// One multiband band (1...3) in or out.
+    case bandIn(Int, Bool)
     case value(DynParam, Double)
 }
