@@ -16,13 +16,12 @@ import kotlin.math.abs
 /**
  * The Dynamics screen's transfer graph: level in across, level out up the
  * side, both -60..0 dB. The diagonal is "nothing happening"; the curve is
- * what the gate and compressor do to it - pulled down by the gate's range
- * below its threshold, bent over by the compressor's ratio above its own,
- * lifted by its makeup gain.
+ * what the open section does to it - Dynamics 1 (compSelected) or
+ * Dynamics 2 in whichever mode it runs (DynResponse).
  *
  * A static picture, as on the console's own screen: no knee, no attack or
- * release, since those shape time rather than level. The two thresholds
- * are handles - drag one sideways to move it.
+ * release, since those shape time rather than level. The threshold is a
+ * handle - drag it sideways to move it.
  */
 class DynGraphView @JvmOverloads constructor(
     context: Context,
@@ -36,23 +35,12 @@ class DynGraphView @JvmOverloads constructor(
             invalidate()
         }
 
-    /** True with the compressor selected, false with the gate. */
+    /** True for Dynamics 1, false for Dynamics 2 (the gate slot). */
     var compSelected: Boolean = true
         set(value) {
             field = value
             invalidate()
         }
-
-    /** Dynamics 1 alone - the compressor's curve and handle, no gate.
-     *  See DynamicsActivity. */
-    var compOnly: Boolean = false
-        set(value) {
-            field = value
-            invalidate()
-        }
-
-    /** A threshold handle was touched: true for the compressor's. */
-    var onSelect: ((Boolean) -> Unit)? = null
 
     /** A threshold handle is being dragged, to this many dB. */
     var onThreshold: ((Boolean, Double) -> Unit)? = null
@@ -137,9 +125,9 @@ class DynGraphView @JvmOverloads constructor(
     private fun dbAt(px: Float) =
         (MIN_DB + (px - plot.left) / plot.width() * -MIN_DB).coerceIn(MIN_DB, 0.0)
 
-    /** Level out for level in, through whichever sections are in. */
+    /** Level out for level in, through the open section. */
     private fun transfer(dyn: ChannelDynamics, input: Double): Double =
-        if (compOnly) DynResponse.comp(dyn.comp, input) else DynResponse.both(dyn, input)
+        if (compSelected) DynResponse.comp(dyn.comp, input) else DynResponse.gate(dyn.gate, input)
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawRect(plot, backgroundPaint)
@@ -175,16 +163,14 @@ class DynGraphView @JvmOverloads constructor(
             if (i == 0) curve.moveTo(px, py) else curve.lineTo(px, py)
         }
 
-        val anyIn = dyn.comp.isIn == true || !compOnly && dyn.gate.isIn == true
-        curvePaint.color = if (anyIn) primary else withAlpha(muted, 160)
+        val isIn = (if (compSelected) dyn.comp else dyn.gate).isIn == true
+        curvePaint.color = if (isIn) primary else withAlpha(muted, 160)
 
         canvas.save()
         canvas.clipRect(plot)
         canvas.drawPath(curve, curvePaint)
         canvas.restore()
 
-        // The unselected handle first, so the selected one draws on top.
-        if (!compOnly) drawHandle(canvas, dyn, comp = !compSelected)
         drawHandle(canvas, dyn, comp = compSelected)
     }
 
@@ -198,24 +184,24 @@ class DynGraphView @JvmOverloads constructor(
         val thresh = section.values["thresh"] ?: return
         val hx = x(thresh)
         val color = if (comp) compColor else gateColor
-        val selected = comp == compSelected
         val active = section.isIn == true
 
         // The threshold as a line down the whole graph, so where the
         // section starts acting reads against both axes.
-        thresholdPaint.color = withAlpha(color, if (selected) 200 else 90)
+        thresholdPaint.color = withAlpha(color, 200)
         canvas.drawLine(hx, plot.top, hx, plot.bottom, thresholdPaint)
 
         val hy = y(transfer(dyn, thresh)).coerceIn(plot.top, plot.bottom)
-        val radius = (if (selected) 14f else 11f) * density
+        val radius = 14f * density
 
         handleFill.color = if (active) color else backgroundPaint.color
-        handleStroke.color = if (selected) ContextCompat.getColor(context, R.color.on_surface) else color
+        handleStroke.color = ContextCompat.getColor(context, R.color.on_surface)
         canvas.drawCircle(hx, hy, radius, handleFill)
         canvas.drawCircle(hx, hy, radius, handleStroke)
 
         handleText.color = if (active) Color.WHITE else color
-        canvas.drawText(if (comp) "C" else "G", hx, hy + handleText.textSize / 3, handleText)
+        val label = if (comp) "C" else (GateMode.of(section.mode) ?: GateMode.GATE).handle
+        canvas.drawText(label, hx, hy + handleText.textSize / 3, handleText)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -223,18 +209,15 @@ class DynGraphView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // Thresholds sit on vertical lines, so a touch anywhere up
-                // the line near one grabs it - the nearer, selected first.
-                val candidates = if (compOnly) listOf(true) else listOf(compSelected, !compSelected)
-                val hit = candidates.firstOrNull { comp ->
-                    val hx = handleX(dyn, comp) ?: return@firstOrNull false
-                    abs(hx - event.x) < TOUCH_DP * density
-                } ?: return true
+                // The threshold sits on a vertical line, so a touch
+                // anywhere up the line near it grabs it.
+                val hit = compSelected
+                val hx = handleX(dyn, hit) ?: return true
+                if (abs(hx - event.x) >= TOUCH_DP * density) return true
 
-                grabDx = (handleX(dyn, hit) ?: event.x) - event.x
+                grabDx = hx - event.x
                 dragging = hit
                 parent?.requestDisallowInterceptTouchEvent(true)
-                onSelect?.invoke(hit)
             }
 
             MotionEvent.ACTION_MOVE -> {

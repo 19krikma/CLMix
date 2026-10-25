@@ -207,11 +207,10 @@ enum EqWrite {
 /// the Dynamics screen shows it. Values are keyed by DynParam.key; a value
 /// the console has not reported is absent.
 ///
-/// `mode` is the console's own enum for what the section is running (the
-/// compressor: single-band, multiband or de-esser; the gate slot: gate,
-/// duck or compressor) and `knee` the compressor's knee. Neither has ever
-/// been seen to mean anything particular on a desk, so they are shown,
-/// never written. Mirrors Android's DynSection.
+/// `mode` is the console's own enum for what the section is running
+/// (Dynamics 1: DynMode; Dynamics 2, the gate slot: GateMode) and `knee`
+/// the compressor's knee. Both are shown, never written - the mode is
+/// changed on the console. Mirrors Android's DynSection.
 struct DynSection: Hashable {
     var isIn: Bool? = nil
     var values: [String: Double] = [:]
@@ -230,12 +229,17 @@ struct ChannelDynamics: Hashable {
 /// by the Dynamics screen's graph and the strip thumbnails. Mirrors
 /// Android's DynResponse.
 enum DynResponse {
-    /// The gate: pulled down by its range below its threshold.
+    /// Dynamics 2, by its mode (GateMode): a gate pulls the level down by
+    /// its range below its threshold, a ducker by its range above it
+    /// (drawn as if keyed from the channel itself), and a compressor is the
+    /// compressor's curve.
     static func gate(_ section: DynSection, _ input: Double) -> Double {
-        guard section.isIn == true, let thresh = section.values["thresh"], input < thresh else {
-            return input
-        }
-        return input - (section.values["range"] ?? 0)
+        let mode = GateMode(rawValue: section.mode ?? 0) ?? .gate
+        if mode == .compressor { return comp(section, input) }
+
+        guard section.isIn == true, let thresh = section.values["thresh"] else { return input }
+        let acts = mode == .duck ? input >= thresh : input < thresh
+        return acts ? input - (section.values["range"] ?? 0) : input
     }
 
     /// The compressor: bent over by its ratio above its threshold, then
@@ -245,11 +249,6 @@ enum DynResponse {
         let ratio = max(1, section.values["ratio"] ?? 1)
         let compressed = input > thresh ? thresh + (input - thresh) / ratio : input
         return compressed + (section.values["gain"] ?? 0)
-    }
-
-    /// Both, in the console's order: gate first.
-    static func both(_ dynamics: ChannelDynamics, _ input: Double) -> Double {
-        comp(dynamics.comp, gate(dynamics.gate, input))
     }
 }
 
@@ -270,6 +269,8 @@ enum DynParam: CaseIterable, Hashable {
     case compAllThresh, compAllGain, compLpXover, compHpXover
     case compDesserFreq, compDesserWidth
     case gateThresh, gateRange, gateAttack, gateHold, gateRelease
+    // Dynamics 2 as a compressor: the console's comp_ratio_4 and comp_gain_4.
+    case gateRatio, gateGain
 
     private struct Spec {
         let key: String
@@ -309,12 +310,15 @@ enum DynParam: CaseIterable, Hashable {
         case .gateAttack: return Spec(key: "attack", label: "Attack", range: 0.00005...0.1, log: true, rate: 0.25, kind: .time)
         case .gateHold: return Spec(key: "hold", label: "Hold", range: 0.002...2, log: true, rate: 0.25, kind: .time)
         case .gateRelease: return Spec(key: "release", label: "Release", range: 0.005...10, log: true, rate: 0.25, kind: .time)
+        case .gateRatio: return Spec(key: "ratio", label: "Ratio", range: 1...50, log: true, rate: 0.2, kind: .ratio)
+        case .gateGain: return Spec(key: "gain", label: "Gain", range: 0...40, log: false, rate: 0.6, kind: .db)
         }
     }
 
-    /// Every compressor parameter, for parsing; the gate's five.
+    /// Every parameter of each section, for parsing.
     static let comp: [DynParam] = allCases.filter { $0.isComp }
-    static let gate: [DynParam] = [.gateThresh, .gateRange, .gateAttack, .gateHold, .gateRelease]
+    static let gate: [DynParam] = [.gateThresh, .gateRange, .gateAttack, .gateHold, .gateRelease,
+                                   .gateRatio, .gateGain]
 
     /// The threshold, ratio, attack, release and gain of one band.
     static func band(_ n: Int) -> [DynParam] {
@@ -394,6 +398,38 @@ enum DynMode: Int {
                                   .compDesserFreq, .compDesserWidth],
                          band: nil, graphBand: 3)]
         }
+    }
+}
+
+/// Dynamics 2's mode, the console's gate-duck-comp (captured on channel
+/// 22, 2026-10-25). Gate and ducker share the gate's five settings; the
+/// compressor swaps range and hold for a ratio and makeup gain. Mirrors
+/// Android's GateMode.
+enum GateMode: Int {
+    case gate = 0, duck = 1, compressor = 2
+
+    var title: String {
+        switch self {
+        case .gate: return "GATE"
+        case .duck: return "DUCKER"
+        case .compressor: return "COMPRESSOR"
+        }
+    }
+
+    /// The letter on the graph's threshold handle.
+    var handle: String {
+        switch self {
+        case .gate: return "G"
+        case .duck: return "D"
+        case .compressor: return "C"
+        }
+    }
+
+    var pages: [DynMode.Page] {
+        let params: [DynParam] = self == .compressor
+            ? [.gateThresh, .gateRatio, .gateAttack, .gateRelease, .gateGain]
+            : [.gateThresh, .gateRange, .gateAttack, .gateHold, .gateRelease]
+        return [DynMode.Page(tab: nil, params: params, band: nil, graphBand: 1)]
     }
 }
 

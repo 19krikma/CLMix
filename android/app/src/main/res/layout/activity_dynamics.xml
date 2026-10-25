@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One channel's compressor and gate, full screen and landscape - the
-     EQ screen's layout, with a transfer graph where the EQ curve was and
-     five dials per section beside it. Opened from a strip's COMP or GATE
+<!-- One channel's Dynamics 1 or Dynamics 2, full screen and landscape -
+     the EQ screen's layout, with a transfer graph where the EQ curve was
+     and the section's dials beside it. Opened from a strip's COMP or GATE
      button on Full Mixer Control. -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -100,20 +100,7 @@
                 android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/comp_chip"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="4dp"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"
-                    android:text="COMP"
-                    android:textSize="12sp"
-                    app:cornerRadius="8dp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/gate_chip"
+                    android:id="@+id/section_chip"
                     style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
@@ -121,11 +108,11 @@
                     android:layout_marginEnd="8dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:text="GATE"
+                    android:text="DYNAMICS"
                     android:textSize="12sp"
                     app:cornerRadius="8dp" />
 
-                <!-- The selected section in or out. -->
+                <!-- The section in or out. -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/in_button"
                     style="@style/Widget.Material3.Button.TonalButton"
@@ -177,18 +164,6 @@
                     app:cornerRadius="8dp" />
 
             </LinearLayout>
-
-            <!-- What the section is running, when that is anything but
-                 the plain compressor or gate the dials are drawn for. -->
-            <TextView
-                android:id="@+id/mode_label"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:maxLines="2"
-                android:textSize="12sp"
-                android:textColor="@color/on_surface_variant"
-                tools:text="Running multiband - band 1 shown" />
 
             <Space
                 android:layout_width="match_parent"

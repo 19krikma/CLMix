@@ -23,25 +23,27 @@ import kotlin.math.pow
 private const val EXTRA_CHANNEL = "channel"
 private const val EXTRA_NAME = "name"
 private const val EXTRA_COMP = "comp"
-private const val STATE_COMP = "comp"
 private const val STATE_PAGE = "page"
 
 /**
- * One input channel's compressor and gate, full screen and on its side.
+ * One input channel's Dynamics 1 or Dynamics 2, full screen and on its
+ * side.
  *
- * The EQ screen's twin (EqActivity), opened from a strip's COMP or GATE
- * button with that section selected. The socket stays in mixer mode and
- * select_dyn has the server follow each levels push with a "dynamics"
- * frame for this channel.
+ * The EQ screen's twin (EqActivity), opened from a strip's COMP button
+ * for Dynamics 1 or its GATE button for Dynamics 2. The socket stays in
+ * mixer mode and select_dyn has the server follow each levels push with
+ * a "dynamics" frame for this channel.
  *
- * Opened from COMP it is Dynamics 1 alone - never a gate (captured on
- * channel 43, 2026-10-24) - headed with the mode the desk is running it
- * in, and showing that mode's controls (DynMode.pages): the compressor's
+ * Either way the screen shows that one section, headed with the mode the
+ * desk is running it in, and that mode's controls. Dynamics 1
+ * (DynMode.pages, captured on channel 43, 2026-10-24): the compressor's
  * five dials; multiband's LOW, MID and HIGH bands, each with its own
  * power button, and ALL for the overall threshold, gain and crossovers;
- * or the de-esser's band with its frequency and width. The graph draws
- * the shown band's curve. Opened from GATE it offers the compressor's
- * single band and the gate side by side, as before.
+ * or the de-esser's band with its frequency and width. Dynamics 2
+ * (GateMode.pages, captured on channel 22, 2026-10-25): gate and ducker
+ * share threshold, range, attack, hold and release; the compressor has
+ * threshold, ratio, attack, release and gain. The graph draws the shown
+ * curve, and follows the desk when the mode changes there.
  *
  * Edits move the screen at once and reach the desk at a capped rate, and
  * the desk's echo of a value being moved is ignored for a moment after,
@@ -52,11 +54,12 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
 
     private var channel = 0
     private var dynamics = ChannelDynamics(0)
+    // Dynamics 1 (true) or 2, fixed by the button that opened the screen.
     private var compSelected = true
-    private var compOnly = false
 
-    // Dynamics 1's mode as last reported, and which of its pages is shown.
+    // Each section's mode as last reported, and which page is shown.
     private var mode = DynMode.COMPRESSOR
+    private var gateMode = GateMode.GATE
     private var page = 0
     private val tabs = mutableListOf<MaterialButton>()
 
@@ -82,28 +85,20 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
 
         channel = intent.getIntExtra(EXTRA_CHANNEL, 0)
         dynamics = ChannelDynamics(channel)
-        compOnly = intent.getBooleanExtra(EXTRA_COMP, true)
-        compSelected = compOnly || savedInstanceState?.getBoolean(STATE_COMP) ?: false
+        compSelected = intent.getBooleanExtra(EXTRA_COMP, true)
         page = savedInstanceState?.getInt(STATE_PAGE) ?: 0
 
         binding.channelNumber.text = channel.toString()
         binding.channelName.text = intent.getStringExtra(EXTRA_NAME) ?: "Ch $channel"
 
         binding.backButton.setOnClickListener { finish() }
-        if (compOnly) {
-            // A heading naming the mode rather than a switch: Dynamics 1
-            // has no gate.
-            binding.compChip.isClickable = false
-            binding.gateChip.visibility = View.GONE
-            binding.bandPower.setOnClickListener { toggleBand() }
-        } else {
-            binding.compChip.setOnClickListener { select(true) }
-            binding.gateChip.setOnClickListener { select(false) }
-        }
+        // A heading naming the mode rather than a switch: each screen is
+        // one section.
+        binding.sectionChip.isClickable = false
+        binding.bandPower.setOnClickListener { toggleBand() }
         binding.inButton.setOnClickListener { toggleIn() }
 
-        binding.dynGraph.compOnly = compOnly
-        binding.dynGraph.onSelect = { comp -> select(comp) }
+        binding.dynGraph.compSelected = compSelected
         binding.dynGraph.onThreshold = { comp, db ->
             setValue(if (comp) graphThresh() else DynParam.GATE_THRESH, db)
         }
@@ -115,7 +110,6 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putBoolean(STATE_COMP, compSelected)
         outState.putInt(STATE_PAGE, page)
     }
 
@@ -185,7 +179,7 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
         binding.bandTabs.removeAllViews()
         tabs.clear()
 
-        val pages = mode.pages
+        val pages = pages()
         if (pages.size < 2) return
 
         pages.forEachIndexed { index, p ->
@@ -217,16 +211,16 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
         render()
     }
 
-    /** The page shown - always the first outside Dynamics 1. */
-    private fun currentPage(): DynMode.Page? =
-        if (compOnly) mode.pages.getOrNull(page) ?: mode.pages.first() else null
+    /** The open section's pages in its current mode. */
+    private fun pages(): List<DynMode.Page> = if (compSelected) mode.pages else gateMode.pages
+
+    private fun currentPage(): DynMode.Page = pages().getOrNull(page) ?: pages().first()
 
     /** The threshold the graph's compressor handle moves. */
-    private fun graphThresh(): DynParam =
-        DynParam.band(currentPage()?.graphBand ?: 1).first()
+    private fun graphThresh(): DynParam = DynParam.band(currentPage().graphBand).first()
 
     private fun toggleBand() {
-        val band = currentPage()?.band ?: return
+        val band = currentPage().band ?: return
         val key = "band_in_$band"
         val target = dynamics.comp.values[key] != 1.0
 
@@ -234,12 +228,6 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
         withSection(true) { it.copy(values = it.values + (key to if (target) 1.0 else 0.0)) }
         queueWrite("comp_$key") { MixerClient.setBandIn(channel, band, target) }
         flushWrites()
-        render()
-    }
-
-    private fun select(comp: Boolean) {
-        if (comp == compSelected) return
-        compSelected = comp
         render()
     }
 
@@ -330,48 +318,48 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
     // MARK: - Drawing
 
     private fun render() {
-        if (compOnly) {
-            val reported = DynMode.of(dynamics.comp.mode) ?: DynMode.COMPRESSOR
-            if (reported != mode || tabs.isEmpty() && mode.pages.size > 1) {
-                if (reported != mode) page = 0
-                mode = reported
-                buildTabs()
-            }
-            page = page.coerceIn(0, mode.pages.size - 1)
+        val reported = section(compSelected).mode
+        val modeChanged = if (compSelected) {
+            val m = DynMode.of(reported) ?: DynMode.COMPRESSOR
+            (m != mode).also { mode = m }
+        } else {
+            val m = GateMode.of(reported) ?: GateMode.GATE
+            (m != gateMode).also { gateMode = m }
         }
+        if (modeChanged) page = 0
+        if (modeChanged || tabs.isEmpty() && pages().size > 1) buildTabs()
+        page = page.coerceIn(0, pages().size - 1)
         val shown = currentPage()
 
-        binding.dynGraph.dynamics = if (shown != null) {
+        binding.dynGraph.dynamics = if (compSelected) {
             dynamics.copy(comp = dynamics.comp.band(shown.graphBand))
         } else {
             dynamics
         }
-        binding.dynGraph.compSelected = compSelected
 
         val compColor = ContextCompat.getColor(this, R.color.eq_band_lf)
         val gateColor = ContextCompat.getColor(this, R.color.eq_band_hmf)
+        val color = if (compSelected) compColor else gateColor
 
-        if (compOnly) {
-            binding.compChip.text = if (dynamics.comp.mode == null) "DYNAMICS 1" else mode.title
+        binding.sectionChip.text = when {
+            reported == null -> if (compSelected) "DYNAMICS 1" else "DYNAMICS 2"
+            compSelected -> mode.title
+            else -> gateMode.title
         }
-        tint(binding.compChip, compSelected, compColor)
-        tint(binding.gateChip, !compSelected, gateColor)
+        tint(binding.sectionChip, true, color)
 
         val section = section(compSelected)
-        tint(binding.inButton, section.isIn == true, if (compSelected) compColor else gateColor)
+        tint(binding.inButton, section.isIn == true, color)
 
         binding.bandRow.visibility = if (tabs.isNotEmpty()) View.VISIBLE else View.GONE
-        tabs.forEachIndexed { index, tab -> tint(tab, index == page, compColor) }
-        val band = shown?.band
+        tabs.forEachIndexed { index, tab -> tint(tab, index == page, color) }
+        val band = shown.band
         binding.bandPower.visibility = if (band != null) View.VISIBLE else View.INVISIBLE
         if (band != null) {
-            tint(binding.bandPower, section.values["band_in_$band"] == 1.0, compColor)
+            tint(binding.bandPower, section.values["band_in_$band"] == 1.0, color)
         }
 
-        binding.modeLabel.text = if (compOnly) "" else modeText(section)
-        binding.modeLabel.visibility = if (binding.modeLabel.text.isEmpty()) View.GONE else View.VISIBLE
-
-        cellParams = shown?.params ?: if (compSelected) DynParam.band(1) else DynParam.gate
+        cellParams = shown.params
 
         cells.forEachIndexed { index, cell ->
             cell.root.visibility = if (index < cellParams.size) View.VISIBLE else View.INVISIBLE
@@ -389,27 +377,6 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
             value?.let { cell.dial.value = if (param.log) log2(it) else it }
             cell.value.text = param.format(value)
         }
-    }
-
-    /**
-     * Names the mode when it is anything but the plain one the dials are
-     * drawn for. The names follow the order the console's own parameter
-     * names list them in (comp-multiband-desser, gate-duck-comp). The
-     * compressor's are confirmed (channel 43, 2026-10-24: 1 multiband, 2
-     * de-esser); the gate slot's are not yet.
-     */
-    private fun modeText(section: DynSection): String {
-        val mode = section.mode ?: return ""
-        if (mode == 0) return ""
-
-        val name = if (compSelected) {
-            when (mode) { 1 -> "multiband"; 2 -> "de-esser"; else -> "mode $mode" }
-        } else {
-            when (mode) { 1 -> "duck"; 2 -> "compressor"; else -> "mode $mode" }
-        }
-
-        return "Console is running this section as $name - its first-band " +
-            "settings are shown. Change the mode on the desk."
     }
 
     private fun tint(button: MaterialButton, lit: Boolean, litColor: Int) {

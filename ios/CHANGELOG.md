@@ -9,6 +9,18 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.11.0
+
+- **Dynamics 2 shows its mode.** Opened from a strip's GATE button, the
+  Dynamics screen now shows Dynamics 2 alone, headed GATE, DUCKER or
+  COMPRESSOR, whichever the console is running, and switches over when the
+  mode is changed on the console.
+- **Mode controls.** Gate and ducker: threshold, range, attack, hold and
+  release. Compressor: threshold, ratio, attack, release and gain.
+- **Curves follow the mode.** The graph and the strip's GATE button draw
+  a ducker pulling the level down above its threshold, and a compressor
+  bending it over.
+
 ## 1.10.0
 
 - **Presets are private.** A preset you save is yours alone until you

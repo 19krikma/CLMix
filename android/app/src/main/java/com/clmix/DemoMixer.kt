@@ -141,6 +141,8 @@ object DemoMixer {
         var compMode: Int = 0,
         val comp: MutableMap<String, Double> = mutableMapOf(),
         var gateIn: Boolean = false,
+        // Dynamics 2's mode, gate-duck-comp's number (GateMode).
+        var gateMode: Int = 0,
         val gate: MutableMap<String, Double> = mutableMapOf()
     )
 
@@ -412,9 +414,33 @@ object DemoMixer {
                 "range" to 40.0,
                 "attack" to 0.0002,
                 "hold" to 0.05,
-                "release" to 0.15
+                "release" to 0.15,
+                "ratio" to 3.0,
+                "gain" to 0.0
             )
         )
+        // One of each of Dynamics 2's other modes, with the timings the
+        // desk switches to (captured on channel 22, 2026-10-25).
+        strip.gateMode = when (name) {
+            "Playback" -> 1
+            "Bass Amp" -> 2
+            else -> 0
+        }
+        when (strip.gateMode) {
+            1 -> {
+                strip.gateIn = true
+                strip.gate.putAll(
+                    mapOf("thresh" to -30.0, "range" to 15.0, "attack" to 0.005,
+                        "hold" to 0.08, "release" to 0.4)
+                )
+            }
+            2 -> {
+                strip.gateIn = true
+                strip.gate.putAll(
+                    mapOf("thresh" to -20.0, "attack" to 0.01, "release" to 0.5)
+                )
+            }
+        }
     }
 
     private fun copyOf(mix: Map<Int, Send>?): Map<Int, Send> =
@@ -740,7 +766,7 @@ object DemoMixer {
                 .put("type", "dynamics")
                 .put("channel", channel)
                 .put("comp", section(strip.compIn, strip.comp, strip.compMode).put("knee", 0))
-                .put("gate", section(strip.gateIn, strip.gate))
+                .put("gate", section(strip.gateIn, strip.gate, strip.gateMode).put("knee", 0))
         )
     }
 
@@ -1003,6 +1029,8 @@ object DemoMixer {
                                 .put(strip.comp["gain"])
                                 .put(if (strip.gateIn) 1 else 0)
                                 .put(strip.gate["thresh"]).put(strip.gate["range"])
+                                .put(strip.gateMode)
+                                .put(strip.gate["ratio"]).put(strip.gate["gain"])
                         )
                 )
             }

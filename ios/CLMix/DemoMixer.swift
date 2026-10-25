@@ -360,6 +360,19 @@ final class DemoMixer: MixerBackend {
             comp["band_in_\(band)"] = mode == 2 && band < 3 ? 0 : 1
         }
 
+        // One of each of Dynamics 2's other modes, with the timings the
+        // console switches to (captured on channel 22, 2026-10-25).
+        let gateMode = name == "Playback" ? 1 : name == "Bass Amp" ? 2 : 0
+        var gate: [String: Double] = [
+            "thresh": drum ? -32 : -50, "range": 40, "attack": 0.0002,
+            "hold": 0.05, "release": 0.15, "ratio": 3, "gain": 0,
+        ]
+        if gateMode == 1 {
+            gate.merge(["thresh": -30, "range": 15, "attack": 0.005, "hold": 0.08, "release": 0.4]) { $1 }
+        } else if gateMode == 2 {
+            gate.merge(["thresh": -20, "attack": 0.01, "release": 0.5]) { $1 }
+        }
+
         return ChannelDynamics(
             channel: entry.channel,
             comp: DynSection(
@@ -367,12 +380,7 @@ final class DemoMixer: MixerBackend {
                 values: comp,
                 mode: mode, knee: 0
             ),
-            gate: DynSection(
-                isIn: drum,
-                values: ["thresh": drum ? -32 : -50, "range": 40, "attack": 0.0002,
-                         "hold": 0.05, "release": 0.15],
-                mode: 0
-            )
+            gate: DynSection(isIn: drum || gateMode != 0, values: gate, mode: gateMode, knee: 0)
         )
     }
 

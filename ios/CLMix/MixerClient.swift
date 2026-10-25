@@ -773,14 +773,16 @@ extension MixerClient {
 
     /// A strip's dynamics from RemoteServer._dyn_summary's positional row:
     /// [comp_in, comp_thresh, comp_ratio, comp_gain, gate_in, gate_thresh,
-    /// gate_range]. Nil for a row too short to be one.
+    /// gate_range, gate_mode, gate_ratio, gate_gain]. The last three came
+    /// with desktop 1.22.0; an older server's seven-long row reads as a
+    /// plain gate. Nil for a row too short to be one.
     static func parseDynSummary(channel: Int, _ row: [Any]) -> ChannelDynamics? {
         guard row.count >= 7 else { return nil }
 
         func flag(_ i: Int) -> Bool? { (row[i] as? Int).map { $0 != 0 } }
         func values(_ pairs: [(String, Int)]) -> [String: Double] {
             var result: [String: Double] = [:]
-            for (key, i) in pairs {
+            for (key, i) in pairs where i < row.count {
                 if let value = row[i] as? Double { result[key] = value }
             }
             return result
@@ -789,7 +791,11 @@ extension MixerClient {
         return ChannelDynamics(
             channel: channel,
             comp: DynSection(isIn: flag(0), values: values([("thresh", 1), ("ratio", 2), ("gain", 3)])),
-            gate: DynSection(isIn: flag(4), values: values([("thresh", 5), ("range", 6)]))
+            gate: DynSection(
+                isIn: flag(4),
+                values: values([("thresh", 5), ("range", 6), ("ratio", 8), ("gain", 9)]),
+                mode: row.count > 7 ? (row[7] as? NSNumber)?.intValue : nil
+            )
         )
     }
 

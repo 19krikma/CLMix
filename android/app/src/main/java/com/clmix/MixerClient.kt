@@ -918,7 +918,9 @@ object MixerClient {
     /**
      * A strip's dynamics from RemoteServer._dyn_summary's positional row:
      * [comp_in, comp_thresh, comp_ratio, comp_gain, gate_in, gate_thresh,
-     * gate_range]. Null for a row too short to be one.
+     * gate_range, gate_mode, gate_ratio, gate_gain]. The last three came
+     * with desktop 1.22.0; an older server's seven-long row reads as a
+     * plain gate. Null for a row too short to be one.
      */
     private fun parseDynSummary(channel: Int, row: JSONArray): ChannelDynamics? {
         if (row.length() < 7) return null
@@ -930,7 +932,11 @@ object MixerClient {
         return ChannelDynamics(
             channel = channel,
             comp = DynSection(flag(0), values("thresh" to 1, "ratio" to 2, "gain" to 3)),
-            gate = DynSection(flag(4), values("thresh" to 5, "range" to 6))
+            gate = DynSection(
+                flag(4),
+                values("thresh" to 5, "range" to 6, "ratio" to 8, "gain" to 9),
+                mode = row.optDoubleOrNull(7)?.toInt()
+            )
         )
     }
 

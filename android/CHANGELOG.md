@@ -3,6 +3,20 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.15.0
+
+Needs desktop 1.22.0 or later for the compressor's ratio and gain.
+
+- **Dynamics 2 shows its mode.** Opened from a strip's GATE button, the
+  Dynamics screen now shows Dynamics 2 alone, headed GATE, DUCKER or
+  COMPRESSOR, whichever the desk is running, and switches over when the
+  mode is changed on the desk.
+- **Mode controls.** Gate and ducker: threshold, range, attack, hold and
+  release. Compressor: threshold, ratio, attack, release and gain.
+- **Curves follow the mode.** The graph and the strip's GATE button draw
+  a ducker pulling the level down above its threshold, and a compressor
+  bending it over.
+
 ## 2.14.0
 
 Needs desktop 1.21.0 or later for private and shared presets.

@@ -72,9 +72,16 @@ EQ_RANGES = {
 # runs band 3 with bands 1 and 2 switched out, plus a centre frequency and
 # width the desk sends as 0-255 steps of a scale not yet mapped to Hz.
 #
-# Deliberately absent: the knee, the mode itself and the gate slot's
-# gate/duck/comp mode are reported but never written - changing the mode
-# is left to the desk.
+# Dynamics 2 - the gate slot - is gate, duck or compressor by
+# gate-duck-comp: 0 gate, 1 duck, 2 compressor (captured on channel 22,
+# 2026-10-25). Gate and duck both use the gate's thresh, range, attack,
+# hold and release. The compressor keeps the gate's thresh, attack and
+# release and adds the fourth compressor instance's ratio and gain
+# (comp_ratio_4, comp_gain_4): the official app's parameter table files
+# those, with comp_knee_4, under the same instance as the gate leaves.
+#
+# Deliberately absent: the knees and both modes are reported but never
+# written - changing the mode is left to the desk.
 DYN_PARAMS = {
     "comp_thresh": ("comp_thresh_1", (-60.0, 0.0)),
     "comp_ratio": ("comp_ratio_1", (1.0, 50.0)),
@@ -103,6 +110,8 @@ DYN_PARAMS = {
     "gate_attack": ("gate_attack", (0.00005, 0.1)),
     "gate_hold": ("gate_hold", (0.002, 2.0)),
     "gate_release": ("gate_release", (0.005, 10.0)),
+    "gate_ratio": ("comp_ratio_4", (1.0, 50.0)),
+    "gate_gain": ("comp_gain_4", (0.0, 40.0)),
 }
 
 # Multiband's per-band switches, written as flags like comp_in - see
@@ -112,10 +121,13 @@ DYN_BAND_FLAGS = ("comp_band_in_1", "comp_band_in_2", "comp_band_in_3")
 # The dynamics a strip's COMP and GATE thumbnails draw, in the order
 # _dyn_summary sends them: each section in or out, and the settings that
 # shape its static curve. Attack, release and hold shape time rather
-# than level, so a thumbnail has no use for them.
+# than level, so a thumbnail has no use for them. Dynamics 2's mode and
+# compressor ratio and gain come last, so an app that reads only the
+# first seven still works.
 DYN_SUMMARY_LEAVES = (
     "comp_in", "comp_thresh_1", "comp_ratio_1", "comp_gain_1",
     "gate_in", "gate_thresh", "gate_range",
+    "gate-duck-comp", "comp_ratio_4", "comp_gain_4",
 )
 
 # Meters get their own, faster loop. The console streams them at ~29Hz
@@ -1747,7 +1759,8 @@ class RemoteServer:
         prefix = f"/Input_Channels/{channel}/Dynamics"
 
         for leaf in ("comp_in", "gate_in", "comp-multiband-desser",
-                     "gate-duck-comp", "comp_knee_1", *DYN_BAND_FLAGS):
+                     "gate-duck-comp", "comp_knee_1", "comp_knee_4",
+                     *DYN_BAND_FLAGS):
             self.command_queue.put(f"{prefix}/{leaf}/?")
 
         for leaf, _ in DYN_PARAMS.values():
@@ -2425,9 +2438,11 @@ class RemoteServer:
         levels frame:
 
             [comp_in, comp_thresh, comp_ratio, comp_gain,
-             gate_in, gate_thresh, gate_range]
+             gate_in, gate_thresh, gate_range,
+             gate_mode, gate_ratio, gate_gain]
 
-        Flags are 0/1, and anything unreported is null.
+        gate_mode is gate-duck-comp (0 gate, 1 duck, 2 compressor). Flags
+        are 0/1, and anything unreported is null.
         """
         prefix = f"/Input_Channels/{channel}/Dynamics"
         row = []
@@ -2477,6 +2492,7 @@ class RemoteServer:
 
         gate = section("gate")
         gate["mode"] = enum("gate-duck-comp")
+        gate["knee"] = enum("comp_knee_4")
 
         return {"channel": channel, "comp": comp, "gate": gate}
 

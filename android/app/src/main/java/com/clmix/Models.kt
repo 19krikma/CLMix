@@ -161,11 +161,10 @@ val EQ_Q_RANGE = 0.1..20.0
  * the Dynamics screen shows it. Values are keyed by the server's names
  * (DynParam.key); a value the console has not reported is absent.
  *
- * mode is the console's own enum for what the section is running (the
- * compressor: single-band, multiband or de-esser; the gate slot: gate,
- * duck or compressor) and knee the compressor's knee. Neither has ever
- * been seen to mean anything particular on a desk, so they are shown,
- * never written.
+ * mode is the console's own enum for what the section is running
+ * (Dynamics 1: DynMode; Dynamics 2, the gate slot: GateMode) and knee the
+ * compressor's knee. Both are shown, never written - the mode is changed
+ * on the desk.
  */
 data class DynSection(
     val isIn: Boolean? = null,
@@ -187,11 +186,19 @@ data class ChannelDynamics(
  * it. Shared by the Dynamics screen's graph and the strip thumbnails.
  */
 object DynResponse {
-    /** The gate: pulled down by its range below its threshold. */
+    /** Dynamics 2, by its mode (GateMode): a gate pulls the level down
+     *  by its range below its threshold, a ducker by its range above it
+     *  (drawn as if keyed from the channel itself), and a compressor is
+     *  the compressor's curve. */
     fun gate(section: DynSection, input: Double): Double {
+        if (GateMode.of(section.mode) == GateMode.COMPRESSOR) return comp(section, input)
+
         val thresh = section.values["thresh"]
-        if (section.isIn != true || thresh == null || input >= thresh) return input
-        return input - (section.values["range"] ?: 0.0)
+        if (section.isIn != true || thresh == null) return input
+
+        val duck = GateMode.of(section.mode) == GateMode.DUCK
+        val acts = if (duck) input >= thresh else input < thresh
+        return if (acts) input - (section.values["range"] ?: 0.0) else input
     }
 
     /** The compressor: bent over by its ratio above its threshold, then
@@ -204,10 +211,6 @@ object DynResponse {
         val compressed = if (input > thresh) thresh + (input - thresh) / ratio else input
         return compressed + (section.values["gain"] ?: 0.0)
     }
-
-    /** Both, in the console's order: gate first. */
-    fun both(dynamics: ChannelDynamics, input: Double): Double =
-        comp(dynamics.comp, gate(dynamics.gate, input))
 }
 
 /** How a dynamics dial's value reads. */
@@ -258,7 +261,10 @@ enum class DynParam(
     GATE_RANGE("range", "Range", 0.0..90.0, false, 0.8, false, DynKind.DB),
     GATE_ATTACK("attack", "Attack", 0.00005..0.1, true, 0.25, false, DynKind.TIME),
     GATE_HOLD("hold", "Hold", 0.002..2.0, true, 0.25, false, DynKind.TIME),
-    GATE_RELEASE("release", "Release", 0.005..10.0, true, 0.25, false, DynKind.TIME);
+    GATE_RELEASE("release", "Release", 0.005..10.0, true, 0.25, false, DynKind.TIME),
+    // Dynamics 2 as a compressor: the desk's comp_ratio_4 and comp_gain_4.
+    GATE_RATIO("ratio", "Ratio", 1.0..50.0, true, 0.2, false, DynKind.RATIO),
+    GATE_GAIN("gain", "Gain", 0.0..40.0, false, 0.6, false, DynKind.DB);
 
     /** The set_dyn param name: comp_thresh, comp_ratio_2, gate_hold and so on. */
     val wireName: String get() = (if (isComp) "comp_" else "gate_") + key
@@ -335,6 +341,36 @@ enum class DynMode(val wire: Int, val title: String) {
 
     companion object {
         fun of(wire: Int?): DynMode? = values().firstOrNull { it.wire == wire }
+    }
+}
+
+/**
+ * Dynamics 2's mode, the console's gate-duck-comp (captured on channel 22,
+ * 2026-10-25). Gate and ducker share the gate's five settings; the
+ * compressor swaps range and hold for a ratio and makeup gain.
+ */
+enum class GateMode(val wire: Int, val title: String, val handle: String) {
+    GATE(0, "GATE", "G"),
+    DUCK(1, "DUCKER", "D"),
+    COMPRESSOR(2, "COMPRESSOR", "C");
+
+    val pages: List<DynMode.Page>
+        get() = listOf(
+            DynMode.Page(
+                null,
+                if (this == COMPRESSOR) {
+                    listOf(DynParam.GATE_THRESH, DynParam.GATE_RATIO, DynParam.GATE_ATTACK,
+                        DynParam.GATE_RELEASE, DynParam.GATE_GAIN)
+                } else {
+                    listOf(DynParam.GATE_THRESH, DynParam.GATE_RANGE, DynParam.GATE_ATTACK,
+                        DynParam.GATE_HOLD, DynParam.GATE_RELEASE)
+                },
+                null, 1
+            )
+        )
+
+    companion object {
+        fun of(wire: Int?): GateMode? = values().firstOrNull { it.wire == wire }
     }
 }
 
