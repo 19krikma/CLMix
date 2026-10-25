@@ -690,6 +690,16 @@ ignoring head-amp values it asked for itself, and treats `0.0` straight
 after `2.0` as the main route going. A route patched before CLMix
 connected cannot be seen, so it reads as absent until patched again.
 
+**Switching Main/ALT sends the same shapes** (2026-10-23): the alt
+values and `input_type` going to ALT, `input_type` alone coming back to
+Main. 1.19.1 read the way back as the route being removed and greyed out
+the ALT button after a Main -> ALT -> Main round trip. The worker now
+takes a bare `input_type` as the route going only when the channel was
+on Main and `main/alt_in` did not just change (from the desk, or from a
+phone setting it, within 0.5 s) - the echo can land on either side of
+`input_type`, so both are checked. A route removed while the channel is
+on ALT therefore still reads as present.
+
 The Main/ALT switch itself is `main/alt_in`, cached and asked for like
 any other parameter. That the desk sends it when the switch is pressed
 on the surface is not yet captured (the 2026-09-17 patching capture did

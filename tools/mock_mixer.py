@@ -1006,6 +1006,22 @@ class MockMixer:
         # rather than assuming its own command succeeded.
         self.send(address, [value])
 
+        if address.endswith("/Channel_Input/main/alt_in"):
+            self.announce_alt_switch(address, value)
+
+    def announce_alt_switch(self, address, value):
+        """Main/ALT switched, followed by the burst the Q225 sends for it
+        (2026-10-23): the alt values and input_type going to ALT,
+        input_type alone coming back to Main - the same shapes as an ALT
+        route being set and removed (patch_alt), which is what a client
+        has to tell apart."""
+        prefix = address[:-len("/main/alt_in")]
+        if value:
+            for leaf in ("alt_analog_gain", "alt_phantom"):
+                self.send(f"{prefix}/{leaf}",
+                          self.params.get(f"{prefix}/{leaf}", [0.0]))
+        self.send(f"{prefix}/input_type", self.params[f"{prefix}/input_type"])
+
     def patch_alt(self, channel, patched):
         """An ALT route patched or removed at the surface, told the way
         the Q225 tells it (captured on channel 18, 2026-10-23/24): patched

@@ -127,6 +127,13 @@ RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
 #   ALT route set      alt_analog_gain, alt_phantom, input_type
 #   ALT route removed  input_type alone
 #
+# Switching Main/ALT sends the very same shapes - the alt values and
+# input_type going to ALT, input_type alone coming back to Main - so a
+# bare input_type is only taken as the route going when the channel was
+# on Main and was not just switched (main/alt_in changing, or a phone
+# setting it, within BURST_SECONDS). Coming back from ALT is not a
+# route going.
+#
 # The main slot does the same with its own values (analog_gain, phantom,
 # input_type 2.0 when patched, input_type 0.0 alone when removed - see
 # PROTOCOL.md). So an input_type that follows the channel's alt values
@@ -141,6 +148,9 @@ RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
 # having none. Which slot is live is a separate thing, main/alt_in.
 INPUT_TYPE_PATTERN = re.compile(
     r"^/Input_Channels/(\d+)/Channel_Input/input_type$"
+)
+ALT_IN_PATTERN = re.compile(
+    r"^/Input_Channels/(\d+)/Channel_Input/main/alt_in$"
 )
 HEAD_AMP_PATTERN = re.compile(
     r"^/Input_Channels/(\d+)/Channel_Input/(alt_)?(?:analog_gain|phantom)$"
@@ -416,6 +426,8 @@ class MixerWorker(threading.Thread):
         self._burst_at = {}
         self._queries_pending = {}
         self._input_type = {}
+        self._alt_in = {}
+        self._switched_at = {}
 
         # slot number -> (channel index, leg), mirroring whatever the UI
         # last subscribed via subscribe_meters(). /Meters/values reports
@@ -669,6 +681,19 @@ class MixerWorker(threading.Thread):
                 self._burst_at[(head_amp.group(1), slot)] = time.monotonic()
             return
 
+        alt_in = ALT_IN_PATTERN.match(address)
+        if alt_in:
+            channel = alt_in.group(1)
+            try:
+                value = float(args[0])
+            except (IndexError, TypeError, ValueError):
+                return
+            previous = self._alt_in.get(channel)
+            if previous is not None and previous != value:
+                self._switched_at[channel] = time.monotonic()
+            self._alt_in[channel] = value
+            return
+
         input_changed = INPUT_TYPE_PATTERN.match(address)
         if not input_changed:
             return
@@ -690,6 +715,11 @@ class MixerWorker(threading.Thread):
                 input_type == 0.0 and previous != 0.0:
             # The main route coming or going, which says nothing about
             # the alt.
+            pass
+        elif now - self._switched_at.get(channel, -BURST_SECONDS - 1) \
+                <= BURST_SECONDS or self._alt_in.get(channel) == 1.0:
+            # Main/ALT switched, not the route removed. The echo of
+            # main/alt_in can land either side of input_type, hence both.
             pass
         else:
             self.alt_routed.discard(channel)
@@ -1300,6 +1330,12 @@ class MixerWorker(threading.Thread):
             key = address[:-2]
             count, _ = self._queries_pending.get(key, (0, 0.0))
             self._queries_pending[key] = (count + 1, time.monotonic())
+
+        # A switch of our own (a phone's), so the burst it sets off is
+        # not read as the route going - see _track_alt_route.
+        switch = ALT_IN_PATTERN.match(address)
+        if switch:
+            self._switched_at[switch.group(1)] = time.monotonic()
 
         builder = OscMessageBuilder(address=address)
 
