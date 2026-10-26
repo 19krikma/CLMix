@@ -729,6 +729,10 @@ class MockMixer:
         while True:
             try:
                 data, _ = self.sock.recvfrom(65535)
+            except ConnectionResetError:
+                # Windows: a reply sent while CLMix was closed bounced.
+                # Harmless - keep serving so CLMix can reconnect.
+                continue
             except socket.timeout:
                 self.tick_meters()
                 self.maybe_recall_snapshot()

@@ -520,6 +520,11 @@ class DigicoAppBridge:
                 data, sender = self._listen_sock.recvfrom(65535)
             except socket.timeout:
                 continue
+            except ConnectionResetError:
+                # Windows reports an earlier send to an app that has gone
+                # away (ICMP port unreachable) as an error on the next
+                # read. The socket is still fine, so keep relaying.
+                continue
             except OSError:
                 # Socket closed under us by stop().
                 break

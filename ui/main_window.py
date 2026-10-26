@@ -2064,10 +2064,10 @@ class AuxLevelsPanel:
     # of the gradient including the red top.
     METER_PEAK_COLOR = "#e6edf3"
 
-    # The bar is built from fixed slices whose fill is toggled lit/unlit,
-    # rather than redrawn each frame: only the few slices the level
-    # actually crossed get touched, which is what makes a 30fps refresh
-    # across a full bank affordable in Tk.
+    # The bar is built from fixed slices toggled lit/unlit rather than
+    # redrawn each frame: only the few slices the level actually crossed
+    # get touched, which is what makes a 30fps refresh across a full bank
+    # affordable in Tk. Each leg is one image - see _build_meter_slices.
     METER_SLICE_H = 2
 
     # Ballistics, in the classic attack/release shape of a hardware
@@ -2172,7 +2172,7 @@ class AuxLevelsPanel:
         self.level_rulers = {}
         self.channel_meters = {}
         self.channel_legs = {}
-        self.meter_slices = {}
+        self.meter_images = {}
         self.meter_leg_spans = {}
         self.meter_peak_items = {}
         self.meter_peak_drawn = {}
@@ -2206,6 +2206,10 @@ class AuxLevelsPanel:
         # Last worker.snapshot_epoch this panel has re-queried for.
         self._snapshot_epoch_seen = 0
         self.meter_ticked_at = time.monotonic()
+        # Set by MainWindow while a page slides or covers the mixer: the
+        # meters are out of sight then, and redrawing them 30 times a
+        # second only takes frames away from the slide.
+        self.meters_paused = False
 
         self.build_ui()
 
@@ -2385,8 +2389,8 @@ class AuxLevelsPanel:
 
             meter = self.channel_meters.get(channel)
             if meter is not None:
-                # Only the canvas backing needs recolouring - the slices
-                # carry their own gradient, which is theme-independent.
+                # Only the canvas backing needs recolouring - the bar
+                # images carry their own gradient, which is theme-independent.
                 meter.configure(bg=column_bg)
 
             track_color = self._track_color(column_bg)
@@ -2524,7 +2528,7 @@ class AuxLevelsPanel:
         self.level_rulers = {}
         self.channel_meters = {}
         self.channel_legs = {}
-        self.meter_slices = {}
+        self.meter_images = {}
         self.meter_leg_spans = {}
         self.meter_peak_items = {}
         self.meter_peak_drawn = {}
@@ -2656,7 +2660,7 @@ class AuxLevelsPanel:
         self.level_rulers = {}
         self.channel_meters = {}
         self.channel_legs = {}
-        self.meter_slices = {}
+        self.meter_images = {}
         self.meter_leg_spans = {}
         self.meter_peak_items = {}
         self.meter_peak_drawn = {}
@@ -2976,25 +2980,59 @@ class AuxLevelsPanel:
             for index, leg in enumerate(legs)
         }
 
+    def _meter_strip_images(self, width, count):
+        """(lit, dim) PhotoImages of a whole bar, every slice lit or dim.
+
+        Built once per bar size and shared by every leg of that size; a
+        leg's own image is then patched from these a few rows at a time.
+        """
+        cache = self.__dict__.setdefault("_meter_strips", {})
+        key = (width, count)
+
+        if key not in cache:
+            lit, dim = self._meter_palette(count)
+            images = []
+
+            for colors in (lit, dim):
+                image = tk.PhotoImage(
+                    master=self.master, width=width,
+                    height=count * self.METER_SLICE_H
+                )
+                # Top row first, so the loudest slice comes first.
+                rows = []
+                for index in reversed(range(count)):
+                    row = "{" + " ".join([colors[index]] * width) + "}"
+                    rows.extend([row] * self.METER_SLICE_H)
+                image.put(" ".join(rows))
+                images.append(image)
+
+            cache[key] = tuple(images)
+
+        return cache[key]
+
     def _build_meter_slices(self, channel, meter, legs):
-        # Created once per strip, one bar per leg. refresh_meters() then
-        # only recolours the slices the level actually crossed.
+        # One image per leg rather than a canvas rectangle per slice.
+        # refresh_meters() copies in just the rows the level crossed from
+        # the shared lit/dim strips: one Tk call per change, and a canvas
+        # with two items instead of hundreds for Tk to scan on every
+        # redraw - which, across a full bank at 30fps, was over half of
+        # each frame.
         count = self.level_length // self.METER_SLICE_H
-        _lit, dim = self._meter_palette(count)
         spans = self._meter_leg_spans(legs)
+        top = self.level_length - count * self.METER_SLICE_H
 
         for leg in legs:
             x0, x1 = spans[leg]
-            slices = []
+            width = x1 - x0
+            _lit, dim = self._meter_strip_images(width, count)
+            image = tk.PhotoImage(
+                master=self.master, width=width,
+                height=count * self.METER_SLICE_H
+            )
+            image.tk.call(image, "copy", dim)
+            meter.create_image(x0, top, image=image, anchor="nw")
 
-            for index in range(count):
-                bottom = self.level_length - index * self.METER_SLICE_H
-                slices.append(meter.create_rectangle(
-                    x0, bottom - self.METER_SLICE_H, x1, bottom,
-                    fill=dim[index], outline=""
-                ))
-
-            self.meter_slices[(channel, leg)] = slices
+            self.meter_images[(channel, leg)] = (image, count, width)
             self.meter_leg_spans[(channel, leg)] = (x0, x1)
             self.meter_lit[(channel, leg)] = 0
             self.meter_peak_items[(channel, leg)] = meter.create_line(
@@ -3005,26 +3043,27 @@ class AuxLevelsPanel:
 
     def _apply_meter(self, channel, leg, level_db, peak_db):
         meter = self.channel_meters.get(channel)
-        slices = self.meter_slices.get((channel, leg))
+        bar = self.meter_images.get((channel, leg))
 
-        if meter is None or not slices:
+        if meter is None or bar is None:
             return
 
-        count = len(slices)
-        lit_colors, dim_colors = self._meter_palette(count)
+        image, count, width = bar
         lit = round(self._meter_fraction(level_db) * count)
         previous = self.meter_lit.get((channel, leg), 0)
 
         if lit != previous:
-            # Only the crossed band changes state, so a bar that moved two
-            # pixels costs two itemconfig calls rather than a full repaint.
+            # Only the crossed band changes: copy those rows in from the
+            # lit strip on the way up, or the dim one on the way down.
             low, high = min(lit, previous), max(lit, previous)
-
-            for index in range(low, high):
-                meter.itemconfig(
-                    slices[index],
-                    fill=lit_colors[index] if index < lit else dim_colors[index]
-                )
+            lit_strip, dim_strip = self._meter_strip_images(width, count)
+            height = count * self.METER_SLICE_H
+            y0 = height - high * self.METER_SLICE_H
+            y1 = height - low * self.METER_SLICE_H
+            image.tk.call(
+                image, "copy", lit_strip if lit > previous else dim_strip,
+                "-from", 0, y0, width, y1, "-to", 0, y0
+            )
 
             self.meter_lit[(channel, leg)] = lit
 
@@ -3059,7 +3098,7 @@ class AuxLevelsPanel:
         elapsed = min(0.25, now - self.meter_ticked_at)
         self.meter_ticked_at = now
 
-        if self.worker is not None:
+        if self.worker is not None and not self.meters_paused:
             levels = self.worker.meter_levels
             seqs = self.worker.meter_seq
             rise_decay = math.exp(-elapsed / self.METER_RISE_TAU_SECONDS)
@@ -4419,14 +4458,11 @@ class MainWindow:
         page's own layout is never redone mid-slide, only moved.
         """
         self.tab_gap.place_forget()
-        started = time.monotonic()
+        self.aux_panel.meters_paused = True
+        frame_seconds = self.SLIDE_MS / self.SLIDE_STEPS / 1000
 
-        def step():
-            t = min(1.0, (time.monotonic() - started) * 1000 / self.SLIDE_MS)
-            eased = 1 - (1 - t) ** 3
-            # 1 means the page fully on screen.
-            shown = eased if opening else 1 - eased
-
+        def place_at(shown):
+            # shown: 1 means the page fully on screen.
             width = self.page_host.master.winfo_width()
             self.page_host.place(
                 x=-round(width * (1 - shown)), y=0, relwidth=1, relheight=1
@@ -4435,10 +4471,28 @@ class MainWindow:
             if sidebar:
                 self._place_sidebar_panels(shown)
 
+        # Lay everything out at the starting position before the clock
+        # starts. A freshly built page's first layout takes several
+        # frames' worth of time, and counted against the slide it made
+        # the page jump a third of the way in on its first frame.
+        place_at(0.0 if opening else 1.0)
+        self.root.update_idletasks()
+        started = time.monotonic()
+
+        def step():
+            frame_started = time.monotonic()
+            t = min(1.0, (frame_started - started) * 1000 / self.SLIDE_MS)
+            eased = 1 - (1 - t) ** 3
+            place_at(eased if opening else 1 - eased)
+            # Draw this frame now, so the time it took is known and the
+            # next one can be scheduled on a steady beat rather than a
+            # fixed gap after however long this one ran.
+            self.root.update_idletasks()
+
             if t < 1.0:
-                self._slide_job = self.root.after(
-                    self.SLIDE_MS // self.SLIDE_STEPS, step
-                )
+                spent = time.monotonic() - frame_started
+                delay = max(1, round((frame_seconds - spent) * 1000))
+                self._slide_job = self.root.after(delay, step)
                 return
 
             self._slide_job = None
@@ -4450,6 +4504,9 @@ class MainWindow:
 
             if on_done is not None:
                 on_done()
+
+            # Back on the mixer: let its meters run again.
+            self.aux_panel.meters_paused = self._page is not None
 
         step()
 
