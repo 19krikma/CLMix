@@ -3,6 +3,13 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.15.1
+
+- **Available on more devices.** The landscape-only EQ and Dynamics
+  screens had made Google Play hide the app from devices that can't
+  turn sideways. Landscape is now optional, so those devices get the
+  app and its updates again.
+
 ## 2.15.0
 
 Needs desktop 1.22.0 or later for the compressor's ratio and gain.

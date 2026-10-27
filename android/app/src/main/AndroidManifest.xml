@@ -7,6 +7,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- The EQ and Dynamics screens lock to landscape, which makes Play
+         treat landscape as required and drop portrait-only devices.
+         Those screens still open on such devices, just upright. -->
+    <uses-feature
+        android:name="android.hardware.screen.landscape"
+        android:required="false" />
+
     <application
         android:name=".CLMixApplication"
         android:allowBackup="true"
