@@ -23,7 +23,8 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidReceiveCustomBanks(banks: [CustomBank], channels: [BankChannel])
     func mixerDidReceivePresets(_ presets: [Preset])
     /// The accounts this one can share a preset with.
-    func mixerDidReceiveShareTargets(_ users: [String])
+    /// `names` maps username to "First Last"; missing where unset.
+    func mixerDidReceiveShareTargets(_ users: [String], names: [String: String])
     func mixerDidSavePreset(_ name: String)
     func mixerDidLoadPreset(_ name: String)
     /// The open EQ screen's channel, on the levels cadence, for as long
@@ -470,7 +471,9 @@ final class MixerClient: NSObject, MixerBackend {
     }
 
     func requestPresets() {
-        send(["action": "list_presets"])
+        // any_aux: every preset this account can see, not just this
+        // aux's - the Load sheet asks before loading across auxes.
+        send(["action": "list_presets", "any_aux": true])
     }
 
     func savePreset(name: String) {
@@ -481,9 +484,10 @@ final class MixerClient: NSObject, MixerBackend {
     // owners, which never did.
     func loadPreset(_ preset: Preset) {
         if preset.serverID.isEmpty {
-            send(["action": "load_preset", "name": preset.name])
+            send(["action": "load_preset", "name": preset.name, "any_aux": true])
         } else {
-            send(["action": "load_preset", "id": preset.serverID])
+            // any_aux: already confirmed by the user when the aux differs.
+            send(["action": "load_preset", "id": preset.serverID, "any_aux": true])
         }
     }
 
@@ -525,7 +529,9 @@ final class MixerClient: NSObject, MixerBackend {
                 sharedWithMe: item["shared_with_me"] as? Bool ?? false,
                 sharedWith: item["shared_with"] as? [String] ?? [],
                 aux: item["aux"] as? Int,
-                auxName: item["aux_name"] as? String
+                auxName: item["aux_name"] as? String,
+                ownerName: item["owner_name"] as? String,
+                sharedWithNames: item["shared_with_names"] as? [String] ?? []
             )
         }
     }
@@ -713,7 +719,10 @@ final class MixerClient: NSObject, MixerBackend {
                 delegate?.mixerDidReceivePresets(Self.parsePresets(json))
 
             case "share_targets":
-                delegate?.mixerDidReceiveShareTargets(json["users"] as? [String] ?? [])
+                delegate?.mixerDidReceiveShareTargets(
+                    json["users"] as? [String] ?? [],
+                    names: json["names"] as? [String: String] ?? [:]
+                )
 
             case "preset_saved":
                 if let name = json["name"] as? String {

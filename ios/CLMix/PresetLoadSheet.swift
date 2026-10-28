@@ -6,7 +6,9 @@ import SwiftUI
 /// Load to confirm - unlike the aux list this doesn't apply on tap
 /// alone, since loading a preset overwrites every channel's current
 /// level+pan on the active aux. Each row says whose preset it is and who
-/// can see it; the account's own carry a button into PresetManageSheet.
+/// can see it and which aux it was saved from; the account's own carry a
+/// button into PresetManageSheet. Presets from every aux are listed, this
+/// one's first, and loading one saved from another aux asks first.
 /// Mirrors Android's PresetLoadBottomSheet.
 struct PresetLoadSheet: View {
     @EnvironmentObject var model: AppModel
@@ -19,6 +21,7 @@ struct PresetLoadSheet: View {
         model.presets.first { $0.id == selectedID }
     }
     @State private var isLoading = false
+    @State private var crossAuxPreset: Preset?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -30,9 +33,8 @@ struct PresetLoadSheet: View {
             VStack(spacing: 4) {
                 Text("Load Preset")
                     .font(.system(size: 16, weight: .bold))
-                // The server only lists this aux's presets.
                 if let aux = model.currentAux {
-                    Text("For \(aux.name)")
+                    Text("Loads onto \(aux.name)")
                         .font(.system(size: 13))
                         .foregroundStyle(Color.clmixOnSurfaceVariant)
                 }
@@ -40,7 +42,7 @@ struct PresetLoadSheet: View {
 
             if model.presets.isEmpty {
                 Spacer()
-                Text("No presets for this aux yet")
+                Text("No presets yet")
                     .foregroundStyle(Color.clmixOnSurfaceVariant)
                 Spacer()
             } else {
@@ -60,10 +62,11 @@ struct PresetLoadSheet: View {
 
             Button {
                 guard let selected else { return }
-                isLoading = true
-                model.loadPreset(selected) {
-                    isLoading = false
-                    dismiss()
+                // nil aux: saved before auxes were recorded, fits any.
+                if let aux = selected.aux, aux != model.currentAux?.index {
+                    crossAuxPreset = selected
+                } else {
+                    load(selected)
                 }
             } label: {
                 Text(isLoading ? "Loading..." : "Load")
@@ -79,9 +82,32 @@ struct PresetLoadSheet: View {
             .padding(.bottom, 12)
         }
         .onAppear { model.requestPresets() }
+        .alert(
+            "Different aux",
+            isPresented: Binding(
+                get: { crossAuxPreset != nil },
+                set: { if !$0 { crossAuxPreset = nil } }
+            ),
+            presenting: crossAuxPreset
+        ) { preset in
+            Button("Cancel", role: .cancel) {}
+            Button("Load anyway") { load(preset) }
+        } message: { preset in
+            let here = model.currentAux?.name ?? "this aux"
+            let madeFor = preset.auxName ?? "Aux \(preset.aux ?? 0)"
+            Text("\"\(preset.name)\" was made for \(madeFor), not \(here). Load it onto \(here) anyway?")
+        }
         .sheet(item: $managing) { preset in
             PresetManageSheet(presetID: preset.id)
                 .presentationDetents([.medium, .large])
+        }
+    }
+
+    private func load(_ preset: Preset) {
+        isLoading = true
+        model.loadPreset(preset) {
+            isLoading = false
+            dismiss()
         }
     }
 

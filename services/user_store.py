@@ -116,8 +116,22 @@ class UserStore:
     def get(self, username):
         return self.users.get(username)
 
+    def display_name(self, username):
+        """What to call an account where people read it: "First Last" when
+        either name was filled in, the username otherwise. Both names are
+        optional - only the username identifies an account."""
+        record = self.users.get(username) or {}
+        full = " ".join(
+            part for part in (
+                (record.get("first_name") or "").strip(),
+                (record.get("last_name") or "").strip(),
+            ) if part
+        )
+        return full or username
+
     def save_user(self, username, password, snapshot, aux, presets=False,
-                  mute=True, mixer_control=False, personalization=False):
+                  mute=True, mixer_control=False, personalization=False,
+                  first_name="", last_name=""):
         with self._lock:
             record = dict(self.users.get(username, {}))
             salt = record.get("salt") or secrets.token_hex(16)
@@ -134,6 +148,8 @@ class UserStore:
             record["mute"] = mute
             record["mixer_control"] = mixer_control
             record["personalization"] = personalization
+            record["first_name"] = (first_name or "").strip()
+            record["last_name"] = (last_name or "").strip()
 
             # Copied forward rather than rewritten: revoking the
             # permission is not the same as discarding what the performer

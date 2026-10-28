@@ -834,7 +834,11 @@ object DemoMixer {
 
     /** The presets of the aux on screen, as the real server lists them. */
     private fun deliverPresets() {
-        val here = presets.filterValues { it.aux == selectedAux }.toSortedMap()
+        // Every aux's, this one's first - as the real server lists them
+        // for a phone that asks with any_aux.
+        val here = presets.entries
+            .sortedWith(compareBy({ it.value.aux != selectedAux }, { it.value.name.lowercase() }))
+            .associate { it.key to it.value }
         val items = JSONArray()
         for ((id, preset) in here) {
             items.put(

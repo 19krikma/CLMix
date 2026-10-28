@@ -734,11 +734,15 @@ final class DemoMixer: MixerBackend {
         console[channel]?.name = String(name.prefix(32))
     }
 
-    /// The presets of the aux on screen, as the real server lists them.
+    /// Every aux's presets, this one's first, as the real server lists
+    /// them for a phone that asks with any_aux.
     func requestPresets() {
         let list = presets
-            .filter { $0.value.aux == selectedAux }
-            .sorted { $0.key < $1.key }
+            .sorted {
+                let here0 = $0.value.aux == selectedAux, here1 = $1.value.aux == selectedAux
+                if here0 != here1 { return here0 }
+                return $0.value.name.lowercased() < $1.value.name.lowercased()
+            }
             .map { id, preset in
                 Preset(serverID: id, name: preset.name, owner: Self.demoOwner, mine: true,
                        isPublic: preset.isPublic, sharedWithMe: false,
@@ -765,7 +769,7 @@ final class DemoMixer: MixerBackend {
 
     func requestShareTargets(id: String) {
         let users = Self.demoAccounts
-        Task { @MainActor in self.delegate?.mixerDidReceiveShareTargets(users) }
+        Task { @MainActor in self.delegate?.mixerDidReceiveShareTargets(users, names: [:]) }
     }
 
     func savePreset(name: String) {
@@ -789,7 +793,8 @@ final class DemoMixer: MixerBackend {
         let id = preset.serverID.isEmpty
             ? Self.presetID(aux: selectedAux ?? 0, name: preset.name)
             : preset.serverID
-        guard let aux = selectedAux, let stored = presets[id], stored.aux == aux else {
+        // Any aux's: the Load sheet has already asked when it differs.
+        guard let aux = selectedAux, let stored = presets[id] else {
             Task { @MainActor in self.delegate?.mixerDidFail(message: "Preset not found") }
             return
         }

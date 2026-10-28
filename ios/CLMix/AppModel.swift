@@ -113,6 +113,8 @@ final class AppModel: NSObject, ObservableObject {
     /// Who the open manage sheet can share with - nil until the server
     /// answers.
     @Published var shareTargets: [String]?
+    /// Username to "First Last", for the share list's labels.
+    @Published var shareTargetNames: [String: String] = [:]
     @Published var discoveredServers: [DiscoveredServer] = []
     // True while the session is a local demo rather than a real console.
     // Drives the DEMO badge on the mixer screen, so there is never any
@@ -1110,7 +1112,8 @@ extension AppModel: MixerClientDelegate {
         self.presets = presets
     }
 
-    func mixerDidReceiveShareTargets(_ users: [String]) {
+    func mixerDidReceiveShareTargets(_ users: [String], names: [String: String]) {
+        shareTargetNames = names
         shareTargets = users
     }
 

@@ -69,14 +69,14 @@ class PresetManageBottomSheet(
         render()
     }
 
-    fun setShareTargets(users: List<String>) {
+    fun setShareTargets(users: List<String>, names: Map<String, String> = emptyMap()) {
         targets = users
         boxes.clear()
         binding.presetShareList.removeAllViews()
 
         for (user in users) {
             val box = MaterialCheckBox(context).apply {
-                text = user
+                text = names[user] ?: user
                 minHeight = (48 * resources.displayMetrics.density).toInt()
                 isSaveEnabled = false
             }

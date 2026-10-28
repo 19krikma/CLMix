@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.clmix.databinding.BottomSheetPresetLoadBinding
 import com.clmix.databinding.ItemPresetBinding
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 /**
  * Lists every preset this account can see - its own, ones shared with it,
@@ -18,12 +19,15 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
  * aux list this doesn't apply on tap alone, since loading a preset
  * overwrites every channel's current level+pan on the active aux.
  *
- * Each row says whose preset it is and who can see it; the account's own
- * carry a button into PresetManageBottomSheet.
+ * Each row says whose preset it is, who can see it and which aux it was
+ * saved from; the account's own carry a button into
+ * PresetManageBottomSheet. Presets from every aux are listed, this one's
+ * first, and loading one saved from another aux asks first.
  */
 class PresetLoadBottomSheet(
-    context: Context,
-    auxName: String,
+    private val context: Context,
+    private val auxIndex: Int,
+    private val auxName: String,
     private val onLoad: (Preset) -> Unit,
     onManage: (Preset) -> Unit
 ) {
@@ -33,16 +37,33 @@ class PresetLoadBottomSheet(
 
     init {
         dialog.setContentView(binding.root)
-        // The server only lists this aux's presets - see
-        // RemoteServer._handle_preset_action.
-        binding.presetLoadAuxLabel.text = "For $auxName"
+        binding.presetLoadAuxLabel.text = "Loads onto $auxName"
 
         binding.presetListRecycler.layoutManager = LinearLayoutManager(context)
         binding.presetListRecycler.adapter = adapter
 
         binding.presetLoadConfirmButton.setOnClickListener {
-            adapter.selected?.let(onLoad)
+            adapter.selected?.let(::confirmLoad)
         }
+    }
+
+    private fun confirmLoad(preset: Preset) {
+        // null aux: saved before auxes were recorded, fits any.
+        if (preset.aux == null || preset.aux == auxIndex) {
+            onLoad(preset)
+            return
+        }
+
+        val madeFor = preset.auxName ?: "Aux ${preset.aux}"
+        MaterialAlertDialogBuilder(context)
+            .setTitle("Different aux")
+            .setMessage(
+                "\"${preset.name}\" was made for $madeFor, not $auxName. " +
+                    "Load it onto $auxName anyway?"
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Load anyway") { _, _ -> onLoad(preset) }
+            .show()
     }
 
     fun show() = dialog.show()

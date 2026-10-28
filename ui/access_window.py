@@ -76,12 +76,13 @@ class AccessPanel:
         self.filter_combo.pack(side="left", padx=(6, 0))
         self.filter_combo.bind("<<ComboboxSelected>>", self.on_filter_changed)
 
-        columns = ("username", "snapshot", "aux", "presets", "mute", "mixer",
+        columns = ("username", "name", "snapshot", "aux", "presets", "mute", "mixer",
                    "personalization")
         self.tree = ttk.Treeview(
             self.container, columns=columns, show="headings", height=10
         )
         self.tree.heading("username", text="Username")
+        self.tree.heading("name", text="Name")
         self.tree.heading("snapshot", text="Snapshot Access")
         self.tree.heading("aux", text="Aux Access")
         self.tree.heading("presets", text="Preset Access")
@@ -89,6 +90,7 @@ class AccessPanel:
         self.tree.heading("mixer", text="Mixer Control")
         self.tree.heading("personalization", text="Personalization")
         self.tree.column("username", width=120)
+        self.tree.column("name", width=140)
         self.tree.column("snapshot", width=130)
         self.tree.column("aux", width=100)
         self.tree.column("presets", width=85, anchor="center")
@@ -143,7 +145,10 @@ class AccessPanel:
             self.tree.insert(
                 "", "end", iid=username,
                 values=(
-                    username, record["snapshot"], format_aux(record["aux"]),
+                    username,
+                    " ".join(p for p in (record.get("first_name", ""),
+                                         record.get("last_name", "")) if p),
+                    record["snapshot"], format_aux(record["aux"]),
                     "Yes" if record.get("presets", False) else "No",
                     "Yes" if record.get("mute", True) else "No",
                     "Yes" if record.get("mixer_control", False) else "No",
@@ -256,11 +261,25 @@ class UserEditDialog:
                 font=("TkDefaultFont", 8)
             ).grid(row=2, column=0, columnspan=2, sticky="w")
 
+        # Optional: only the username identifies an account. These are
+        # what phones show in preset owner and share lists when set.
+        ttk.Label(frame, text="First Name").grid(row=3, column=0, sticky="w")
+        self.first_name_entry = ttk.Entry(frame, width=25)
+        self.first_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=5)
+
+        ttk.Label(frame, text="Last Name").grid(row=4, column=0, sticky="w")
+        self.last_name_entry = ttk.Entry(frame, width=25)
+        self.last_name_entry.grid(row=4, column=1, sticky="w", padx=5, pady=5)
+
+        if record:
+            self.first_name_entry.insert(0, record.get("first_name", ""))
+            self.last_name_entry.insert(0, record.get("last_name", ""))
+
         ttk.Label(frame, text="Snapshot Access").grid(
-            row=3, column=0, sticky="w", pady=(10, 0)
+            row=5, column=0, sticky="w", pady=(10, 0)
         )
         self.snapshot_combo = ttk.Combobox(frame, width=23, values=snapshot_options)
-        self.snapshot_combo.grid(row=3, column=1, sticky="w", padx=5, pady=(10, 5))
+        self.snapshot_combo.grid(row=5, column=1, sticky="w", padx=5, pady=(10, 5))
 
         # A Combobox reserves room for its dropdown arrow on top of the
         # character width it is asked for, so the same `width` as an Entry
@@ -276,34 +295,34 @@ class UserEditDialog:
         self.snapshot_combo.set(record["snapshot"] if record else ALL_SNAPSHOTS)
 
         ttk.Label(frame, text="Preset Access").grid(
-            row=4, column=0, sticky="w", pady=(10, 0)
+            row=6, column=0, sticky="w", pady=(10, 0)
         )
         self.presets_var = tk.BooleanVar(value=record.get("presets", False) if record else False)
         ttk.Checkbutton(
             frame, variable=self.presets_var
-        ).grid(row=4, column=1, sticky="w", padx=5, pady=(10, 5))
+        ).grid(row=6, column=1, sticky="w", padx=5, pady=(10, 5))
 
         # Defaults on for a new account: muting a channel out of your own
         # wedge is ordinary use of a monitor mix, and it is what every
         # account could do before this permission existed. Unchecking it
         # leaves the performer level and pan only.
-        ttk.Label(frame, text="Mute Access").grid(row=5, column=0, sticky="w")
+        ttk.Label(frame, text="Mute Access").grid(row=7, column=0, sticky="w")
         self.mute_var = tk.BooleanVar(value=record.get("mute", True) if record else True)
         ttk.Checkbutton(
             frame, variable=self.mute_var
-        ).grid(row=5, column=1, sticky="w", padx=5, pady=(0, 5))
+        ).grid(row=7, column=1, sticky="w", padx=5, pady=(0, 5))
 
         # Off for every account that does not say otherwise - this one
         # grants the console's own channel faders and mutes, which every
         # listener hears, rather than one performer's send. A phone
         # holding it is asked which of the two it wants at login.
-        ttk.Label(frame, text="Full Mixer Control").grid(row=6, column=0, sticky="w")
+        ttk.Label(frame, text="Full Mixer Control").grid(row=8, column=0, sticky="w")
         self.mixer_var = tk.BooleanVar(
             value=record.get("mixer_control", False) if record else False
         )
         ttk.Checkbutton(
             frame, variable=self.mixer_var
-        ).grid(row=6, column=1, sticky="w", padx=5, pady=(0, 5))
+        ).grid(row=8, column=1, sticky="w", padx=5, pady=(0, 5))
 
         # Grants nothing on the console at all: it lets this account
         # relabel channels on its own aux screens, so a performer reads
@@ -312,16 +331,16 @@ class UserEditDialog:
         # account spanning several shows meets a different instrument on
         # the same channel in each. Turning this off hides the labels
         # without discarding them.
-        ttk.Label(frame, text="Personalization").grid(row=7, column=0, sticky="w")
+        ttk.Label(frame, text="Personalization").grid(row=9, column=0, sticky="w")
         self.personalization_var = tk.BooleanVar(
             value=record.get("personalization", False) if record else False
         )
         ttk.Checkbutton(
             frame, variable=self.personalization_var
-        ).grid(row=7, column=1, sticky="w", padx=5, pady=(0, 5))
+        ).grid(row=9, column=1, sticky="w", padx=5, pady=(0, 5))
 
         ttk.Label(frame, text="Aux Access").grid(
-            row=8, column=0, sticky="nw", pady=(10, 0)
+            row=10, column=0, sticky="nw", pady=(10, 0)
         )
 
         current_aux = record["aux"] if record else ALL_AUX
@@ -329,7 +348,7 @@ class UserEditDialog:
         selected_names = set() if all_selected else set(current_aux or [])
 
         aux_frame = ttk.Frame(frame)
-        aux_frame.grid(row=8, column=1, sticky="w", padx=5, pady=(10, 5))
+        aux_frame.grid(row=10, column=1, sticky="w", padx=5, pady=(10, 5))
 
         self.all_aux_var = tk.BooleanVar(value=all_selected)
         ttk.Checkbutton(
@@ -358,7 +377,7 @@ class UserEditDialog:
             self.aux_checkbuttons[name] = checkbutton
 
         btn_bar = ttk.Frame(frame)
-        btn_bar.grid(row=9, column=0, columnspan=2, pady=(15, 0))
+        btn_bar.grid(row=11, column=0, columnspan=2, pady=(15, 0))
 
         ttk.Button(btn_bar, text="Save", command=self.save).pack(side="left", padx=5)
         ttk.Button(
@@ -406,7 +425,9 @@ class UserEditDialog:
             username, password, snapshot, aux,
             presets=self.presets_var.get(), mute=self.mute_var.get(),
             mixer_control=self.mixer_var.get(),
-            personalization=self.personalization_var.get()
+            personalization=self.personalization_var.get(),
+            first_name=self.first_name_entry.get(),
+            last_name=self.last_name_entry.get()
         )
 
         if self.on_saved:

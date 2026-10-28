@@ -3,6 +3,19 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.16.0
+
+Needs desktop 1.23.0 or later; with an older desktop, usernames are shown
+and Load lists only the current aux's presets, as before.
+
+- **Names instead of usernames.** Accounts can now have a first and last
+  name, set on the desktop. Where one is set, the share list and the
+  "Owner:" and "Shared with" lines under presets show it instead of the
+  username.
+- **Presets from every aux.** Load lists every preset you can see, the
+  current aux's first, and each row says which aux it was made for.
+  Loading one made for a different aux asks before it goes ahead.
+
 ## 2.15.1
 
 - **Available on more devices.** The landscape-only EQ and Dynamics

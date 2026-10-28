@@ -851,6 +851,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     private fun showPresetLoadSheet() {
         val sheet = PresetLoadBottomSheet(
             this,
+            auxIndex,
             currentAuxName(),
             onLoad = { preset -> MixerClient.loadPreset(preset) },
             onManage = { preset -> showPresetManageSheet(preset) }
@@ -1128,8 +1129,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         }
     }
 
-    override fun onShareTargets(users: List<String>) {
-        presetManageSheet?.setShareTargets(users)
+    override fun onShareTargets(users: List<String>, names: Map<String, String>) {
+        presetManageSheet?.setShareTargets(users, names)
     }
 
     override fun onPresetSaved(name: String) {

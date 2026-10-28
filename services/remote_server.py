@@ -1882,8 +1882,10 @@ class RemoteServer:
 
         A preset is private to the account that saved it until its owner
         makes it public or shares it with other accounts (see PresetStore),
-        and belongs to the aux it was saved from: a phone is only ever
-        offered, and may only load, the presets of the aux it is on.
+        and belongs to the aux it was saved from. Older phones are only
+        offered, and may only load, the presets of the aux they are on;
+        newer ones send any_aux and are offered every preset they can see,
+        warning before loading one onto a different aux.
         Anyone who can see one may load it; only its owner may delete it
         or change who sees it - the desktop can do those for any preset,
         from its own page.
@@ -1895,16 +1897,26 @@ class RemoteServer:
         aux = state.get("aux")
 
         if action == "list_presets":
-            await self._send_presets(websocket, user, aux)
+            # Remembered for the lists sent after later changes too.
+            if msg.get("any_aux"):
+                state["presets_any_aux"] = True
+            await self._send_presets(websocket, state)
 
         elif action == "list_share_targets":
             # For one preset where the phone names it, so the list is
             # only accounts that can use that preset's aux.
             preset = self.preset_store.get(msg.get("id")) if msg.get("id") else None
+            users = sorted(
+                self._share_targets(worker, user, preset),
+                key=lambda u: self.user_store.display_name(u).lower(),
+            )
             await self._send(websocket, {
                 "type": "share_targets",
                 "id": msg.get("id"),
-                "users": self._share_targets(worker, user, preset),
+                "users": users,
+                # Readable names alongside, so older phones that only know
+                # "users" keep working. Username when no name is set.
+                "names": {u: self.user_store.display_name(u) for u in users},
             })
 
         elif action == "save_preset":
@@ -1926,7 +1938,10 @@ class RemoteServer:
             else:
                 preset = self.preset_store.find_visible(user, msg.get("name"), aux)
 
-            if preset is not None and not self.preset_store.fits_aux(preset, aux):
+            # A newer phone has already asked the user before loading a
+            # preset onto an aux it wasn't saved from.
+            if preset is not None and not msg.get("any_aux") \
+                    and not self.preset_store.fits_aux(preset, aux):
                 await self._send(websocket, {
                     "type": "error",
                     "message": "This preset belongs to "
@@ -1970,10 +1985,13 @@ class RemoteServer:
                 log("info", f"User {user!r} shared preset {preset['name']!r} "
                     f"with {users!r}")
 
-            await self._send_presets(websocket, user, aux)
+            await self._send_presets(websocket, state)
 
-    async def _send_presets(self, websocket, user, aux):
-        presets = self.preset_store.visible_to(user, aux)
+    async def _send_presets(self, websocket, state):
+        user = state["user"]
+        presets = self.preset_store.visible_to(
+            user, state.get("aux"), any_aux=state.get("presets_any_aux", False)
+        )
         items = []
 
         for preset in presets:
@@ -1982,6 +2000,8 @@ class RemoteServer:
                 "id": preset["id"],
                 "name": preset["name"],
                 "owner": preset["owner"],
+                "owner_name": self.user_store.display_name(preset["owner"])
+                if preset["owner"] else None,
                 "mine": mine,
                 "public": preset["public"],
                 "shared_with_me": user in preset["shared_with"],
@@ -1993,6 +2013,9 @@ class RemoteServer:
             # Who else has it is the owner's business only.
             if mine:
                 item["shared_with"] = preset["shared_with"]
+                item["shared_with_names"] = [
+                    self.user_store.display_name(u) for u in preset["shared_with"]
+                ]
             items.append(item)
 
         await self._send(websocket, {

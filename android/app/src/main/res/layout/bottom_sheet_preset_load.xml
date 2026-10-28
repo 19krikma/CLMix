@@ -42,7 +42,7 @@
         android:layout_height="wrap_content"
         android:layout_marginVertical="24dp"
         android:gravity="center"
-        android:text="No presets for this aux yet"
+        android:text="No presets yet"
         android:textColor="?attr/colorOnSurfaceVariant"
         android:visibility="gone" />
 

@@ -101,7 +101,7 @@ class PresetsWindow:
             return self.NO_OWNER
         if self.user_store.get(owner) is None:
             return f"{owner} (deleted)"
-        return owner
+        return self.user_store.display_name(owner)
 
     def aux_name(self, preset):
         """The name of the aux a preset was saved from - as the console has
@@ -137,7 +137,8 @@ class PresetsWindow:
                 self.aux_label(preset),
                 self._owner_label(preset["owner"]),
                 "Public" if preset["public"] else "Private",
-                ", ".join(preset["shared_with"]),
+                ", ".join(self.user_store.display_name(u)
+                          for u in preset["shared_with"]),
                 len(preset.get("channels", [])),
             ))
 
@@ -252,11 +253,13 @@ class ShareDialog:
                 foreground="gray"
             ).pack(anchor="w")
 
-        for name in sorted(candidates):
+        for name in sorted(candidates,
+                           key=lambda n: user_store.display_name(n).lower()):
             var = tk.BooleanVar(value=name in shared)
             self.vars[name] = var
             ttk.Checkbutton(
-                frame, text=name + candidates[name], variable=var
+                frame, text=user_store.display_name(name) + candidates[name],
+                variable=var
             ).pack(anchor="w", pady=2)
 
         btn_bar = ttk.Frame(frame)

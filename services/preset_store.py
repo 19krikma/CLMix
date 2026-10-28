@@ -151,14 +151,19 @@ class PresetStore:
         return record["owner"] == username or record["public"] \
             or username in record["shared_with"]
 
-    def visible_to(self, username, aux):
-        """The presets an account may load onto this aux: its own, ones
-        shared with it, and public ones, saved from this aux."""
+    def visible_to(self, username, aux, any_aux=False):
+        """The presets an account can see: its own, ones shared with it,
+        and public ones. Only those saved from this aux, unless any_aux -
+        then every one, this aux's first."""
         with self._lock:
-            return [
-                self._copy(r) for r in sorted(self.presets, key=self._sort_key)
-                if self.can_see(r, username) and self.fits_aux(r, aux)
+            records = [
+                r for r in sorted(self.presets, key=self._sort_key)
+                if self.can_see(r, username)
+                and (any_aux or self.fits_aux(r, aux))
             ]
+        if any_aux:
+            records.sort(key=lambda r: not self.fits_aux(r, aux))
+        return [self._copy(r) for r in records]
 
     def get(self, preset_id):
         with self._lock:

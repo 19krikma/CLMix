@@ -40,7 +40,8 @@ interface MixerClientListener {
     fun onPresets(presets: List<Preset>) {}
 
     /** The accounts this one can share a preset with. */
-    fun onShareTargets(users: List<String>) {}
+    /** names maps username to "First Last"; missing where unset. */
+    fun onShareTargets(users: List<String>, names: Map<String, String>) {}
     fun onPresetSaved(name: String) {}
     fun onPresetLoaded(name: String) {}
 
@@ -591,7 +592,11 @@ object MixerClient {
      *  console's own banks again. */
     fun resetCustomBanks() = send(JSONObject().put("action", "reset_custom_banks"))
 
-    fun requestPresets() = send(JSONObject().put("action", "list_presets"))
+    // any_aux: list every preset this account can see, not just this
+    // aux's - the Load sheet warns before loading across auxes.
+    fun requestPresets() = send(
+        JSONObject().put("action", "list_presets").put("any_aux", true)
+    )
 
     fun savePreset(name: String) = send(
         JSONObject()
@@ -604,6 +609,8 @@ object MixerClient {
     fun loadPreset(preset: Preset) = send(
         JSONObject()
             .put("action", "load_preset")
+            // Already confirmed by the user when the aux differs.
+            .put("any_aux", true)
             .apply {
                 if (preset.id.isEmpty()) put("name", preset.name) else put("id", preset.id)
             }
@@ -647,6 +654,7 @@ object MixerClient {
         return (0 until items.length()).map {
             val item = items.getJSONObject(it)
             val shared = item.optJSONArray("shared_with") ?: JSONArray()
+            val sharedNames = item.optJSONArray("shared_with_names") ?: JSONArray()
             Preset(
                 id = item.getString("id"),
                 name = item.getString("name"),
@@ -656,7 +664,9 @@ object MixerClient {
                 sharedWithMe = item.optBoolean("shared_with_me", false),
                 sharedWith = (0 until shared.length()).map { i -> shared.getString(i) },
                 aux = if (item.isNull("aux")) null else item.optInt("aux"),
-                auxName = if (item.isNull("aux_name")) null else item.optString("aux_name")
+                auxName = if (item.isNull("aux_name")) null else item.optString("aux_name"),
+                ownerName = if (item.isNull("owner_name")) null else item.optString("owner_name"),
+                sharedWithNames = (0 until sharedNames.length()).map { i -> sharedNames.getString(i) }
             )
         }
     }
@@ -824,7 +834,9 @@ object MixerClient {
             "share_targets" -> {
                 val arr = json.optJSONArray("users") ?: JSONArray()
                 val users = (0 until arr.length()).map { arr.getString(it) }
-                onMain { listener?.onShareTargets(users) }
+                val namesJson = json.optJSONObject("names")
+                val names = users.associateWith { namesJson?.optString(it, it) ?: it }
+                onMain { listener?.onShareTargets(users, names) }
             }
 
             "preset_saved" -> {

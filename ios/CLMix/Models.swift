@@ -476,24 +476,29 @@ struct Preset: Identifiable, Equatable {
     /// from before auxes were recorded, which loads onto any.
     var aux: Int? = nil
     var auxName: String? = nil
+    /// First and last name where the account has one - older servers send
+    /// neither, and usernames are shown instead.
+    var ownerName: String? = nil
+    var sharedWithNames: [String] = []
 
     /// Stable across refreshes; names are unique on an old server.
     var id: String { serverID.isEmpty ? name : serverID }
 
     /// The line under the name in the Load sheet.
     var subtitle: String {
-        ownership + (aux == nil ? " \u{00B7} Any aux" : "")
+        ownership + " \u{00B7} " + (aux.map { auxName ?? "Aux \($0)" } ?? "Any aux")
     }
 
     private var ownership: String {
         if mine && isPublic { return "Yours \u{00B7} Public" }
         if mine && !sharedWith.isEmpty {
-            return "Yours \u{00B7} Shared with \(sharedWith.joined(separator: ", "))"
+            let names = sharedWithNames.count == sharedWith.count ? sharedWithNames : sharedWith
+            return "Yours \u{00B7} Shared with \(names.joined(separator: ", "))"
         }
         if mine { return "Yours \u{00B7} Private" }
         // Someone else's, shared with this account or public: who it
         // belongs to is what matters.
-        if let owner { return "Owner: \(owner)" }
+        if let owner { return "Owner: \(ownerName ?? owner)" }
         return "Public"
     }
 }

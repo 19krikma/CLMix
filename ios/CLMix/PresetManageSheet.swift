@@ -92,7 +92,7 @@ struct PresetManageSheet: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(targets, id: \.self) { user in
-                            Toggle(user, isOn: Binding(
+                            Toggle(model.shareTargetNames[user] ?? user, isOn: Binding(
                                 get: { preset.sharedWith.contains(user) },
                                 set: { on in
                                     var users = Set(preset.sharedWith)

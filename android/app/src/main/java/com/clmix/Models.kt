@@ -411,18 +411,25 @@ data class Preset(
     // The aux it was saved from, and only loads onto - null for a preset
     // from before auxes were recorded, which loads onto any.
     val aux: Int? = null,
-    val auxName: String? = null
+    val auxName: String? = null,
+    // First and last name where the account has one, else null/empty -
+    // older servers send neither, and usernames are shown instead.
+    val ownerName: String? = null,
+    val sharedWithNames: List<String> = emptyList()
 ) {
     /** The line under the name in the Load sheet. */
     val subtitle: String
         get() = when {
             mine && public -> "Yours · Public"
             mine && sharedWith.isNotEmpty() ->
-                "Yours · Shared with ${sharedWith.joinToString(", ")}"
+                "Yours · Shared with ${
+                    (if (sharedWithNames.size == sharedWith.size) sharedWithNames else sharedWith)
+                        .joinToString(", ")
+                }"
             mine -> "Yours · Private"
             // Someone else's, shared with this account or public: who it
             // belongs to is what matters.
-            owner != null -> "Owner: $owner"
+            owner != null -> "Owner: ${ownerName ?: owner}"
             else -> "Public"
-        } + if (aux == null) " · Any aux" else ""
+        } + " · " + (if (aux == null) "Any aux" else auxName ?: "Aux $aux")
 }
