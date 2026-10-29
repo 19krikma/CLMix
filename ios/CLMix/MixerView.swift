@@ -72,6 +72,7 @@ struct MixerView: View {
         // moves - only the paint reaches further.
         .background(Color.clmixBackground.ignoresSafeArea())
         .navigationBarHidden(true)
+        .overlay { SosNotice() }
         .sheet(isPresented: $showMenu) { menuSheet }
         .sheet(isPresented: $showPresetSave) {
             PresetSaveSheet()
@@ -260,6 +261,9 @@ struct MixerView: View {
             .foregroundStyle(Color.primary)
             .padding(.top, 10)
 
+            SosButton(compact: true)
+                .padding(.top, 6)
+
             sidebarPanelButton("AUX", panel: .aux, cameraLeading: cameraLeading)
                 .padding(.top, 8)
 
@@ -445,6 +449,8 @@ struct MixerView: View {
                     .font(.system(size: 18))
                     .frame(width: 40, height: 40)
             }
+
+            SosButton()
 
             // REMOVE WITH DEMO MODE.
             if model.isDemo {

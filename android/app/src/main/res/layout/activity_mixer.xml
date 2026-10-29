@@ -42,6 +42,26 @@
                 android:contentDescription="Menu"
                 android:src="@drawable/ic_menu" />
 
+            <!-- Calls the sound engineer - see Sos. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/sos_button"
+                style="@style/Widget.Material3.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:minHeight="36dp"
+                android:paddingHorizontal="14dp"
+                android:text="SOS"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:contentDescription="SOS - call the sound engineer"
+                app:cornerRadius="18dp"
+                app:backgroundTint="@color/sos"
+                android:textColor="@android:color/white" />
+
             <!-- Takes the room the bank spinner used to, so Fine and the
                  bank toggle stay pinned to the right edge. -->
             <Space
@@ -263,6 +283,25 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Menu"
             android:src="@drawable/ic_menu" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/sidebar_sos_button"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:minWidth="0dp"
+            android:minHeight="32dp"
+            android:paddingHorizontal="10dp"
+            android:text="SOS"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="SOS - call the sound engineer"
+            app:cornerRadius="16dp"
+            app:backgroundTint="@color/sos"
+            android:textColor="@android:color/white" />
 
         <LinearLayout
             android:id="@+id/sidebar_aux_button"

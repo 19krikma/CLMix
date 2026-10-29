@@ -212,6 +212,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         // less to go wrong than one view re-parented between two
         // layouts on every rotation.
         binding.sidebarMenuButton.setOnClickListener { toggleLandscapePanel(Panel.MENU) }
+        binding.sosButton.setOnClickListener { Sos.showOptions(this) }
+        binding.sidebarSosButton.setOnClickListener { Sos.showOptions(this) }
         binding.sidebarAuxButton.setOnClickListener { toggleLandscapePanel(Panel.AUX) }
         binding.sidebarBankButton.setOnClickListener { toggleLandscapePanel(Panel.BANK) }
         binding.sidebarSmoothButton.setOnClickListener {

@@ -13,6 +13,8 @@
     <color name="on_surface_variant">#A9ACB4</color>
 
     <color name="mute_active">#FF6B62</color>
+    <!-- The SOS button: loud on purpose. -->
+    <color name="sos">#C62828</color>
     <color name="mute_inactive">#33363C</color>
     <color name="on_mute_inactive">#D3D6DC</color>
 

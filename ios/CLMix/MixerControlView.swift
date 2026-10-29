@@ -59,14 +59,8 @@ struct MixerControlView: View {
         // The EQ is its own full-screen, landscape view rather than a
         // sheet: a frequency graph needs the width. AppModel turns the
         // screen on its side as it opens.
-        // SosButton again inside each: a full-screen cover sits above the
-        // app root's copy.
-        .fullScreenCover(isPresented: eqBinding) {
-            EqView().overlay { SosButton() }.environmentObject(model)
-        }
-        .fullScreenCover(isPresented: dynBinding) {
-            DynamicsView().overlay { SosButton() }.environmentObject(model)
-        }
+        .fullScreenCover(isPresented: eqBinding) { EqView().environmentObject(model) }
+        .fullScreenCover(isPresented: dynBinding) { DynamicsView().environmentObject(model) }
         // A bank switch can take the open channel off screen entirely,
         // leaving a sheet acting on a strip that is no longer there.
         .onChange(of: model.selectedBank) { _, _ in openInput = nil }
