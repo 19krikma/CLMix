@@ -524,6 +524,12 @@ final class DemoMixer: MixerBackend {
         afterBanksChanged()
     }
 
+    // No sound engineer in the demo, but the button should still say its
+    // SOS went.
+    func sendSos(reason: String) {
+        Task { @MainActor in self.delegate?.mixerDidSendSos() }
+    }
+
     func resetCustomBanks() {
         customBanks = nil
         afterBanksChanged()

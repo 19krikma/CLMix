@@ -157,6 +157,14 @@ PRESET_ACTIONS = frozenset({
     "delete_preset", "set_preset_public", "share_preset",
 })
 
+# What a phone's SOS button can ask for, by the "reason" it sends, mapped
+# to what the sound engineer reads in the desktop's SOS window.
+SOS_REASONS = {
+    "dead_battery": "DEAD BATTERY",
+    "aux_not_working": "AUX NOT WORKING",
+    "need_assistance": "NEED ASSISTANCE",
+}
+
 # Advertised over mDNS/DNS-SD so phone apps can find this server on the
 # local network instead of the user typing in an IP - Android's NsdManager
 # and iOS's NWBrowser both browse for this exact service type.
@@ -224,13 +232,18 @@ class RemoteServer:
     """
 
     def __init__(self, get_worker, command_queue, port, user_store,
-                 preset_store, get_hidden_auxes=None, bind_ip=None):
+                 preset_store, get_hidden_auxes=None, bind_ip=None,
+                 on_sos=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
         self.user_store = user_store
         self.preset_store = preset_store
         self.get_hidden_auxes = get_hidden_auxes or (lambda: set())
+
+        # Called on the event loop's thread with one dict per SOS a phone
+        # sends (see _handle_sos); the desktop hands it to its own thread.
+        self.on_sos = on_sos
 
         # Which local address to listen on, or None for every adapter.
         # On a machine with two network cards this is what decides which
@@ -579,6 +592,13 @@ class RemoteServer:
             await self._send(
                 websocket, {"type": "error", "message": "Not authenticated"}
             )
+            return
+
+        # Ahead of every check below on purpose: a console that is down,
+        # syncing or locked to the DiGiCo App is exactly when someone may
+        # need the sound engineer, and the desktop is still there to tell.
+        if action == "sos":
+            await self._handle_sos(websocket, state, msg)
             return
 
         if self.locked_reason is not None:
@@ -1876,6 +1896,56 @@ class RemoteServer:
 
         low, high = bounds
         return round(min(high, max(low, number)), digits)
+
+    async def _handle_sos(self, websocket, state, msg):
+        """A performer asking the sound engineer for help: passed to the
+        desktop, which pops up an SOS window saying what is needed and who
+        is asking. Any logged-in account may send one - no permission gates
+        it. The phone is told it arrived, so it can say so."""
+        reason = SOS_REASONS.get(msg.get("reason"))
+
+        if reason is None:
+            await self._send(
+                websocket, {"type": "error", "message": "Unknown SOS reason"}
+            )
+            return
+
+        user = state["user"]
+        worker = self.get_worker()
+
+        if state.get("mode") == "mixer":
+            where = "Mixer control"
+        elif state.get("aux") is None:
+            where = None
+        elif worker is not None:
+            where = self._aux_name(worker, state["aux"])
+        else:
+            where = f"Aux {state['aux']}"
+
+        address = getattr(websocket, "remote_address", None)
+        sos = {
+            "user": user,
+            "name": self.user_store.display_name(user),
+            "reason": reason,
+            "aux_name": where,
+            "address": address[0] if address else None,
+            "time": time.time(),
+        }
+
+        log("warning", f"SOS from {user!r} ({where or 'no aux'}): {reason}")
+
+        if self.on_sos is not None:
+            try:
+                self.on_sos(sos)
+            except Exception as ex:
+                log("error", f"SOS could not be shown: {ex}")
+                await self._send(websocket, {
+                    "type": "error",
+                    "message": "SOS could not be delivered - find the sound engineer",
+                })
+                return
+
+        await self._send(websocket, {"type": "sos_sent", "reason": msg["reason"]})
 
     async def _handle_preset_action(self, websocket, worker, state, action, msg):
         """Everything behind the presets permission, already checked.

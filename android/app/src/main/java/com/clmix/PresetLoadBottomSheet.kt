@@ -62,7 +62,7 @@ class PresetLoadBottomSheet(
                     "Load it onto $auxName anyway?"
             )
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Load anyway") { _, _ -> onLoad(preset) }
+            .setPositiveButton("Proceed") { _, _ -> onLoad(preset) }
             .show()
     }
 

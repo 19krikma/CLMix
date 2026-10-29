@@ -3,6 +3,19 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.17.0
+
+Needs desktop 1.24.0 or later for SOS; with an older desktop the button
+says the computer needs updating.
+
+- **SOS button.** A red SOS button now sits on every screen after login.
+  Tap it and choose DEAD BATTERY, AUX NOT WORKING or NEED ASSISTANCE, and
+  the sound engineer's computer pops up an SOS window saying what you need
+  and who you are. The button says whether the SOS went through. Drag it
+  anywhere it's in the way; it stays where you leave it.
+- **Clearer cross-aux warning.** Loading a preset made for a different aux
+  now asks to **Proceed** or **Cancel**.
+
 ## 2.16.0
 
 Needs desktop 1.23.0 or later; with an older desktop, usernames are shown

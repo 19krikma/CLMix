@@ -40,6 +40,13 @@ struct CLMixApp: App {
             // Over every screen, the choice screens it sends the app back
             // to included - see AppModel.mixerDidReceiveSync.
             .overlay {
+                // Every screen after login - see SosButton. Under the
+                // syncing cover, which takes every touch until it lifts.
+                if model.screen != .connect {
+                    SosButton()
+                }
+            }
+            .overlay {
                 if model.serverSyncing {
                     ServerSyncingCover()
                 }

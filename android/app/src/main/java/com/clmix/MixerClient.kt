@@ -594,6 +594,12 @@ object MixerClient {
 
     // any_aux: list every preset this account can see, not just this
     // aux's - the Load sheet warns before loading across auxes.
+    /** An SOS to the sound engineer - see Sos. reason is one of the
+     *  server's SOS_REASONS keys. */
+    fun sendSos(reason: String) = send(
+        JSONObject().put("action", "sos").put("reason", reason)
+    )
+
     fun requestPresets() = send(
         JSONObject().put("action", "list_presets").put("any_aux", true)
     )
@@ -851,8 +857,16 @@ object MixerClient {
 
             "error" -> {
                 val message = json.optString("message", "Unknown error")
-                onMain { listener?.onError(friendlyServerMessage(message)) }
+                onMain {
+                    if (!Sos.claimsError(message)) {
+                        listener?.onError(friendlyServerMessage(message))
+                    }
+                }
             }
+
+            // Not through the screen listener either: the SOS button is
+            // on every screen, not one.
+            "sos_sent" -> onMain { Sos.onSent() }
 
             // Not through the screen listener: it moves the app between
             // screens, which is no one screen's job.

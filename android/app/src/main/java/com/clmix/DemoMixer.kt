@@ -643,6 +643,12 @@ object DemoMixer {
 
             "list_presets" -> deliverPresets()
 
+            // No sound engineer in the demo, but the button should still
+            // say its SOS went.
+            "sos" -> deliver(
+                JSONObject().put("type", "sos_sent").put("reason", message.optString("reason"))
+            )
+
             "list_share_targets" -> deliver(
                 JSONObject().put("type", "share_targets").put("users", JSONArray(DEMO_ACCOUNTS))
             )

@@ -31,6 +31,12 @@ final class AppModel: NSObject, ObservableObject {
     /// The desktop is resyncing with the console - see mixerDidReceiveSync.
     /// CLMixApp puts the "Server Syncing" cover up while it is set.
     @Published var serverSyncing = false
+    /// What became of the last SOS, shown briefly by SosButton; nil when
+    /// there is nothing to say.
+    @Published var sosNotice: String?
+    private var sosPending = false
+    private var sosTimeout: Task<Void, Never>?
+    private var sosNoticeTask: Task<Void, Never>?
     private var syncShownAt = Date.distantPast
     private var syncEndTask: Task<Void, Never>?
     @Published var statusMessage = ""
@@ -689,6 +695,33 @@ final class AppModel: NSObject, ObservableObject {
         backend.requestPresets()
     }
 
+    /// No answer within this long and the SOS is reported as not
+    /// delivered: the connection is down, or the desktop doesn't know SOS.
+    private static let sosReplyTimeoutSeconds: UInt64 = 6
+
+    func sendSos(reason: String) {
+        sosPending = true
+        sosTimeout?.cancel()
+        sosTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.sosReplyTimeoutSeconds * 1_000_000_000)
+            guard let self, !Task.isCancelled, self.sosPending else { return }
+            self.finishSos("SOS not delivered - find the sound engineer")
+        }
+        backend.sendSos(reason: reason)
+    }
+
+    private func finishSos(_ notice: String) {
+        sosPending = false
+        sosTimeout?.cancel()
+        sosNotice = notice
+        sosNoticeTask?.cancel()
+        sosNoticeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.sosNotice = nil
+        }
+    }
+
     func savePreset(name: String, onSaved: @escaping () -> Void) {
         pendingPresetSaveCompletion = onSaved
         backend.savePreset(name: name)
@@ -774,6 +807,19 @@ final class AppModel: NSObject, ObservableObject {
 }
 
 extension AppModel: MixerClientDelegate {
+    func mixerDidSendSos() {
+        guard sosPending else { return }
+        finishSos("SOS sent - the sound engineer has been notified")
+    }
+
+    func mixerDidFailSos(message: String) {
+        finishSos(
+            message.hasPrefix("unknown action")
+                ? "SOS not delivered - CLMix on the computer needs updating"
+                : message
+        )
+    }
+
     func mixerDidConnect() {
         if let pendingToken {
             statusMessage = "Resuming session..."

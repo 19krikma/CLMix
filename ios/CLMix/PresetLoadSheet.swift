@@ -91,7 +91,7 @@ struct PresetLoadSheet: View {
             presenting: crossAuxPreset
         ) { preset in
             Button("Cancel", role: .cancel) {}
-            Button("Load anyway") { load(preset) }
+            Button("Proceed") { load(preset) }
         } message: { preset in
             let here = model.currentAux?.name ?? "this aux"
             let madeFor = preset.auxName ?? "Aux \(preset.aux ?? 0)"

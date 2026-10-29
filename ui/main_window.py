@@ -47,6 +47,7 @@ from ui.phones_window import PhonesWindow
 from ui.presets_window import PresetsWindow
 from ui.copy_to_window import CopyToWindow
 from ui.show_backup_window import ShowBackupWindow
+from ui.sos_window import SosWindow
 from version import VERSION
 
 SETTINGS_PATH = Path.home() / ".clmix.json"
@@ -3515,6 +3516,10 @@ class MainWindow:
         self.command_queue = queue.Queue()
         self.message_queue = queue.Queue()
 
+        # Open SOS windows by account, so a repeat SOS updates the one
+        # already up - see show_sos.
+        self.sos_windows = {}
+
         self.settings = self.load_settings()
         self.user_store = UserStore()
         self.preset_store = PresetStore()
@@ -5227,7 +5232,9 @@ class MainWindow:
             lambda: self.worker, self.command_queue, int(remote_port),
             self.user_store, self.preset_store,
             get_hidden_auxes=self.get_hidden_auxes,
-            bind_ip=remote_bind_ip
+            bind_ip=remote_bind_ip,
+            # From the server's thread; shown from process_messages.
+            on_sos=lambda sos: self.message_queue.put(("sos", sos))
         )
 
         if self.settings.get("digico_capture") and \
@@ -5736,6 +5743,20 @@ class MainWindow:
             self.capture_status_label.config(text=text)
             self.digico_overlay_status.config(text=text)
 
+    def show_sos(self, sos):
+        """A phone's SOS: one window per account, updated in place when the
+        same person asks again rather than stacking another."""
+        user = sos["user"]
+        window = self.sos_windows.get(user)
+
+        if window is not None and window.window.winfo_exists():
+            window.update(sos)
+            return
+
+        self.sos_windows[user] = SosWindow(
+            self.root, sos, on_closed=lambda: self.sos_windows.pop(user, None)
+        )
+
     def process_messages(self):
 
         while not self.message_queue.empty():
@@ -5754,6 +5775,9 @@ class MainWindow:
 
             elif msg_type == "update_check":
                 self._apply_update_result(value)
+
+            elif msg_type == "sos":
+                self.show_sos(value)
 
         # A phone saving, sharing or deleting a preset changes the store
         # from the server's thread; the open Presets page catches up here.

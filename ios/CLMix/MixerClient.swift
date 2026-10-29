@@ -36,6 +36,10 @@ protocol MixerClientDelegate: AnyObject {
     /// console. The server has dropped this phone's selection for the
     /// duration - see AppModel.mixerDidReceiveSync.
     func mixerDidReceiveSync(_ syncing: Bool)
+    /// The server passed this phone's SOS on to the sound engineer.
+    func mixerDidSendSos()
+    /// The SOS did not go - `message` is the server's reason.
+    func mixerDidFailSos(message: String)
 }
 
 /// What AppModel drives, so a demo session (DemoMixer) can stand in for a
@@ -86,6 +90,9 @@ protocol MixerBackend: AnyObject {
     func requestCustomBanks()
     func saveCustomBanks(_ banks: [CustomBank])
     func resetCustomBanks()
+    /// An SOS to the sound engineer; `reason` is one of the server's
+    /// SOS_REASONS keys. See SosButton.
+    func sendSos(reason: String)
     func requestPresets()
     func savePreset(name: String)
     func loadPreset(_ preset: Preset)
@@ -470,6 +477,10 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "reset_custom_banks"])
     }
 
+    func sendSos(reason: String) {
+        send(["action": "sos", "reason": reason])
+    }
+
     func requestPresets() {
         // any_aux: every preset this account can see, not just this
         // aux's - the Load sheet asks before loading across auxes.
@@ -736,7 +747,16 @@ final class MixerClient: NSObject, MixerBackend {
 
             case "error":
                 let raw = json["message"] as? String ?? "Unknown error"
-                delegate?.mixerDidFail(message: friendlyServerMessage(raw))
+                // Only an SOS action draws errors that name it ("unknown
+                // action 'sos'" from a desktop from before SOS).
+                if raw.range(of: "sos", options: .caseInsensitive) != nil {
+                    delegate?.mixerDidFailSos(message: raw)
+                } else {
+                    delegate?.mixerDidFail(message: friendlyServerMessage(raw))
+                }
+
+            case "sos_sent":
+                delegate?.mixerDidSendSos()
 
             case "sync":
                 delegate?.mixerDidReceiveSync(json["syncing"] as? Bool ?? false)
