@@ -12,5 +12,6 @@ class CLMixApplication : Application() {
         MixerClient.init(this)
         registerActivityLifecycleCallbacks(ServerSync)
         Sos.init(this)
+        Chat.init(this)
     }
 }

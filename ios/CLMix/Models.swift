@@ -125,6 +125,31 @@ struct MeterLevels {
 /// put under it. Nothing to do with the console's own banks beyond the
 /// fact that a new account's set is seeded from them - see
 /// RemoteServer._stored_banks.
+/// One line of the shared chat - see services/chat_log.py.
+struct ChatMessage: Identifiable, Equatable {
+    let id: Int
+    /// "user", "tech" (the sound engineer at the desktop) or "sos".
+    let kind: String
+    let name: String
+    let text: String
+    let time: Date
+    /// Written by this phone's own account.
+    let mine: Bool
+
+    var isTech: Bool { kind == "tech" }
+    var isSos: Bool { kind == "sos" }
+
+    init?(json: [String: Any]) {
+        guard let id = json["id"] as? Int else { return nil }
+        self.id = id
+        kind = json["kind"] as? String ?? "user"
+        name = json["name"] as? String ?? ""
+        text = json["text"] as? String ?? ""
+        time = Date(timeIntervalSince1970: json["time"] as? Double ?? 0)
+        mine = json["mine"] as? Bool ?? false
+    }
+}
+
 struct CustomBank: Identifiable, Equatable {
     var name: String
     var channels: [Int]

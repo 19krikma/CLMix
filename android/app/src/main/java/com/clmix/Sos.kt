@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.LayoutInflater
+import android.view.View
 import android.widget.Toast
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
@@ -20,11 +22,11 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
  */
 object Sos {
     // Wire values, as services/remote_server.py's SOS_REASONS knows them,
-    // in the order offered.
+    // with the dialog_sos button that sends each.
     private val REASONS = listOf(
-        "dead_battery" to "DEAD BATTERY",
-        "aux_not_working" to "AUX NOT WORKING",
-        "need_assistance" to "NEED ASSISTANCE",
+        "dead_battery" to R.id.sos_dead_battery,
+        "aux_not_working" to R.id.sos_aux_not_working,
+        "need_assistance" to R.id.sos_need_assistance,
     )
 
     // No answer by then and the SOS is reported as not delivered: the
@@ -48,13 +50,22 @@ object Sos {
     fun showOptions(activity: Activity) {
         if (activity.isFinishing) return
 
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("SOS - what do you need?")
-            .setItems(REASONS.map { it.second }.toTypedArray()) { _, which ->
-                send(REASONS[which].first)
+        // A custom view rather than setItems, whose rows are plain text
+        // that does not read as tappable: each choice is a filled button.
+        val view = LayoutInflater.from(activity).inflate(R.layout.dialog_sos, null)
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setView(view)
+            .create()
+
+        REASONS.forEach { (reason, buttonId) ->
+            view.findViewById<View>(buttonId).setOnClickListener {
+                dialog.dismiss()
+                send(reason)
             }
-            .setNegativeButton("CANCEL", null)
-            .show()
+        }
+        view.findViewById<View>(R.id.sos_cancel).setOnClickListener { dialog.dismiss() }
+
+        dialog.show()
     }
 
     private fun send(reason: String) {

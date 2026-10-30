@@ -34,6 +34,15 @@ final class AppModel: NSObject, ObservableObject {
     /// What became of the last SOS, shown briefly by SosButton; nil when
     /// there is nothing to say.
     @Published var sosNotice: String?
+    /// The SOS options card is up over the mixer screen - SosButton opens
+    /// it, SosOptions draws it.
+    @Published var sosOptionsShown = false
+    /// The shared chat, oldest first - see ChatView. Kept while the chat
+    /// is closed so it opens with what was said meanwhile.
+    @Published var chatMessages: [ChatMessage] = []
+    /// ChatView is on screen; while it is not, a message from the sound
+    /// engineer is flashed as a notice instead.
+    var chatOpen = false
     private var sosPending = false
     private var sosTimeout: Task<Void, Never>?
     private var sosNoticeTask: Task<Void, Never>?
@@ -699,6 +708,14 @@ final class AppModel: NSObject, ObservableObject {
     /// delivered: the connection is down, or the desktop doesn't know SOS.
     private static let sosReplyTimeoutSeconds: UInt64 = 6
 
+    func requestChatHistory() {
+        backend.requestChatHistory()
+    }
+
+    func sendChat(text: String) {
+        backend.sendChat(text: text)
+    }
+
     func sendSos(reason: String) {
         sosPending = true
         sosTimeout?.cancel()
@@ -713,6 +730,12 @@ final class AppModel: NSObject, ObservableObject {
     private func finishSos(_ notice: String) {
         sosPending = false
         sosTimeout?.cancel()
+        flashNotice(notice)
+    }
+
+    /// Shows `notice` near the top of the mixer screen for a few
+    /// seconds - SosNotice draws it.
+    private func flashNotice(_ notice: String) {
         sosNotice = notice
         sosNoticeTask?.cancel()
         sosNoticeTask = Task { @MainActor [weak self] in
@@ -807,6 +830,22 @@ final class AppModel: NSObject, ObservableObject {
 }
 
 extension AppModel: MixerClientDelegate {
+    func mixerDidReceiveChatHistory(_ messages: [ChatMessage]) {
+        chatMessages = messages
+    }
+
+    func mixerDidReceiveChat(_ message: ChatMessage) {
+        guard !chatMessages.contains(where: { $0.id == message.id }) else { return }
+        chatMessages.append(message)
+        if chatMessages.count > 300 { chatMessages.removeFirst() }
+
+        // Chat closed: the sound engineer's words still reach the
+        // performer.
+        if message.isTech && !chatOpen {
+            flashNotice("Sound Tech: \(message.text)")
+        }
+    }
+
     func mixerDidSendSos() {
         guard sosPending else { return }
         finishSos("SOS sent - the sound engineer has been notified")
@@ -897,6 +936,8 @@ extension AppModel: MixerClientDelegate {
         MeterCenter.shared.clear()
 
         let wasMidSession = screen != .connect
+        // The next connection may be another account, or another desk.
+        chatMessages = []
         eqChannel = nil
         eq = nil
         dynChannel = nil

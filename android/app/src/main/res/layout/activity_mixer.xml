@@ -418,6 +418,20 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
+        <!-- The chat every phone shares with the sound engineer - see
+             ChatActivity. Open to every account. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/chat_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="14dp"
+            android:layout_marginTop="10dp"
+            android:text="Chat"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/presets_button"
             style="@style/Widget.Material3.Button.TonalButton"

@@ -20,6 +20,7 @@ struct MixerView: View {
     @State private var showPresetSave = false
     @State private var showPresetLoad = false
     @State private var showCustomBanks = false
+    @State private var showChat = false
 
     /// Which side panel the landscape sidebar has out, if any.
     @State private var openPanel: LandscapePanel?
@@ -73,6 +74,7 @@ struct MixerView: View {
         .background(Color.clmixBackground.ignoresSafeArea())
         .navigationBarHidden(true)
         .overlay { SosNotice() }
+        .overlay { SosOptions() }
         .sheet(isPresented: $showMenu) { menuSheet }
         .sheet(isPresented: $showPresetSave) {
             PresetSaveSheet()
@@ -87,6 +89,9 @@ struct MixerView: View {
         // against each - rather than a short panel.
         .sheet(isPresented: $showCustomBanks) {
             CustomBanksView()
+        }
+        .sheet(isPresented: $showChat) {
+            ChatView()
         }
         // Presets are per-aux-send, so a sheet left open from the
         // previous aux would otherwise keep acting against the new one -
@@ -537,6 +542,15 @@ struct MixerView: View {
             // panel just as much as in the sheet, since the hand holding
             // the phone is at the bottom either way.
             Spacer()
+
+            // The chat every phone shares with the sound engineer - see
+            // ChatView. Open to every account.
+            tonalButton("Chat") {
+                dismissMenu()
+                showChat = true
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
 
             // Only accounts with Preset Access (Setup > Accounts on
             // desktop) get this at all - the server enforces the same

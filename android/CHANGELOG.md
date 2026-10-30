@@ -5,14 +5,20 @@ moves independently of the desktop app's `version.py`.
 
 ## 2.17.0
 
-Needs desktop 1.24.0 or later for SOS; with an older desktop the button
-says the computer needs updating.
+Needs desktop 1.24.0 or later for SOS and Chat; with an older desktop the
+SOS button says the computer needs updating and Chat stays empty.
 
 - **SOS button.** A red SOS button now sits beside the menu button on the
   mixer screen. Tap it and choose DEAD BATTERY, AUX NOT WORKING or NEED
   ASSISTANCE, and the sound engineer's computer pops up an SOS window
   saying what you need and who you are. The app says whether the SOS
-  went through.
+  went through. The SOS options are now large buttons in the middle of
+  the screen.
+- **Chat.** A new Chat button in the mixer screen's menu opens a chat
+  everyone shares. Messages show the sender's name; the sound engineer's
+  come from "Sound Tech" in a bubble of their own colour, and every SOS
+  shows up in red. A message from the sound engineer pops up briefly
+  even when the chat is closed.
 - **Clearer cross-aux warning.** Loading a preset made for a different aux
   now asks to **Proceed** or **Cancel**.
 

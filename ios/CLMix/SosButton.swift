@@ -11,18 +11,9 @@ struct SosButton: View {
     /// The landscape sidebar's narrower one.
     var compact = false
 
-    // Wire values, as services/remote_server.py's SOS_REASONS knows them.
-    private static let reasons = [
-        ("dead_battery", "DEAD BATTERY"),
-        ("aux_not_working", "AUX NOT WORKING"),
-        ("need_assistance", "NEED ASSISTANCE"),
-    ]
-
-    @State private var showOptions = false
-
     var body: some View {
         Button {
-            showOptions = true
+            model.sosOptionsShown = true
         } label: {
             Text("SOS")
                 .font(.system(size: compact ? 12 : 13, weight: .bold))
@@ -34,16 +25,84 @@ struct SosButton: View {
                 .clipShape(Capsule())
         }
         .accessibilityLabel("SOS - call the sound engineer")
-        .confirmationDialog("SOS - what do you need?", isPresented: $showOptions,
-                            titleVisibility: .visible) {
-            ForEach(Self.reasons, id: \.0) { item in
-                Button(item.1, role: .destructive) { model.sendSos(reason: item.0) }
-            }
-            Button("CANCEL", role: .cancel) {}
-        }
     }
 
     static let red = Color(red: 0xC6 / 255, green: 0x28 / 255, blue: 0x28 / 255)
+}
+
+/// The SOS choices, as a card centred over the mixer screen: each one a
+/// full-width filled button, then CANCEL. Shown while
+/// model.sosOptionsShown is set; tapping outside the card cancels.
+struct SosOptions: View {
+    @EnvironmentObject private var model: AppModel
+
+    // Wire values, as services/remote_server.py's SOS_REASONS knows them.
+    private static let reasons = [
+        ("dead_battery", "DEAD BATTERY"),
+        ("aux_not_working", "AUX NOT WORKING"),
+        ("need_assistance", "NEED ASSISTANCE"),
+    ]
+
+    var body: some View {
+        ZStack {
+            if model.sosOptionsShown {
+                Color.black.opacity(0.55)
+                    .ignoresSafeArea()
+                    .onTapGesture { model.sosOptionsShown = false }
+                    .transition(.opacity)
+
+                card
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: model.sosOptionsShown)
+        // Left up when the screen goes, it would greet the next visit.
+        .onDisappear { model.sosOptionsShown = false }
+    }
+
+    private var card: some View {
+        VStack(spacing: 10) {
+            Text("SOS - what do you need?")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Color.clmixOnSurface)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 10)
+
+            ForEach(Self.reasons, id: \.0) { item in
+                option(item.1, fill: SosButton.red, text: .white) {
+                    model.sosOptionsShown = false
+                    model.sendSos(reason: item.0)
+                }
+            }
+
+            option("CANCEL", fill: .clmixMuteInactive, text: .clmixOnMuteInactive) {
+                model.sosOptionsShown = false
+            }
+            .padding(.top, 8)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+        .padding(.bottom, 20)
+        .frame(maxWidth: 340)
+        .background(Color.clmixSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 24)
+    }
+
+    private func option(_ title: String, fill: Color, text: Color,
+                        action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 16, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(text)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .background(fill)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 /// What became of the last SOS ("SOS sent - ..."), for a few seconds near

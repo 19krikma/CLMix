@@ -40,6 +40,10 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidSendSos()
     /// The SOS did not go - `message` is the server's reason.
     func mixerDidFailSos(message: String)
+    /// The shared chat so far, oldest first.
+    func mixerDidReceiveChatHistory(_ messages: [ChatMessage])
+    /// One new chat message - anyone's, this phone's own included.
+    func mixerDidReceiveChat(_ message: ChatMessage)
 }
 
 /// What AppModel drives, so a demo session (DemoMixer) can stand in for a
@@ -93,6 +97,10 @@ protocol MixerBackend: AnyObject {
     /// An SOS to the sound engineer; `reason` is one of the server's
     /// SOS_REASONS keys. See SosButton.
     func sendSos(reason: String)
+    /// The shared chat - answered with the history. See ChatView.
+    func requestChatHistory()
+    /// A message to everyone; it comes back like anyone's.
+    func sendChat(text: String)
     func requestPresets()
     func savePreset(name: String)
     func loadPreset(_ preset: Preset)
@@ -481,6 +489,14 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "sos", "reason": reason])
     }
 
+    func requestChatHistory() {
+        send(["action": "chat_history"])
+    }
+
+    func sendChat(text: String) {
+        send(["action": "chat_send", "text": text])
+    }
+
     func requestPresets() {
         // any_aux: every preset this account can see, not just this
         // aux's - the Load sheet asks before loading across auxes.
@@ -757,6 +773,16 @@ final class MixerClient: NSObject, MixerBackend {
 
             case "sos_sent":
                 delegate?.mixerDidSendSos()
+
+            case "chat_history":
+                let entries = json["messages"] as? [[String: Any]] ?? []
+                delegate?.mixerDidReceiveChatHistory(entries.compactMap(ChatMessage.init(json:)))
+
+            case "chat":
+                if let entry = json["message"] as? [String: Any],
+                   let message = ChatMessage(json: entry) {
+                    delegate?.mixerDidReceiveChat(message)
+                }
 
             case "sync":
                 delegate?.mixerDidReceiveSync(json["syncing"] as? Bool ?? false)

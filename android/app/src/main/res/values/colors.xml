@@ -15,6 +15,12 @@
     <color name="mute_active">#FF6B62</color>
     <!-- The SOS button: loud on purpose. -->
     <color name="sos">#C62828</color>
+    <!-- Chat bubbles: everyone else's, this phone's own, and the sound
+         engineer's - the last loud enough to stand out from the rest. -->
+    <color name="chat_other">#2A2D35</color>
+    <color name="chat_mine">#2E3D5E</color>
+    <color name="chat_tech">#6C93FF</color>
+    <color name="on_chat_tech">#0B1530</color>
     <color name="mute_inactive">#33363C</color>
     <color name="on_mute_inactive">#D3D6DC</color>
 

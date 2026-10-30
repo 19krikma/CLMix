@@ -10,6 +10,7 @@ import websockets
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
+from services.chat_log import KIND_SOS, KIND_USER, clean_text
 from services.log_store import log
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
@@ -233,7 +234,7 @@ class RemoteServer:
 
     def __init__(self, get_worker, command_queue, port, user_store,
                  preset_store, get_hidden_auxes=None, bind_ip=None,
-                 on_sos=None):
+                 on_sos=None, chat_log=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
@@ -244,6 +245,10 @@ class RemoteServer:
         # Called on the event loop's thread with one dict per SOS a phone
         # sends (see _handle_sos); the desktop hands it to its own thread.
         self.on_sos = on_sos
+
+        # The shared chat (see services/chat_log.py), or None for a server
+        # without one, which then refuses the chat actions.
+        self.chat_log = chat_log
 
         # Which local address to listen on, or None for every adapter.
         # On a machine with two network cards this is what decides which
@@ -599,6 +604,12 @@ class RemoteServer:
         # need the sound engineer, and the desktop is still there to tell.
         if action == "sos":
             await self._handle_sos(websocket, state, msg)
+            return
+
+        # Chat too, for the same reason: talking to the sound engineer
+        # matters most when the console is not working.
+        if action in ("chat_history", "chat_send"):
+            await self._handle_chat(websocket, state, action, msg)
             return
 
         if self.locked_reason is not None:
@@ -1946,6 +1957,75 @@ class RemoteServer:
                 return
 
         await self._send(websocket, {"type": "sos_sent", "reason": msg["reason"]})
+
+        # Into the chat as well, so every phone sees who asked for what.
+        if self.chat_log is not None:
+            text = f"SOS: {reason}" + (f" ({where})" if where else "")
+            await self._broadcast_chat(
+                self.chat_log.add(KIND_SOS, text, user=user, name=sos["name"])
+            )
+
+    async def _handle_chat(self, websocket, state, action, msg):
+        """The shared chat: any logged-in account may read it and post to
+        it. Each new message goes to every logged-in phone, the sender's
+        included - that echo is how its own phone shows it."""
+        if self.chat_log is None:
+            await self._send(
+                websocket, {"type": "error", "message": "Chat is not available"}
+            )
+            return
+
+        if action == "chat_history":
+            await self._send(websocket, {
+                "type": "chat_history",
+                "messages": [self._chat_for(m, state["user"])
+                             for m in self.chat_log.messages()],
+            })
+            return
+
+        text = clean_text(msg.get("text"))
+
+        if text is None:
+            return
+
+        user = state["user"]
+        message = self.chat_log.add(
+            KIND_USER, text, user=user, name=self.user_store.display_name(user)
+        )
+        log("info", f"Chat from {user!r}: {text}")
+        await self._broadcast_chat(message)
+
+    @staticmethod
+    def _chat_for(message, user):
+        """One message as a phone gets it: with "mine" set where that
+        phone's account wrote it, so the app need not know its own
+        username to put its messages on the right."""
+        # The desk's own messages have no user, so are never anyone's.
+        return dict(message, mine=message["user"] is not None
+                    and message["user"] == user)
+
+    async def _broadcast_chat(self, message):
+        for websocket, state in list(self._clients.items()):
+            if state.get("user") is None:
+                continue
+            try:
+                await self._send(websocket, {
+                    "type": "chat",
+                    "message": self._chat_for(message, state["user"]),
+                })
+            except websockets.ConnectionClosed:
+                pass
+
+    def send_tech_chat(self, message):
+        """Hands a message the desktop already stored in the chat log to
+        every phone. Called from the Tkinter thread; does nothing while
+        the server is not running, since no phone could hear it."""
+        if self._loop is None or not self._loop.is_running():
+            return
+
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast_chat(message), self._loop
+        )
 
     async def _handle_preset_action(self, websocket, worker, state, action, msg):
         """Everything behind the presets permission, already checked.

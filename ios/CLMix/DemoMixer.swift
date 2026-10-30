@@ -530,6 +530,25 @@ final class DemoMixer: MixerBackend {
         Task { @MainActor in self.delegate?.mixerDidSendSos() }
     }
 
+    // The demo's chat is this phone talking to itself: what it sends
+    // comes back as its own, and the history starts empty.
+    private var demoChat: [ChatMessage] = []
+
+    func requestChatHistory() {
+        let history = demoChat
+        Task { @MainActor in self.delegate?.mixerDidReceiveChatHistory(history) }
+    }
+
+    func sendChat(text: String) {
+        let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
+        guard !trimmed.isEmpty, let message = ChatMessage(json: [
+            "id": demoChat.count + 1, "kind": "user", "name": "Demo",
+            "text": trimmed, "time": Date().timeIntervalSince1970, "mine": true,
+        ]) else { return }
+        demoChat.append(message)
+        Task { @MainActor in self.delegate?.mixerDidReceiveChat(message) }
+    }
+
     func resetCustomBanks() {
         customBanks = nil
         afterBanksChanged()

@@ -347,6 +347,12 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             )
         }
 
+        binding.chatButton.setOnClickListener {
+            closeMenu()
+            dismissPanSheet()
+            startActivity(Intent(this, ChatActivity::class.java))
+        }
+
         binding.customBanksButton.isVisible = MixerClient.personalizationAllowed
         binding.customBanksButton.setOnClickListener {
             closeMenu()

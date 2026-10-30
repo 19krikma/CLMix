@@ -251,6 +251,9 @@ object MixerClient {
     }
 
     fun disconnect() {
+        // The next connection may be another account, or another desk.
+        Chat.clear()
+
         // REMOVE WITH DEMO MODE. Leaving the demo is the same act as
         // closing a socket, so it runs the same teardown and reports
         // itself the same way - the real path's onDisconnected arrives
@@ -600,6 +603,14 @@ object MixerClient {
         JSONObject().put("action", "sos").put("reason", reason)
     )
 
+    /** The shared chat so far - answered with "chat_history". See Chat. */
+    fun requestChatHistory() = send(JSONObject().put("action", "chat_history"))
+
+    /** A message to everyone; it comes back as "chat" like anyone's. */
+    fun sendChat(text: String) = send(
+        JSONObject().put("action", "chat_send").put("text", text)
+    )
+
     fun requestPresets() = send(
         JSONObject().put("action", "list_presets").put("any_aux", true)
     )
@@ -867,6 +878,18 @@ object MixerClient {
             // Not through the screen listener either: the SOS button is
             // on every screen, not one.
             "sos_sent" -> onMain { Sos.onSent() }
+
+            // Not through the screen listener: chat arrives on every
+            // screen, and only the chat screen draws it - see Chat.
+            "chat_history" -> {
+                val items = json.optJSONArray("messages") ?: JSONArray()
+                onMain { Chat.onHistory(items) }
+            }
+
+            "chat" -> {
+                val message = json.optJSONObject("message") ?: return
+                onMain { Chat.onMessage(message) }
+            }
 
             // Not through the screen listener: it moves the app between
             // screens, which is no one screen's job.

@@ -22,6 +22,7 @@ from pythonosc.parsing import osc_types
 
 from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
+from services.chat_log import KIND_TECH, ChatLog
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log, log_store
 from services.network_info import list_ipv4_interfaces, source_ip_for
@@ -48,6 +49,7 @@ from ui.presets_window import PresetsWindow
 from ui.copy_to_window import CopyToWindow
 from ui.show_backup_window import ShowBackupWindow
 from ui.sos_window import SosWindow
+from ui.chat_window import ChatWindow
 from version import VERSION
 
 SETTINGS_PATH = Path.home() / ".clmix.json"
@@ -3520,6 +3522,15 @@ class MainWindow:
         # already up - see show_sos.
         self.sos_windows = {}
 
+        # The chat every phone shares with the desk - here rather than in
+        # RemoteServer so it survives a reconnect. The window is built
+        # only while open; chat_seen_id is the newest message the
+        # operator has had in front of them, for the sidebar's count.
+        self.chat_log = ChatLog()
+        self.chat_window = None
+        self.chat_seen_id = 0
+        self._chat_badge_shown = None
+
         self.settings = self.load_settings()
         self.user_store = UserStore()
         self.preset_store = PresetStore()
@@ -3614,6 +3625,8 @@ class MainWindow:
         )
 
         entry("Presets", self.open_presets_window)
+        # Relabelled with an unread count - see _refresh_chat.
+        self.chat_button = entry("Chat", self.open_chat_window)
         divider()
         entry("Settings", self.open_settings_window)
         entry("Accounts", self.open_accounts_window)
@@ -5234,7 +5247,8 @@ class MainWindow:
             get_hidden_auxes=self.get_hidden_auxes,
             bind_ip=remote_bind_ip,
             # From the server's thread; shown from process_messages.
-            on_sos=lambda sos: self.message_queue.put(("sos", sos))
+            on_sos=lambda sos: self.message_queue.put(("sos", sos)),
+            chat_log=self.chat_log,
         )
 
         if self.settings.get("digico_capture") and \
@@ -5347,6 +5361,46 @@ class MainWindow:
             return False
 
         return self.remote_server.kick_client(client_id)
+
+    def open_chat_window(self):
+        if self.chat_window is not None and self.chat_window.window.winfo_exists():
+            self.chat_window.show()
+            return
+
+        def closed():
+            self.chat_window = None
+
+        self.chat_window = ChatWindow(
+            self.root, self.chat_log, on_send=self.send_tech_chat,
+            on_closed=closed,
+        )
+        self._refresh_chat()
+
+    def send_tech_chat(self, text):
+        """The operator's message: kept, and sent to every phone if the
+        server is up."""
+        message = self.chat_log.add(KIND_TECH, text)
+
+        if self.remote_server is not None:
+            self.remote_server.send_tech_chat(message)
+
+    def _refresh_chat(self):
+        """Catches the open Chat window up, or counts what phones have
+        said since it was last open onto the sidebar's Chat button."""
+        newest = self.chat_log.messages(after_id=self.chat_seen_id)
+
+        if self.chat_window is not None and self.chat_window.window.winfo_exists():
+            self.chat_window.refresh()
+            if newest:
+                self.chat_seen_id = newest[-1]["id"]
+            unread = 0
+        else:
+            unread = sum(1 for m in newest if m["kind"] != KIND_TECH)
+
+        label = f"Chat ({unread})" if unread else "Chat"
+        if label != self._chat_badge_shown:
+            self._chat_badge_shown = label
+            self.chat_button.configure(text=label)
 
     def open_logs_window(self):
         self._open_built_page("Logs")
@@ -5778,6 +5832,8 @@ class MainWindow:
 
             elif msg_type == "sos":
                 self.show_sos(value)
+
+        self._refresh_chat()
 
         # A phone saving, sharing or deleting a preset changes the store
         # from the server's thread; the open Presets page catches up here.

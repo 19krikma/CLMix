@@ -205,6 +205,8 @@ object DemoMixer {
     private const val DEMO_OWNER = "demo"
     private val DEMO_ACCOUNTS = listOf("Bass", "Drums", "Keys", "Vocals")
 
+    private val demoChat = mutableListOf<JSONObject>()
+
     // MARK: - Lifecycle
 
     fun start() {
@@ -648,6 +650,27 @@ object DemoMixer {
             "sos" -> deliver(
                 JSONObject().put("type", "sos_sent").put("reason", message.optString("reason"))
             )
+
+            // The demo's chat is this phone talking to itself: what it
+            // sends comes back as its own, and the history starts empty.
+            "chat_history" -> deliver(
+                JSONObject().put("type", "chat_history").put("messages", JSONArray(demoChat))
+            )
+
+            "chat_send" -> {
+                val text = message.optString("text").trim().take(500)
+                if (text.isNotEmpty()) {
+                    val chat = JSONObject()
+                        .put("id", demoChat.size + 1)
+                        .put("kind", "user")
+                        .put("name", "Demo")
+                        .put("text", text)
+                        .put("time", System.currentTimeMillis() / 1000.0)
+                        .put("mine", true)
+                    demoChat.add(chat)
+                    deliver(JSONObject().put("type", "chat").put("message", chat))
+                }
+            }
 
             "list_share_targets" -> deliver(
                 JSONObject().put("type", "share_targets").put("users", JSONArray(DEMO_ACCOUNTS))

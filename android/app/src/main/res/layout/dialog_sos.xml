@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The SOS options - see Sos.showOptions. Each choice is a full-width
+     filled button so it reads as one at a glance, all centred. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="24dp"
+    android:paddingBottom="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="20dp"
+        android:gravity="center"
+        android:text="SOS - what do you need?"
+        android:textColor="@color/on_surface"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/sos_dead_battery"
+        style="@style/SosOption"
+        android:text="DEAD BATTERY" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/sos_aux_not_working"
+        style="@style/SosOption"
+        android:text="AUX NOT WORKING" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/sos_need_assistance"
+        style="@style/SosOption"
+        android:text="NEED ASSISTANCE" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/sos_cancel"
+        style="@style/SosOption"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="0dp"
+        android:text="CANCEL"
+        android:textColor="@color/on_mute_inactive"
+        app:backgroundTint="@color/mute_inactive" />
+</LinearLayout>
