@@ -245,6 +245,26 @@ class PresetStore:
                 )
                 self._save()
 
+    def rename_user(self, old, new):
+        """Follows an account to its new username: the presets it owns
+        and every share list it is on."""
+        with self._lock:
+            changed = False
+
+            for record in self.presets:
+                if record["owner"] == old:
+                    record["owner"] = new
+                    changed = True
+
+                if old in record["shared_with"]:
+                    record["shared_with"] = sorted(
+                        (set(record["shared_with"]) - {old}) | {new}
+                    )
+                    changed = True
+
+            if changed:
+                self._save()
+
     def forget_user(self, username):
         """Takes a deleted account out of every preset's share list. The
         presets it owned are kept - whoever they were shared with, or

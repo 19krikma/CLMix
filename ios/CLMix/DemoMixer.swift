@@ -447,8 +447,56 @@ final class DemoMixer: MixerBackend {
         // No token is handed back, so SessionStore stores nothing and a
         // relaunch returns to the connect screen rather than silently
         // resuming into a demo the user may not have wanted again.
+        let profile = demoProfile
         Task { @MainActor in
+            self.delegate?.mixerDidReceiveProfile(profile)
             self.delegate?.mixerDidReceiveLoginResult(ok: true, message: nil, token: nil)
+        }
+    }
+
+    // The demo account's profile, kept until the app closes. There is no
+    // password to check, so any current password is accepted.
+    private var demoProfile = AccountProfile(username: "demo")
+
+    func requestProfile() {
+        let profile = demoProfile
+        Task { @MainActor in self.delegate?.mixerDidReceiveProfile(profile) }
+    }
+
+    func updateProfile(firstName: String?, lastName: String?, username: String?,
+                       newPassword: String?, currentPassword: String?) {
+        if let firstName { demoProfile.firstName = firstName }
+        if let lastName { demoProfile.lastName = lastName }
+        if let username, !username.isEmpty { demoProfile.username = username }
+        let full = [demoProfile.firstName, demoProfile.lastName]
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        demoProfile.displayName = full.isEmpty ? demoProfile.username : full
+        answerProfileEdit()
+    }
+
+    func setProfilePicture(_ base64: String?) {
+        demoProfile.picture = base64.flatMap { Data(base64Encoded: $0) }
+        answerProfileEdit()
+        requestPictures(users: [demoProfile.username])
+    }
+
+    /// Only the demo account has a picture; anyone else has none.
+    func requestPictures(users: [String]) {
+        let profile = demoProfile
+        Task { @MainActor in
+            for user in users {
+                self.delegate?.mixerDidReceivePicture(
+                    user: user, picture: user == profile.username ? profile.picture : nil
+                )
+            }
+        }
+    }
+
+    private func answerProfileEdit() {
+        let profile = demoProfile
+        Task { @MainActor in
+            self.delegate?.mixerDidReceiveProfileResult(ok: true, message: nil)
+            self.delegate?.mixerDidReceiveProfile(profile)
         }
     }
 
@@ -542,7 +590,8 @@ final class DemoMixer: MixerBackend {
     func sendChat(text: String) {
         let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
         guard !trimmed.isEmpty, let message = ChatMessage(json: [
-            "id": demoChat.count + 1, "kind": "user", "name": "Demo",
+            "id": demoChat.count + 1, "kind": "user", "name": demoProfile.displayName,
+            "user": demoProfile.username,
             "text": trimmed, "time": Date().timeIntervalSince1970, "mine": true,
         ]) else { return }
         demoChat.append(message)

@@ -407,6 +407,10 @@
         android:background="?attr/colorSurface"
         android:elevation="8dp">
 
+        <include
+            android:id="@+id/profile_header"
+            layout="@layout/drawer_profile_header" />
+
         <!-- The aux list used to live here; it is now the bottom sheet,
              within thumb reach instead of behind a drawer. What is left
              is the settings-ish actions that were always underneath it,

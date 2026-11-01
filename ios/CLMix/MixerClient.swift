@@ -44,6 +44,15 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidReceiveChatHistory(_ messages: [ChatMessage])
     /// One new chat message - anyone's, this phone's own included.
     func mixerDidReceiveChat(_ message: ChatMessage)
+    /// This account's profile: from login_result (no picture yet), then
+    /// in full from get_profile. Nil against a desktop too old to have
+    /// profiles, which hides the menu's profile header.
+    func mixerDidReceiveProfile(_ profile: AccountProfile?)
+    /// The answer to an update_profile or set_profile_picture.
+    func mixerDidReceiveProfileResult(ok: Bool, message: String?)
+    /// One chat sender's picture, asked for or pushed after a change;
+    /// nil when they have none.
+    func mixerDidReceivePicture(user: String, picture: Data?)
 }
 
 /// What AppModel drives, so a demo session (DemoMixer) can stand in for a
@@ -101,6 +110,16 @@ protocol MixerBackend: AnyObject {
     func requestChatHistory()
     /// A message to everyone; it comes back like anyone's.
     func sendChat(text: String)
+    /// This account's own profile - answered with "profile".
+    func requestProfile()
+    /// Edits this account; nil leaves a field alone. `username` and
+    /// `newPassword` also need `currentPassword`.
+    func updateProfile(firstName: String?, lastName: String?, username: String?,
+                       newPassword: String?, currentPassword: String?)
+    /// A base64 JPEG for this account's picture, or nil to remove it.
+    func setProfilePicture(_ base64: String?)
+    /// Chat senders' pictures - each answered with a "picture".
+    func requestPictures(users: [String])
     func requestPresets()
     func savePreset(name: String)
     func loadPreset(_ preset: Preset)
@@ -497,6 +516,29 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "chat_send", "text": text])
     }
 
+    func requestProfile() {
+        send(["action": "get_profile"])
+    }
+
+    func updateProfile(firstName: String?, lastName: String?, username: String?,
+                       newPassword: String?, currentPassword: String?) {
+        var msg: [String: Any] = ["action": "update_profile"]
+        if let firstName { msg["first_name"] = firstName }
+        if let lastName { msg["last_name"] = lastName }
+        if let username { msg["username"] = username }
+        if let newPassword { msg["new_password"] = newPassword }
+        if let currentPassword { msg["current_password"] = currentPassword }
+        send(msg)
+    }
+
+    func requestPictures(users: [String]) {
+        send(["action": "get_pictures", "users": users])
+    }
+
+    func setProfilePicture(_ base64: String?) {
+        send(["action": "set_profile_picture", "picture": base64.map { $0 as Any } ?? NSNull()])
+    }
+
     func requestPresets() {
         // any_aux: every preset this account can see, not just this
         // aux's - the Load sheet asks before loading across auxes.
@@ -621,6 +663,14 @@ final class MixerClient: NSObject, MixerBackend {
                     ok && (json["personalization"] as? Bool ?? false)
                 readHeadAmpRanges(json["head_amp"] as? [String: Any])
                 let token = (json["token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                if ok {
+                    // A desktop with profiles says so; the picture
+                    // follows from get_profile.
+                    let profile = (json["profile"] as? Bool ?? false)
+                        ? AccountProfile(json: json) : nil
+                    delegate?.mixerDidReceiveProfile(profile)
+                    if profile != nil { requestProfile() }
+                }
                 delegate?.mixerDidReceiveLoginResult(
                     ok: ok, message: json["message"] as? String, token: token
                 )
@@ -783,6 +833,22 @@ final class MixerClient: NSObject, MixerBackend {
                    let message = ChatMessage(json: entry) {
                     delegate?.mixerDidReceiveChat(message)
                 }
+
+            case "profile":
+                delegate?.mixerDidReceiveProfile(AccountProfile(json: json))
+
+            case "picture":
+                if let user = json["user"] as? String, !user.isEmpty {
+                    delegate?.mixerDidReceivePicture(
+                        user: user,
+                        picture: (json["picture"] as? String).flatMap { Data(base64Encoded: $0) }
+                    )
+                }
+
+            case "profile_result":
+                delegate?.mixerDidReceiveProfileResult(
+                    ok: json["ok"] as? Bool ?? false, message: json["message"] as? String
+                )
 
             case "sync":
                 delegate?.mixerDidReceiveSync(json["syncing"] as? Bool ?? false)

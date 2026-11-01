@@ -131,6 +131,9 @@ class AccessPanel:
         self.filter_combo.set(self.snapshot_filter or FILTER_ANY)
 
     def refresh_list(self):
+        self.seen_revision = self.user_store.revision
+        selected = self.tree.selection()
+
         for row in self.tree.get_children():
             self.tree.delete(row)
 
@@ -155,6 +158,10 @@ class AccessPanel:
                     "Yes" if record.get("personalization", False) else "No",
                 )
             )
+
+        keep = [row for row in selected if self.tree.exists(row)]
+        if keep:
+            self.tree.selection_set(keep)
 
     def _known_snapshots(self):
         worker = self.get_worker()
@@ -420,6 +427,15 @@ class UserEditDialog:
                     parent=self.window
                 )
                 return
+
+        if self.username and not self.user_store.get(self.username):
+            messagebox.showerror(
+                "Account changed",
+                f"User '{self.username}' was renamed or deleted while this "
+                "window was open. Close it and edit the account again.",
+                parent=self.window
+            )
+            return
 
         self.user_store.save_user(
             username, password, snapshot, aux,

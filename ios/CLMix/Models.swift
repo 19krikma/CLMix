@@ -135,6 +135,8 @@ struct ChatMessage: Identifiable, Equatable {
     let time: Date
     /// Written by this phone's own account.
     let mine: Bool
+    /// The sender's username; nil for the sound engineer's.
+    let user: String?
 
     var isTech: Bool { kind == "tech" }
     var isSos: Bool { kind == "sos" }
@@ -147,6 +149,7 @@ struct ChatMessage: Identifiable, Equatable {
         text = json["text"] as? String ?? ""
         time = Date(timeIntervalSince1970: json["time"] as? Double ?? 0)
         mine = json["mine"] as? Bool ?? false
+        user = (json["user"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 }
 
@@ -525,5 +528,38 @@ struct Preset: Identifiable, Equatable {
         // belongs to is what matters.
         if let owner { return "Owner: \(ownerName ?? owner)" }
         return "Public"
+    }
+}
+
+/// The logged-in account as its profile screen shows it - see
+/// ProfileView and RemoteServer._handle_profile on the desktop.
+struct AccountProfile: Equatable {
+    var username: String
+    var firstName: String
+    var lastName: String
+    /// "First Last" where either is set, the username otherwise.
+    var displayName: String
+    /// A small JPEG or PNG, or nil for the person figure.
+    var picture: Data?
+
+    init(username: String, firstName: String = "", lastName: String = "",
+         displayName: String? = nil, picture: Data? = nil) {
+        self.username = username
+        self.firstName = firstName
+        self.lastName = lastName
+        self.displayName = (displayName?.isEmpty == false) ? displayName! : username
+        self.picture = picture
+    }
+
+    /// From a "profile" message, or nil if it names no account.
+    init?(json: [String: Any]) {
+        guard let username = json["username"] as? String, !username.isEmpty else { return nil }
+        self.init(
+            username: username,
+            firstName: json["first_name"] as? String ?? "",
+            lastName: json["last_name"] as? String ?? "",
+            displayName: json["display_name"] as? String,
+            picture: (json["picture"] as? String).flatMap { Data(base64Encoded: $0) }
+        )
     }
 }

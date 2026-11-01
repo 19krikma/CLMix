@@ -99,8 +99,9 @@ struct ChatView: View {
             ink = .clmixOnSurface
         }
 
-        return HStack {
+        return HStack(alignment: .bottom, spacing: 8) {
             if message.mine { Spacer(minLength: 48) }
+            if !message.mine { avatar(message) }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
@@ -120,7 +121,23 @@ struct ChatView: View {
             .background(fill)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
+            if message.mine { avatar(message) }
             if !message.mine { Spacer(minLength: 48) }
+        }
+    }
+
+    /// The sender's picture on the outside edge: theirs on the left,
+    /// this phone's own on the right. The sound engineer gets a headset.
+    /// None against a desktop without profiles.
+    @ViewBuilder
+    private func avatar(_ message: ChatMessage) -> some View {
+        if model.profile != nil {
+            let known = message.user.flatMap { model.chatPictures[$0] } ?? nil
+            ProfilePicture(
+                picture: known ?? (message.mine ? model.profile?.picture : nil),
+                size: 36,
+                placeholder: message.isTech ? "headphones" : "person.fill"
+            )
         }
     }
 

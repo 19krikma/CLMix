@@ -21,6 +21,7 @@ struct MixerView: View {
     @State private var showPresetLoad = false
     @State private var showCustomBanks = false
     @State private var showChat = false
+    @State private var showProfile = false
 
     /// Which side panel the landscape sidebar has out, if any.
     @State private var openPanel: LandscapePanel?
@@ -89,6 +90,9 @@ struct MixerView: View {
         // against each - rather than a short panel.
         .sheet(isPresented: $showCustomBanks) {
             CustomBanksView()
+        }
+        .sheet(isPresented: $showProfile) {
+            ProfileView()
         }
         .sheet(isPresented: $showChat) {
             ChatView()
@@ -538,6 +542,12 @@ struct MixerView: View {
     /// a button added here cannot go missing from one of them.
     private var menuContent: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // This account's picture and name - see ProfileView.
+            ProfileHeader {
+                dismissMenu()
+                showProfile = true
+            }
+
             // Held down at the bottom, in thumb reach - in the landscape
             // panel just as much as in the sheet, since the hand holding
             // the phone is at the bottom either way.

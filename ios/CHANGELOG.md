@@ -9,6 +9,24 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.14.0
+
+Needs desktop 1.25.0 or later; with an older desktop the menu has no
+profile header.
+
+- **Your profile.** The top of the side menu now shows your profile
+  picture in a circle (a person figure until you add one) and your name,
+  or your username if no first or last name is set. Tap it to open your
+  profile, where you can change your photo, first name, last name,
+  username and password. Changing the username or password asks for
+  your current password. Your presets and chat messages follow you to a
+  new username, and a new password signs your account out on your other
+  devices.
+- **Pictures in the chat.** Each message shows its sender's profile
+  picture beside the bubble: everyone else's on the left, yours on the
+  right, and a headset for the sound engineer. A new photo shows up in
+  the chat on every phone straight away.
+
 ## 1.13.0
 
 Needs desktop 1.24.0 or later for SOS and Chat; with an older desktop the

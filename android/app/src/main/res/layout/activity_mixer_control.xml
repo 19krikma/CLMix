@@ -116,6 +116,10 @@
         android:background="?attr/colorSurface"
         android:elevation="8dp">
 
+        <include
+            android:id="@+id/profile_header"
+            layout="@layout/drawer_profile_header" />
+
         <Space
             android:layout_width="match_parent"
             android:layout_height="0dp"

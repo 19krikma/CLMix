@@ -45,6 +45,7 @@ private const val BANK_PANEL_ANIM_MS = 100L
  */
 class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerControlBinding
+    private lateinit var profileHeader: ProfileHeader
     private lateinit var adapter: ChannelAdapter
     private lateinit var bankAdapter: BankAdapter
 
@@ -149,6 +150,13 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
         binding.logoutButton.setOnClickListener { logout() }
 
+        profileHeader = ProfileHeader(binding.profileHeader) {
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            dismissPanSheet()
+            dismissInputSheet()
+            startActivity(Intent(this, ProfileActivity::class.java))
+        }
+
         binding.smoothButton.setOnClickListener {
             smoothEnabled = !smoothEnabled
             adapter.smoothEnabled = smoothEnabled
@@ -172,6 +180,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         }
 
         MixerClient.claimListener(this)
+        profileHeader.start()
 
         // Re-asserted on every resume rather than once in onCreate: the
         // socket is shared with the other screens, and coming back here
@@ -183,6 +192,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
     override fun onPause() {
         super.onPause()
+        profileHeader.stop()
         MixerClient.releaseListener(this)
     }
 

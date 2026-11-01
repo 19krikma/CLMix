@@ -11,6 +11,8 @@
     <color name="surface_variant">#25272E</color>
     <color name="on_surface">#ECEDF0</color>
     <color name="on_surface_variant">#A9ACB4</color>
+    <!-- The line under the side menu's account header. -->
+    <color name="divider">#3A3D45</color>
 
     <color name="mute_active">#FF6B62</color>
     <!-- The SOS button: loud on purpose. -->

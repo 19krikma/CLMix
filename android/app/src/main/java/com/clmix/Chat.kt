@@ -1,6 +1,9 @@
 package com.clmix
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,6 +19,8 @@ data class ChatMessage(
     val time: Double,
     /** Written by this phone's own account. */
     val mine: Boolean,
+    /** The sender's username; null for the sound engineer's. */
+    val user: String? = null,
 ) {
     val isTech get() = kind == "tech"
     val isSos get() = kind == "sos"
@@ -34,6 +39,14 @@ object Chat {
 
     private var appContext: Context? = null
     private val messages = mutableListOf<ChatMessage>()
+
+    // Each sender's profile picture by username, fetched once and then
+    // kept up to date by the server's "picture" pushes. A username
+    // mapped to null has no picture; one missing hasn't been asked for.
+    private val pictures = mutableMapOf<String, Bitmap?>()
+    private val requested = mutableSetOf<String>()
+
+    fun picture(user: String?): Bitmap? = user?.let { pictures[it] }
 
     /** The open chat screen's redraw; null while it is closed. */
     var onChange: ((List<ChatMessage>) -> Unit)? = null
@@ -54,6 +67,7 @@ object Chat {
             items.optJSONObject(i)?.let { messages.add(parse(it)) }
         }
         onChange?.invoke(messages.toList())
+        fetchPictures()
     }
 
     fun onMessage(json: JSONObject) {
@@ -62,6 +76,7 @@ object Chat {
 
         messages.add(message)
         if (messages.size > MAX_MESSAGES) messages.removeAt(0)
+        fetchPictures()
 
         val screen = onChange
         if (screen != null) {
@@ -75,9 +90,37 @@ object Chat {
         }
     }
 
+    /** One account's picture, asked for or pushed after a change. */
+    fun onPicture(json: JSONObject) {
+        val user = json.optString("user").takeIf { it.isNotEmpty() } ?: return
+        val encoded = json.optString("picture").takeIf { !json.isNull("picture") && it.isNotEmpty() }
+        pictures[user] = encoded?.let {
+            try {
+                val bytes = Base64.decode(it, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } catch (e: IllegalArgumentException) {
+                null
+            }
+        }
+        requested.add(user)
+        onChange?.invoke(messages.toList())
+    }
+
+    /** Asks the server for the senders' pictures not yet known. Only a
+     *  desktop with profiles has pictures to give. */
+    private fun fetchPictures() {
+        if (!Profile.supported) return
+        val missing = messages.mapNotNull { it.user }.distinct().filter { it !in requested }
+        if (missing.isEmpty()) return
+        requested.addAll(missing)
+        MixerClient.requestPictures(missing)
+    }
+
     /** A different account may log in next, with its own "mine". */
     fun clear() {
         messages.clear()
+        pictures.clear()
+        requested.clear()
     }
 
     private fun parse(o: JSONObject) = ChatMessage(
@@ -87,5 +130,6 @@ object Chat {
         text = o.optString("text"),
         time = o.optDouble("time", 0.0),
         mine = o.optBoolean("mine", false),
+        user = o.optString("user").takeIf { !o.isNull("user") && it.isNotEmpty() },
     )
 }

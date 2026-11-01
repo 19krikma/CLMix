@@ -18,6 +18,7 @@ struct MixerControlView: View {
 
     @State private var banksExpanded = false
     @State private var showMenu = false
+    @State private var showProfile = false
     // Which channel's input stage is open, by number rather than by
     // value: the sheet has to read the live channel off the model on
     // every push, not a copy captured when it was opened.
@@ -55,6 +56,7 @@ struct MixerControlView: View {
         .background(Color.clmixBackground.ignoresSafeArea())
         .navigationBarHidden(true)
         .sheet(isPresented: $showMenu) { menuSheet }
+        .sheet(isPresented: $showProfile) { ProfileView() }
         .sheet(item: $openInput) { open in inputSheet(for: open.id) }
         // The EQ is its own full-screen, landscape view rather than a
         // sheet: a frequency graph needs the width. AppModel turns the
@@ -220,6 +222,13 @@ struct MixerControlView: View {
     /// nothing to act on here and is deliberately absent.
     private var menuSheet: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // This account's picture and name - see ProfileView.
+            ProfileHeader {
+                showMenu = false
+                openInput = nil
+                showProfile = true
+            }
+
             Spacer()
 
             // Back returns to the AUX Only / Mixer Control choice; Log Out

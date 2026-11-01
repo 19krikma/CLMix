@@ -20,6 +20,18 @@
         <item name="cornerSize">50%</item>
     </style>
 
+    <!-- A heading over a group of fields on the profile screen. -->
+    <style name="ProfileSection">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">24dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:textColor">@color/on_surface_variant</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
     <!-- One choice in the SOS options dialog (layout/dialog_sos.xml):
          a full-width red button with centred text. -->
     <style name="SosOption" parent="Widget.Material3.Button">

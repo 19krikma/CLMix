@@ -158,6 +158,15 @@ PRESET_ACTIONS = frozenset({
     "delete_preset", "set_preset_public", "share_preset",
 })
 
+# A phone viewing and editing its own account - see
+# RemoteServer._handle_profile. Open to every logged-in account.
+PROFILE_ACTIONS = frozenset({
+    "get_profile", "update_profile", "set_profile_picture", "get_pictures",
+})
+
+# Most accounts a phone may ask pictures of at once.
+MAX_PICTURE_REQUEST = 64
+
 # What a phone's SOS button can ask for, by the "reason" it sends, mapped
 # to what the sound engineer reads in the desktop's SOS window.
 SOS_REASONS = {
@@ -612,6 +621,12 @@ class RemoteServer:
             await self._handle_chat(websocket, state, action, msg)
             return
 
+        # An account's own profile has nothing to do with the console,
+        # so it works whatever the desk is doing.
+        if action in PROFILE_ACTIONS:
+            await self._handle_profile(websocket, state, action, msg)
+            return
+
         if self.locked_reason is not None:
             await self._send(
                 websocket, {"type": "error", "message": self.locked_reason}
@@ -981,6 +996,11 @@ class RemoteServer:
             "personalization": entry.get("personalization", False),
             "head_amp": HEAD_AMP_RANGES,
             "token": new_token,
+            # The profile screen: who this is, and that this server
+            # answers get_profile / update_profile.
+            "username": username,
+            "display_name": self.user_store.display_name(username),
+            "profile": True,
         })
 
     async def _handle_token_login(self, websocket, state, token):
@@ -1036,6 +1056,11 @@ class RemoteServer:
             "personalization": entry.get("personalization", False),
             "head_amp": HEAD_AMP_RANGES,
             "token": token,
+            # The profile screen: who this is, and that this server
+            # answers get_profile / update_profile.
+            "username": username,
+            "display_name": self.user_store.display_name(username),
+            "profile": True,
         })
 
     def _prune_expired_sessions(self):
@@ -1964,6 +1989,129 @@ class RemoteServer:
             await self._broadcast_chat(
                 self.chat_log.add(KIND_SOS, text, user=user, name=sos["name"])
             )
+
+    async def _handle_profile(self, websocket, state, action, msg):
+        """A phone viewing or editing its own account.
+
+        get_profile answers with "profile". update_profile changes any of
+        first_name, last_name, username and new_password; the last two
+        need current_password as well, so a phone left unlocked can't
+        have its account taken over. set_profile_picture stores "picture"
+        (base64 JPEG/PNG) or removes it when that is null. Each edit
+        answers with "profile_result" and then a fresh "profile".
+        """
+        user = state["user"]
+
+        if action == "get_profile":
+            await self._send_profile(websocket, user)
+            return
+
+        if action == "get_pictures":
+            # One message per account rather than all in one, so a chat
+            # full of photos never makes a frame too big for a phone.
+            users = msg.get("users")
+            if not isinstance(users, list):
+                return
+            for name in dict.fromkeys(u for u in users[:MAX_PICTURE_REQUEST]
+                                      if isinstance(u, str)):
+                await self._send(websocket, self._picture_message(name))
+            return
+
+        try:
+            if action == "set_profile_picture":
+                self.user_store.set_picture(user, msg.get("picture"))
+                log("info", f"User {user!r} "
+                    f"{'set' if msg.get('picture') else 'removed'} their picture")
+                await self._send(websocket, {"type": "profile_result", "ok": True})
+                await self._send_profile(websocket, user)
+                await self._broadcast(self._picture_message(user))
+                return
+
+            def text(key):
+                value = msg.get(key)
+                return value if isinstance(value, str) else None
+
+            new_username = text("username")
+            new_password = text("new_password") or None
+
+            if new_username is not None and new_username.strip() == user:
+                new_username = None
+
+            if (new_username is not None or new_password is not None) \
+                    and not self.user_store.check_password(
+                        user, text("current_password")):
+                raise ValueError("Current password is incorrect")
+
+            renamed = self.user_store.update_profile(
+                user,
+                first_name=text("first_name"), last_name=text("last_name"),
+                new_username=new_username, new_password=new_password,
+            )
+        except ValueError as ex:
+            await self._send(websocket, {
+                "type": "profile_result", "ok": False, "message": str(ex),
+            })
+            return
+
+        if renamed != user:
+            self._follow_rename(user, renamed)
+            log("info", f"User {user!r} renamed themselves to {renamed!r}")
+
+        if new_password is not None:
+            # Every other session of this account needs the new password;
+            # this phone keeps its own.
+            for token in [t for t, s in self._sessions.items()
+                          if s["username"] == renamed and t != state["token"]]:
+                del self._sessions[token]
+            log("info", f"User {renamed!r} changed their password")
+
+        if self.chat_log is not None:
+            self.chat_log.rename_user(
+                user, renamed, self.user_store.display_name(renamed))
+
+        if renamed != user:
+            # Under its new name, for the chat on every phone.
+            await self._broadcast(self._picture_message(renamed))
+
+        await self._send(websocket, {"type": "profile_result", "ok": True})
+        await self._send_profile(websocket, renamed)
+
+    def _follow_rename(self, old, new):
+        """Moves everything filed under an account's old username to its
+        new one: live connections, session tokens and presets."""
+        for client in list(self._clients.values()):
+            if client.get("user") == old:
+                client["user"] = new
+
+        for session in self._sessions.values():
+            if session["username"] == old:
+                session["username"] = new
+
+        self.preset_store.rename_user(old, new)
+
+    def _picture_message(self, user):
+        """One account's chat picture: base64 JPEG/PNG, or null for none."""
+        record = self.user_store.get(user) or {}
+        return {"type": "picture", "user": user, "picture": record.get("picture")}
+
+    async def _broadcast(self, payload):
+        """Sends to every logged-in phone."""
+        for websocket, state in list(self._clients.items()):
+            if state.get("user") is None:
+                continue
+            try:
+                await self._send(websocket, payload)
+            except websockets.ConnectionClosed:
+                pass
+
+    async def _send_profile(self, websocket, user):
+        profile = self.user_store.profile(user)
+
+        if profile is None:
+            await self._send(websocket, {"type": "error", "message": "Account not found"})
+            return
+
+        await self._send(websocket, dict(profile, type="profile"))
 
     async def _handle_chat(self, websocket, state, action, msg):
         """The shared chat: any logged-in account may read it and post to

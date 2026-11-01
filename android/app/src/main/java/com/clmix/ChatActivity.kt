@@ -19,6 +19,7 @@ import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.clmix.databinding.ActivityChatBinding
+import com.google.android.material.imageview.ShapeableImageView
 import java.text.DateFormat
 import java.util.Date
 
@@ -147,6 +148,9 @@ class ChatActivity : AppCompatActivity(), MixerClientListener {
         }
 
         inner class Holder(view: View) : RecyclerView.ViewHolder(view) {
+            val row: LinearLayout = view.findViewById(R.id.row)
+            val avatarStart: ShapeableImageView = view.findViewById(R.id.avatar_start)
+            val avatarEnd: ShapeableImageView = view.findViewById(R.id.avatar_end)
             val bubble: LinearLayout = view.findViewById(R.id.bubble)
             val name: TextView = view.findViewById(R.id.name)
             val time: TextView = view.findViewById(R.id.time)
@@ -175,13 +179,29 @@ class ChatActivity : AppCompatActivity(), MixerClientListener {
                 cornerRadius = 16 * density
                 setColor(ContextCompat.getColor(context, fill))
             }
-            (holder.bubble.layoutParams as FrameLayout.LayoutParams).gravity =
+            (holder.row.layoutParams as FrameLayout.LayoutParams).gravity =
                 if (message.mine) Gravity.END else Gravity.START
 
+            // The sender's picture on the outside edge: theirs on the
+            // left, this phone's own on the right. The sound engineer
+            // gets a headset. None against a desktop without profiles.
+            val avatar = if (message.mine) holder.avatarEnd else holder.avatarStart
+            val showPictures = Profile.supported
+            holder.avatarStart.isVisible = showPictures && !message.mine
+            holder.avatarEnd.isVisible = showPictures && message.mine
+            if (showPictures) {
+                val picture = Chat.picture(message.user)
+                    ?: if (message.mine) Profile.current?.picture else null
+                avatar.showProfilePicture(
+                    picture,
+                    if (message.isTech) R.drawable.ic_headset else R.drawable.ic_person
+                )
+            }
+
             // Most of the width, so a long message still reads as a
-            // bubble on its own side.
-            val maxWidth = (binding.messageList.width * 0.8f).toInt()
-                .takeIf { it > 0 } ?: (resources.displayMetrics.widthPixels * 0.75f).toInt()
+            // bubble on its own side - less the picture beside it.
+            val maxWidth = (binding.messageList.width * 0.7f).toInt()
+                .takeIf { it > 0 } ?: (resources.displayMetrics.widthPixels * 0.65f).toInt()
             holder.text.maxWidth = maxWidth
             holder.name.maxWidth = maxWidth
 

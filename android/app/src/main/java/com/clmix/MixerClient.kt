@@ -253,6 +253,7 @@ object MixerClient {
     fun disconnect() {
         // The next connection may be another account, or another desk.
         Chat.clear()
+        Profile.clear()
 
         // REMOVE WITH DEMO MODE. Leaving the demo is the same act as
         // closing a socket, so it runs the same teardown and reports
@@ -603,6 +604,41 @@ object MixerClient {
         JSONObject().put("action", "sos").put("reason", reason)
     )
 
+    /** This account's own profile - answered with "profile". */
+    fun requestProfile() = send(JSONObject().put("action", "get_profile"))
+
+    /**
+     * Edits this account. Null leaves a field alone; username and
+     * newPassword also need currentPassword. Answered with
+     * "profile_result" and, when it worked, a fresh "profile".
+     */
+    fun updateProfile(
+        firstName: String?,
+        lastName: String?,
+        username: String?,
+        newPassword: String?,
+        currentPassword: String?,
+    ) {
+        val msg = JSONObject().put("action", "update_profile")
+        firstName?.let { msg.put("first_name", it) }
+        lastName?.let { msg.put("last_name", it) }
+        username?.let { msg.put("username", it) }
+        newPassword?.let { msg.put("new_password", it) }
+        currentPassword?.let { msg.put("current_password", it) }
+        send(msg)
+    }
+
+    /** Chat senders' pictures - each answered with a "picture". */
+    fun requestPictures(users: List<String>) = send(
+        JSONObject().put("action", "get_pictures").put("users", JSONArray(users))
+    )
+
+    /** A base64 JPEG for this account's picture, or null to remove it. */
+    fun setProfilePicture(picture: String?) = send(
+        JSONObject().put("action", "set_profile_picture")
+            .put("picture", picture ?: JSONObject.NULL)
+    )
+
     /** The shared chat so far - answered with "chat_history". See Chat. */
     fun requestChatHistory() = send(JSONObject().put("action", "chat_history"))
 
@@ -722,7 +758,12 @@ object MixerClient {
                 mixerControlAllowed = ok && json.optBoolean("mixer_control", false)
                 personalizationAllowed = ok && json.optBoolean("personalization", false)
                 readHeadAmpRanges(json.optJSONObject("head_amp"))
-                onMain { listener?.onLoginResult(ok, message, token) }
+                onMain {
+                    if (ok) Profile.onLogin(json)
+                    listener?.onLoginResult(ok, message, token)
+                }
+                // The full profile, picture included, for the menu's header.
+                if (ok && json.optBoolean("profile", false)) requestProfile()
             }
 
             "auxes" -> {
@@ -890,6 +931,12 @@ object MixerClient {
                 val message = json.optJSONObject("message") ?: return
                 onMain { Chat.onMessage(message) }
             }
+
+            // Not through the screen listener: the menu header and the
+            // profile screen both draw it - see Profile.
+            "profile" -> onMain { Profile.onProfile(json) }
+            "profile_result" -> onMain { Profile.onResult(json) }
+            "picture" -> onMain { Chat.onPicture(json) }
 
             // Not through the screen listener: it moves the app between
             // screens, which is no one screen's job.

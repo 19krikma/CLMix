@@ -55,6 +55,17 @@ class ChatLog:
             self.revision += 1
             return dict(message)
 
+    def rename_user(self, old, new, name=None):
+        """Keeps an account's messages its own after a rename, under the
+        name it goes by now."""
+        with self._lock:
+            for message in self._messages:
+                if message["user"] == old:
+                    message["user"] = new
+                    if name and message["kind"] == KIND_USER:
+                        message["name"] = name
+            self.revision += 1
+
     def messages(self, after_id=0):
         """Every message kept, oldest first - or only those newer than
         after_id."""

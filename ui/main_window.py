@@ -5518,7 +5518,7 @@ class MainWindow:
             self.reload_settings()
 
         if "users" in keys and self.access_panel is not None:
-            self.access_panel.refresh_list()
+            panel.refresh_list()
 
         if "presets" in keys and \
                 self.presets_window and self.presets_window.window.winfo_exists():
@@ -5840,6 +5840,12 @@ class MainWindow:
         if self.presets_window and self.presets_window.window.winfo_exists() \
                 and self.presets_window.seen_revision != self.preset_store.revision:
             self.presets_window.refresh_list()
+
+        # A phone editing its own profile changes the accounts from the
+        # server's thread; the Accounts tab catches up here.
+        panel = getattr(self, "access_panel", None)
+        if panel is not None and panel.seen_revision != self.user_store.revision:
+            panel.refresh_list()
 
         self._refresh_capture_status()
         self._refresh_capture_view()

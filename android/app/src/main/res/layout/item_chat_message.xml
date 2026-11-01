@@ -1,48 +1,77 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One chat message: a bubble on the left, or on the right for this
-     phone's own. ChatActivity sets the side and colour per message. -->
+<!-- One chat message: the sender's picture and a bubble, on the left,
+     or mirrored on the right for this phone's own. ChatActivity sets
+     the side, the picture and the colour per message. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:paddingVertical="4dp">
 
     <LinearLayout
-        android:id="@+id/bubble"
+        android:id="@+id/row"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingHorizontal="14dp"
-        android:paddingVertical="8dp">
+        android:gravity="bottom"
+        android:orientation="horizontal">
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/avatar_start"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginEnd="8dp"
+            android:contentDescription="Sender's picture"
+            android:scaleType="centerCrop"
+            app:shapeAppearanceOverlay="@style/ShapeAppearance.CLMix.Circle" />
 
         <LinearLayout
+            android:id="@+id/bubble"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="8dp">
 
-            <TextView
-                android:id="@+id/name"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="13sp"
-                android:textStyle="bold" />
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:alpha="0.7"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/time"
+                android:id="@+id/text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:alpha="0.7"
-                android:textSize="12sp" />
+                android:layout_marginTop="2dp"
+                android:textIsSelectable="false"
+                android:textSize="16sp" />
 
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textIsSelectable="false"
-            android:textSize="16sp" />
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/avatar_end"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="Your picture"
+            android:scaleType="centerCrop"
+            app:shapeAppearanceOverlay="@style/ShapeAppearance.CLMix.Circle" />
 
     </LinearLayout>
 

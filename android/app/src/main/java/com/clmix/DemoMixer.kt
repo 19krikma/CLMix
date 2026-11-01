@@ -207,6 +207,12 @@ object DemoMixer {
 
     private val demoChat = mutableListOf<JSONObject>()
 
+    private val demoProfile = JSONObject()
+        .put("username", "demo")
+        .put("first_name", "")
+        .put("last_name", "")
+        .put("picture", JSONObject.NULL)
+
     // MARK: - Lifecycle
 
     fun start() {
@@ -657,13 +663,28 @@ object DemoMixer {
                 JSONObject().put("type", "chat_history").put("messages", JSONArray(demoChat))
             )
 
+            "get_profile" -> deliverProfile()
+            "update_profile" -> updateProfile(message)
+            "set_profile_picture" -> {
+                demoProfile.put("picture", message.opt("picture") ?: JSONObject.NULL)
+                deliver(JSONObject().put("type", "profile_result").put("ok", true))
+                deliverProfile()
+                deliverPicture(demoProfile.getString("username"))
+            }
+
+            "get_pictures" -> {
+                val users = message.optJSONArray("users") ?: JSONArray()
+                for (i in 0 until users.length()) deliverPicture(users.optString(i))
+            }
+
             "chat_send" -> {
                 val text = message.optString("text").trim().take(500)
                 if (text.isNotEmpty()) {
                     val chat = JSONObject()
                         .put("id", demoChat.size + 1)
                         .put("kind", "user")
-                        .put("name", "Demo")
+                        .put("name", demoDisplayName())
+                        .put("user", demoProfile.getString("username"))
                         .put("text", text)
                         .put("time", System.currentTimeMillis() / 1000.0)
                         .put("mine", true)
@@ -858,7 +879,41 @@ object DemoMixer {
                 .put("mute", true)
                 .put("mixer_control", true)
                 .put("personalization", true)
+                .put("profile", true)
+                .put("username", demoProfile.getString("username"))
+                .put("display_name", demoDisplayName())
         )
+    }
+
+    private fun demoDisplayName(): String {
+        val full = listOf(demoProfile.optString("first_name"), demoProfile.optString("last_name"))
+            .filter { it.isNotBlank() }.joinToString(" ")
+        return full.ifEmpty { demoProfile.getString("username") }
+    }
+
+    /** Only the demo account has a picture; anyone else has none. */
+    private fun deliverPicture(user: String) = deliver(
+        JSONObject().put("type", "picture").put("user", user).put(
+            "picture",
+            if (user == demoProfile.getString("username")) demoProfile.opt("picture") else JSONObject.NULL
+        )
+    )
+
+    private fun deliverProfile() = deliver(
+        JSONObject(demoProfile.toString())
+            .put("type", "profile")
+            .put("display_name", demoDisplayName())
+    )
+
+    /** The demo account's profile edits, kept until the app closes. No
+     *  password exists to check, so any current password is accepted. */
+    private fun updateProfile(message: JSONObject) {
+        message.optString("username").trim().takeIf { it.isNotEmpty() }
+            ?.let { demoProfile.put("username", it) }
+        if (message.has("first_name")) demoProfile.put("first_name", message.optString("first_name").trim())
+        if (message.has("last_name")) demoProfile.put("last_name", message.optString("last_name").trim())
+        deliver(JSONObject().put("type", "profile_result").put("ok", true))
+        deliverProfile()
     }
 
     /** The presets of the aux on screen, as the real server lists them. */

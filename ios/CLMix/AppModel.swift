@@ -40,6 +40,16 @@ final class AppModel: NSObject, ObservableObject {
     /// The shared chat, oldest first - see ChatView. Kept while the chat
     /// is closed so it opens with what was said meanwhile.
     @Published var chatMessages: [ChatMessage] = []
+    /// The logged-in account's profile for the menu header and
+    /// ProfileView; nil against a desktop too old to have profiles.
+    @Published var profile: AccountProfile?
+    /// Chat senders' pictures by username; a username mapped to nil
+    /// has none. See ChatView.
+    @Published var chatPictures: [String: Data?] = [:]
+    /// Senders already asked about, so each is fetched once.
+    private var picturesRequested: Set<String> = []
+    /// ProfileView's answer to its next edit.
+    var pendingProfileCompletion: ((Bool, String?) -> Void)?
     /// ChatView is on screen; while it is not, a message from the sound
     /// engineer is flashed as a notice instead.
     var chatOpen = false
@@ -716,6 +726,23 @@ final class AppModel: NSObject, ObservableObject {
         backend.sendChat(text: text)
     }
 
+    func requestProfile() {
+        backend.requestProfile()
+    }
+
+    func updateProfile(firstName: String?, lastName: String?, username: String?,
+                       newPassword: String?, currentPassword: String?,
+                       completion: @escaping (Bool, String?) -> Void) {
+        pendingProfileCompletion = completion
+        backend.updateProfile(firstName: firstName, lastName: lastName, username: username,
+                              newPassword: newPassword, currentPassword: currentPassword)
+    }
+
+    func setProfilePicture(_ base64: String?, completion: @escaping (Bool, String?) -> Void) {
+        pendingProfileCompletion = completion
+        backend.setProfilePicture(base64)
+    }
+
     func sendSos(reason: String) {
         sosPending = true
         sosTimeout?.cancel()
@@ -820,6 +847,10 @@ final class AppModel: NSObject, ObservableObject {
         awaitingAuxes = false
         presets = []
         shareTargets = nil
+        profile = nil
+        pendingProfileCompletion = nil
+        chatPictures = [:]
+        picturesRequested = []
         isConnecting = false
         statusIsError = false
         credentialsRejected = false
@@ -830,14 +861,44 @@ final class AppModel: NSObject, ObservableObject {
 }
 
 extension AppModel: MixerClientDelegate {
+    func mixerDidReceiveProfile(_ profile: AccountProfile?) {
+        self.profile = profile
+    }
+
+    func mixerDidReceiveProfileResult(ok: Bool, message: String?) {
+        let completion = pendingProfileCompletion
+        pendingProfileCompletion = nil
+        completion?(ok, message)
+    }
+
     func mixerDidReceiveChatHistory(_ messages: [ChatMessage]) {
         chatMessages = messages
+        fetchChatPictures()
+    }
+
+    func mixerDidReceivePicture(user: String, picture: Data?) {
+        picturesRequested.insert(user)
+        chatPictures[user] = .some(picture)
+    }
+
+    /// Asks for the pictures of chat senders not yet known. Only a
+    /// desktop with profiles has any to give.
+    private func fetchChatPictures() {
+        guard profile != nil else { return }
+        var seen = Set<String>()
+        let missing = chatMessages.compactMap(\.user).filter {
+            !picturesRequested.contains($0) && seen.insert($0).inserted
+        }
+        guard !missing.isEmpty else { return }
+        picturesRequested.formUnion(missing)
+        backend.requestPictures(users: missing)
     }
 
     func mixerDidReceiveChat(_ message: ChatMessage) {
         guard !chatMessages.contains(where: { $0.id == message.id }) else { return }
         chatMessages.append(message)
         if chatMessages.count > 300 { chatMessages.removeFirst() }
+        fetchChatPictures()
 
         // Chat closed: the sound engineer's words still reach the
         // performer.
@@ -938,6 +999,9 @@ extension AppModel: MixerClientDelegate {
         let wasMidSession = screen != .connect
         // The next connection may be another account, or another desk.
         chatMessages = []
+        profile = nil
+        chatPictures = [:]
+        picturesRequested = []
         eqChannel = nil
         eq = nil
         dynChannel = nil

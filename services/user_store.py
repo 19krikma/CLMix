@@ -1,3 +1,5 @@
+import base64
+import binascii
 import hashlib
 import json
 import secrets
@@ -54,10 +56,24 @@ class UserStore:
     MAX_BANK_CHANNELS = 256
     MAX_BANK_NAME = 32
 
+    # Profile fields a phone may edit about its own account.
+    MAX_USERNAME = 32
+    MAX_NAME = 40
+    MIN_PASSWORD = 4
+
+    # The profile picture, as the base64 of a small JPEG or PNG the
+    # phone has already cropped and shrunk. 300 KB of base64 is far more
+    # than a 256px photo needs and keeps the users file sane.
+    MAX_PICTURE_B64 = 300_000
+
     def __init__(self, path=USERS_PATH):
         self.path = path
         self._lock = threading.Lock()
         self.users = self._load()
+
+        # Advances on every save, so the desktop's Accounts tab can tell
+        # from the Tkinter thread that a phone changed an account.
+        self.revision = 0
 
     def _load(self):
         try:
@@ -98,6 +114,8 @@ class UserStore:
         return users
 
     def _save(self):
+        self.revision += 1
+
         try:
             with open(self.path, "w") as f:
                 json.dump(self.users, f, indent=2)
@@ -166,6 +184,107 @@ class UserStore:
             if username in self.users:
                 del self.users[username]
                 self._save()
+
+    def check_password(self, username, password):
+        record = self.users.get(username)
+        return bool(record and password) and \
+            self._hash(password, record["salt"]) == record["password_hash"]
+
+    def profile(self, username):
+        """What a phone's profile screen shows about its own account."""
+        record = self.users.get(username)
+
+        if record is None:
+            return None
+
+        return {
+            "username": username,
+            "first_name": record.get("first_name", ""),
+            "last_name": record.get("last_name", ""),
+            "display_name": self.display_name(username),
+            "picture": record.get("picture"),
+        }
+
+    def update_profile(self, username, first_name=None, last_name=None,
+                       new_username=None, new_password=None):
+        """A phone editing its own account. Every field is optional; None
+        leaves it alone. Returns the account's username afterwards, which
+        differs from the one passed in when it was renamed.
+
+        Raises ValueError with a message the phone can show if anything
+        is refused, having changed nothing.
+        """
+        with self._lock:
+            record = self.users.get(username)
+
+            if record is None:
+                raise ValueError("Account not found")
+
+            if new_username is not None:
+                new_username = new_username.strip()
+
+                if not new_username:
+                    raise ValueError("Username can't be empty")
+                if len(new_username) > self.MAX_USERNAME:
+                    raise ValueError(
+                        f"Username can be at most {self.MAX_USERNAME} characters")
+                if new_username != username and new_username in self.users:
+                    raise ValueError(f"Username '{new_username}' is taken")
+
+            if new_password is not None and len(new_password) < self.MIN_PASSWORD:
+                raise ValueError(
+                    f"Password must be at least {self.MIN_PASSWORD} characters")
+
+            if first_name is not None:
+                record["first_name"] = first_name.strip()[:self.MAX_NAME]
+            if last_name is not None:
+                record["last_name"] = last_name.strip()[:self.MAX_NAME]
+
+            if new_password is not None:
+                record["salt"] = secrets.token_hex(16)
+                record["password_hash"] = self._hash(new_password, record["salt"])
+
+            if new_username is not None and new_username != username:
+                # Rebuilt rather than popped and re-added, so the account
+                # keeps its place in the file.
+                self.users = {
+                    (new_username if name == username else name): value
+                    for name, value in self.users.items()
+                }
+                username = new_username
+
+            self._save()
+            return username
+
+    def set_picture(self, username, picture):
+        """Stores a profile picture (base64 JPEG or PNG), or removes it
+        when picture is falsy. Raises ValueError if it isn't one."""
+        if picture:
+            if not isinstance(picture, str) or len(picture) > self.MAX_PICTURE_B64:
+                raise ValueError("Picture is too large")
+
+            try:
+                head = base64.b64decode(picture[:24], validate=True)
+                base64.b64decode(picture, validate=True)
+            except (binascii.Error, ValueError):
+                raise ValueError("Picture is not a valid image")
+
+            if not (head.startswith(b"\xff\xd8\xff")
+                    or head.startswith(b"\x89PNG\r\n\x1a\n")):
+                raise ValueError("Picture must be a JPEG or PNG")
+
+        with self._lock:
+            record = self.users.get(username)
+
+            if record is None:
+                raise ValueError("Account not found")
+
+            if picture:
+                record["picture"] = picture
+            else:
+                record.pop("picture", None)
+
+            self._save()
 
     def authenticate(self, username, password):
         record = self.users.get(username)

@@ -74,6 +74,7 @@ private const val AUX_SHEET_SCREEN_FRACTION = 0.55f
 
 class MixerActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerBinding
+    private lateinit var profileHeader: ProfileHeader
     private lateinit var adapter: ChannelAdapter
     private var auxIndex: Int = -1
 
@@ -361,6 +362,12 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         }
 
         binding.logoutButton.setOnClickListener { logout() }
+
+        profileHeader = ProfileHeader(binding.profileHeader) {
+            closeMenu()
+            dismissPanSheet()
+            startActivity(Intent(this, ProfileActivity::class.java))
+        }
 
         binding.smoothButton.setOnClickListener {
             smoothEnabled = !smoothEnabled
@@ -745,12 +752,14 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         }
 
         MixerClient.claimListener(this)
+        profileHeader.start()
         MixerClient.selectAux(auxIndex)
         MixerClient.requestBanks()
     }
 
     override fun onPause() {
         super.onPause()
+        profileHeader.stop()
         MixerClient.releaseListener(this)
     }
 
