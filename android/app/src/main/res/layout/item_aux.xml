@@ -13,12 +13,40 @@
     app:strokeColor="?attr/colorSurfaceVariant"
     app:cardBackgroundColor="?attr/colorSurface">
 
-    <TextView
-        android:id="@+id/aux_name"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="18dp"
-        android:textSize="17sp"
-        android:textColor="?attr/colorOnSurface" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:baselineAligned="false"
+        android:paddingVertical="18dp"
+        android:paddingHorizontal="18dp">
+
+        <TextView
+            android:id="@+id/aux_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="17sp"
+            android:textColor="?attr/colorOnSurface" />
+
+        <!-- Who has this aux open right now (AuxUsers). Gone when nobody
+             does. Capped at a share of the row so a long list of names
+             never squeezes the aux's own name out. -->
+        <TextView
+            android:id="@+id/aux_users"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:maxWidth="180dp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:gravity="end"
+            android:drawablePadding="5dp"
+            android:textSize="13sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:visibility="gone" />
+
+    </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

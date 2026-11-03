@@ -76,6 +76,12 @@ final class AppModel: NSObject, ObservableObject {
     @Published var buttonResultIsRejection = false
     @Published var auxes: [AuxBus] = []
     @Published var banks: [String] = []
+    /// Who has each aux open right now, by aux index, for the aux list
+    /// and the mixer's aux sheet.
+    @Published var auxUsers: [Int: [AuxUser]] = [:]
+    /// Whether this server reports active users at all - and so knows
+    /// leave_aux. An older one would answer it with an error.
+    private var auxUsersSupported = false
 
     // This account's own banks and the console's full channel list to
     // build them from, as the custom bank editor needs them. Both are
@@ -433,11 +439,18 @@ final class AppModel: NSObject, ObservableObject {
     /// keeps pushing it, exactly as it does while the choice screen is
     /// up, and the next pick re-selects whatever was tapped.
     func leaveAux() {
+        tellServerLeftAux()
         channels = []
         banks = []
         selectedBank = nil
         MeterCenter.shared.clear()
         screen = .controlChoice
+    }
+
+    /// The server is told this phone is riding nothing, so it drops out
+    /// of that aux's active users.
+    private func tellServerLeftAux() {
+        if auxUsersSupported { backend.leaveAux() }
     }
 
     func selectAux(_ aux: AuxBus) {
@@ -928,6 +941,8 @@ final class AppModel: NSObject, ObservableObject {
         channels = []
         auxes = []
         banks = []
+        auxUsers = [:]
+        auxUsersSupported = false
         selectedBank = nil
         pendingBankSaves = 0
         presetsAllowed = false
@@ -1262,6 +1277,12 @@ extension AppModel: MixerClientDelegate {
         guard awaitingAuxes else { return }
         awaitingAuxes = false
         screen = .auxList
+        tellServerLeftAux()
+    }
+
+    func mixerDidReceiveAuxUsers(_ byAux: [Int: [AuxUser]]) {
+        auxUsersSupported = true
+        auxUsers = byAux
     }
 
     /// No synthetic "All" entry: every channel at once is a whole

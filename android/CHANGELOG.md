@@ -5,8 +5,13 @@ moves independently of the desktop app's `version.py`.
 
 ## 2.19.0
 
-Works with desktop 1.15.0 or later. Editing needs an account with the personalization permission.
+Bank editing works with desktop 1.15.0 or later and needs an account with
+the personalization permission. Active users need desktop 1.26.0 or
+later; with an older desktop the aux lists show no names.
 
+- **See who is on each aux.** The aux list, and the aux sheet on the
+  mixer screen, show the names of everyone who has that aux open right
+  now, to the right of its name. You show as "You".
 - **Edit your banks right on the mixer screen.** Open the bank panel and
   tap the pencil at its bottom right. A **+** appears at the end of your
   banks: tap it, type a name, and the new bank is made and opened. Leave

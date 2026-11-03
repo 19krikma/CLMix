@@ -24,7 +24,11 @@ struct AuxListView: View {
                     // yet, which is what Android's AuxAdapter.selectedAux
                     // of -1 means on this screen.
                     ForEach(model.auxes) { aux in
-                        AuxRow(aux: aux, selected: false) {
+                        AuxRow(
+                            aux: aux, selected: false,
+                            users: model.auxUsers[aux.index] ?? [],
+                            me: model.profile?.username
+                        ) {
                             model.selectAux(aux)
                         }
                     }
@@ -50,14 +54,37 @@ struct AuxListView: View {
 struct AuxRow: View {
     let aux: AuxBus
     let selected: Bool
+    /// Who has this aux open right now; this account's own shows as
+    /// "You", first.
+    var users: [AuxUser] = []
+    var me: String? = nil
     let action: () -> Void
+
+    private var userNames: [String] {
+        let mine = users.filter { $0.user == me }.map { _ in "You" }
+        return mine + users.filter { $0.user != me }.map(\.name)
+    }
 
     var body: some View {
         Button(action: action) {
-            Text(aux.name)
-                .font(.system(size: 17))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(18)
+            HStack(spacing: 12) {
+                Text(aux.name)
+                    .font(.system(size: 17))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !users.isEmpty {
+                    // Capped so a long list never squeezes the aux's own
+                    // name out - mirrors Android's aux_users.
+                    Label(userNames.joined(separator: ", "), systemImage: "person.fill")
+                        .font(.system(size: 13))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 180, alignment: .trailing)
+                        .opacity(0.8)
+                        .accessibilityLabel("Active: \(userNames.joined(separator: ", "))")
+                }
+            }
+            .padding(18)
         }
         .foregroundStyle(selected ? Color.clmixOnPrimary : Color.clmixOnSurface)
         .background(selected ? Color.clmixPrimary : Color.clmixSurface)

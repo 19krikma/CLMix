@@ -281,6 +281,10 @@ class RemoteServer:
         # ever swapped whole.
         self._clients = {}
 
+        # The last aux_users picture sent to the phones (see
+        # _announce_aux_users), so it is only sent again when it changes.
+        self._last_aux_users = None
+
         # Set while CLMix is in DiGiCo App mode, to the reason every phone
         # is given: connected ones are sent it and dropped by their push
         # loop, and logins - including a token resume - are refused with
@@ -566,6 +570,11 @@ class RemoteServer:
         try:
             async for message in websocket:
                 await self._handle_message(websocket, state, message)
+                # Checked after every message rather than at each place
+                # that moves a phone: opening an aux, leaving it, Mixer
+                # Control, logging out and renaming all change who is
+                # where, and this cannot miss one.
+                await self._announce_aux_users()
         except websockets.ConnectionClosed:
             pass
         finally:
@@ -581,6 +590,12 @@ class RemoteServer:
 
             self._clients.pop(websocket, None)
             log("info", f"Client disconnected: {websocket.remote_address}")
+
+            # Everyone else's lists lose this phone.
+            try:
+                await self._announce_aux_users()
+            except Exception as exc:
+                log("warning", f"Could not announce aux users: {exc}")
 
     async def _handle_message(self, websocket, state, raw):
         try:
@@ -627,6 +642,18 @@ class RemoteServer:
             await self._handle_profile(websocket, state, action, msg)
             return
 
+        # The phone went back to its aux list: it is no longer on any
+        # aux, which the aux lists' active users have to show. Nothing
+        # to do with the console, so it works whatever the desk is doing.
+        if action == "leave_aux":
+            state["aux"] = None
+            state["eq_channel"] = None
+            state["dyn_channel"] = None
+            worker = self.get_worker()
+            if worker is not None:
+                worker.release_meters(state["meter_source"])
+            return
+
         if self.locked_reason is not None:
             await self._send(
                 websocket, {"type": "error", "message": self.locked_reason}
@@ -666,6 +693,9 @@ class RemoteServer:
             await self._send(
                 websocket, {"type": "auxes", "auxes": self._aux_list(worker, entry)}
             )
+            # Who is on each, straight away: the broadcast only goes out
+            # when that changes, which may not be for a while.
+            await self._send(websocket, self._aux_users_message())
 
         elif action == "list_banks":
             await self._send(
@@ -1351,6 +1381,7 @@ class RemoteServer:
                 state["dyn_channel"] = None
                 worker.release_meters(state["meter_source"])
                 await self._send(websocket, {"type": "sync", "syncing": True})
+                await self._announce_aux_users()
 
         if state["syncing"] and not worker.resyncing:
             state["syncing"] = False
@@ -2093,6 +2124,53 @@ class RemoteServer:
         """One account's chat picture: base64 JPEG/PNG, or null for none."""
         record = self.user_store.get(user) or {}
         return {"type": "picture", "user": user, "picture": record.get("picture")}
+
+    def _aux_users_message(self):
+        """Who has each aux open right now, for the phones' aux lists.
+
+        One entry per account, not per phone: someone on two phones is
+        one person on that aux. Only phones riding an aux count - one on
+        its aux list, in Mixer Control or not yet logged in is on none.
+        Every aux is listed whoever asks; a phone shows the ones in its
+        own list and ignores the rest.
+        """
+        by_aux = {}
+
+        for state in list(self._clients.values()):
+            user = state.get("user")
+            aux = state.get("aux")
+
+            if user is None or aux is None or self._in_mixer_mode(state):
+                continue
+
+            by_aux.setdefault(aux, set()).add(user)
+
+        auxes = []
+
+        for aux in sorted(by_aux):
+            users = sorted(
+                by_aux[aux], key=lambda u: self.user_store.display_name(u).lower()
+            )
+            auxes.append({
+                "index": aux,
+                "users": [
+                    {"user": u, "name": self.user_store.display_name(u)}
+                    for u in users
+                ],
+            })
+
+        return {"type": "aux_users", "auxes": auxes}
+
+    async def _announce_aux_users(self):
+        """Sends every logged-in phone the aux_users picture, if it has
+        changed since it was last sent."""
+        message = self._aux_users_message()
+
+        if message == self._last_aux_users:
+            return
+
+        self._last_aux_users = message
+        await self._broadcast(message)
 
     async def _broadcast(self, payload):
         """Sends to every logged-in phone."""

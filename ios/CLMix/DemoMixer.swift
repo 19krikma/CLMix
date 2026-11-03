@@ -512,6 +512,34 @@ final class DemoMixer: MixerBackend {
 
     func requestAuxes() {
         Task { @MainActor in self.delegate?.mixerDidReceiveAuxes(Self.auxes) }
+        deliverAuxUsers()
+    }
+
+    func leaveAux() {
+        selectedAux = nil
+        stopPushing()
+        deliverAuxUsers()
+    }
+
+    /// Who is on each aux, as RemoteServer._aux_users_message sends it:
+    /// the demo account wherever it is riding, plus two made-up
+    /// musicians on mixes of their own so the aux list has something to
+    /// show.
+    private func deliverAuxUsers() {
+        var byAux: [Int: [AuxUser]] = [
+            1: [AuxUser(user: "alex", name: "Alex Rivera")],
+            5: [AuxUser(user: "sam", name: "Sam")],
+        ]
+
+        if let mine = selectedAux, !mixerMode {
+            byAux[mine, default: []].append(
+                AuxUser(user: demoProfile.username, name: demoProfile.displayName)
+            )
+            byAux[mine]?.sort { $0.name.lowercased() < $1.name.lowercased() }
+        }
+
+        let result = byAux
+        Task { @MainActor in self.delegate?.mixerDidReceiveAuxUsers(result) }
     }
 
     func requestBanks() {
@@ -625,6 +653,7 @@ final class DemoMixer: MixerBackend {
         // selection across the switch too, so resetting here would leave the
         // picker reading "Drums" while every channel was actually showing.
         startPushing()
+        deliverAuxUsers()
     }
 
     func selectMixerControl() {
@@ -633,6 +662,7 @@ final class DemoMixer: MixerBackend {
         dynChannel = nil
         mixerMode = true
         startPushing()
+        deliverAuxUsers()
     }
 
     func selectBank(_ bank: String?) {

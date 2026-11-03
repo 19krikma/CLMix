@@ -10,6 +10,9 @@ protocol MixerClientDelegate: AnyObject {
     /// do with it. Nil when `ok` is false.
     func mixerDidReceiveLoginResult(ok: Bool, message: String?, token: String?)
     func mixerDidReceiveAuxes(_ auxes: [AuxBus])
+    /// Who has each aux open right now, by aux index - sent whenever
+    /// anyone opens or leaves one (RemoteServer._aux_users_message).
+    func mixerDidReceiveAuxUsers(_ byAux: [Int: [AuxUser]])
     func mixerDidReceiveBanks(_ banks: [String])
     /// Arrives ~20x a second while a mix is moving, carrying one entry
     /// per visible channel. `sequence` advances per frame so views can
@@ -82,6 +85,9 @@ protocol MixerBackend: AnyObject {
     func requestAuxes()
     func requestBanks()
     func selectAux(_ aux: Int)
+    /// Back on the aux list (or the mode choice), riding nothing - so
+    /// the phone drops out of that aux's active users.
+    func leaveAux()
     func selectMixerControl()
     func selectBank(_ bank: String?)
     func setLevel(channel: Int, db: Double)
@@ -325,6 +331,10 @@ final class MixerClient: NSObject, MixerBackend {
 
     func selectAux(_ aux: Int) {
         send(["action": "select_aux", "aux": aux])
+    }
+
+    func leaveAux() {
+        send(["action": "leave_aux"])
     }
 
     /// Switches this socket to full mixer control: from here on the
@@ -681,6 +691,18 @@ final class MixerClient: NSObject, MixerBackend {
                     )
                 }
                 delegate?.mixerDidReceiveAuxes(list)
+
+            case "aux_users":
+                var byAux: [Int: [AuxUser]] = [:]
+                for entry in json["auxes"] as? [[String: Any]] ?? [] {
+                    guard let index = entry["index"] as? Int else { continue }
+                    byAux[index] = (entry["users"] as? [[String: Any]] ?? []).compactMap { u in
+                        guard let user = u["user"] as? String else { return nil }
+                        let name = u["name"] as? String ?? ""
+                        return AuxUser(user: user, name: name.isEmpty ? user : name)
+                    }
+                }
+                delegate?.mixerDidReceiveAuxUsers(byAux)
 
             case "banks":
                 delegate?.mixerDidReceiveBanks(json["banks"] as? [String] ?? [])

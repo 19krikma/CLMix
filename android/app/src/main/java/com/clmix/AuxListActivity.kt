@@ -24,6 +24,10 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
     // pushes an aux list for other reasons too.
     private var awaitingRefresh = false
 
+    private val usersObserver: (Map<Int, List<AuxUser>>) -> Unit = { users ->
+        (binding.auxRecycler.adapter as? AuxAdapter)?.users = users
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -78,11 +82,18 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
         }
 
         MixerClient.claimListener(this)
+
+        // Back on the list means riding nothing - including after coming
+        // back from the mixer, which leaves the server thinking this
+        // phone is still on that aux unless told otherwise.
+        MixerClient.leaveAux()
+        AuxUsers.observe(usersObserver)
     }
 
     override fun onPause() {
         super.onPause()
         MixerClient.releaseListener(this)
+        AuxUsers.unobserve(usersObserver)
     }
 
     /**
@@ -160,6 +171,15 @@ class AuxAdapter(
             }
         }
 
+    /** Who has each aux open right now - see AuxUsers. */
+    var users: Map<Int, List<AuxUser>> = emptyMap()
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
     class ViewHolder(val binding: ItemAuxBinding) : RecyclerView.ViewHolder(binding.root)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -193,6 +213,39 @@ class AuxAdapter(
                 context, if (isSelected) R.color.on_primary else R.color.on_surface
             )
         )
+
+        bindUsers(holder, users[item.index].orEmpty(), isSelected)
+    }
+
+    /** The names to the right of the aux, this account's own as "You". */
+    private fun bindUsers(holder: ViewHolder, onAux: List<AuxUser>, isSelected: Boolean) {
+        val label = holder.binding.auxUsers
+
+        if (onAux.isEmpty()) {
+            label.visibility = android.view.View.GONE
+            return
+        }
+
+        val me = Profile.current?.username
+        // Yourself first, then everyone else in the server's order.
+        val names = onAux.sortedBy { if (it.user == me) 0 else 1 }
+            .map { if (it.user == me) "You" else it.name }
+
+        val color = ContextCompat.getColor(
+            label.context,
+            if (isSelected) R.color.on_primary else R.color.on_surface_variant
+        )
+
+        label.visibility = android.view.View.VISIBLE
+        label.text = names.joinToString(", ")
+        label.setTextColor(color)
+        label.contentDescription = "Active: ${names.joinToString(", ")}"
+
+        val icon = ContextCompat.getDrawable(label.context, R.drawable.ic_person)?.mutate()
+        val size = (label.textSize * 1.1f).toInt()
+        icon?.setBounds(0, 0, size, size)
+        icon?.setTint(color)
+        label.setCompoundDrawablesRelative(icon, null, null, null)
     }
 
     override fun getItemCount() = items.size

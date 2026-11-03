@@ -248,6 +248,8 @@ struct MixerView: View {
             AuxSheetView(
                 auxes: model.auxes,
                 currentIndex: aux.index,
+                users: model.auxUsers,
+                me: model.profile?.username,
                 onSelect: { model.switchAux($0) }
             )
         }

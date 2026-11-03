@@ -13,6 +13,8 @@ import SwiftUI
 struct AuxSheetView: View {
     let auxes: [AuxBus]
     let currentIndex: Int
+    var users: [Int: [AuxUser]] = [:]
+    var me: String? = nil
     let onSelect: (AuxBus) -> Void
 
     /// Collapsed height: tall enough to read the aux name and hit the
@@ -130,7 +132,10 @@ struct AuxSheetView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(auxes) { aux in
-                        AuxRow(aux: aux, selected: aux.index == currentIndex) {
+                        AuxRow(
+                            aux: aux, selected: aux.index == currentIndex,
+                            users: users[aux.index] ?? [], me: me
+                        ) {
                             setExpanded(false)
                             onSelect(aux)
                         }

@@ -78,6 +78,10 @@ class ControlChoiceActivity : AppCompatActivity(), MixerClientListener {
         }
 
         MixerClient.claimListener(this)
+
+        // Coming back here from an aux's mix leaves this phone riding
+        // nothing, as far as the aux lists' active users are concerned.
+        MixerClient.leaveAux()
     }
 
     override fun onPause() {

@@ -103,6 +103,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     // drawer hands over an AuxBus, but a rebuild restores only auxIndex.
     private var auxBuses: List<AuxBus> = emptyList()
     private var auxAdapter: AuxAdapter? = null
+    // The aux sheet's active users, kept current while this screen is up.
+    private val auxUsersObserver: (Map<Int, List<AuxUser>>) -> Unit = { users ->
+        auxAdapter?.users = users
+    }
     private lateinit var bankAdapter: BankAdapter
     private var bankPanelAnimator: ValueAnimator? = null
     private var auxSheet: BottomSheetBehavior<android.widget.LinearLayout>? = null
@@ -796,6 +800,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         }
 
         MixerClient.claimListener(this)
+        AuxUsers.observe(auxUsersObserver)
         profileHeader.start()
         MixerClient.selectAux(auxIndex)
         MixerClient.requestBanks()
@@ -809,6 +814,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         super.onPause()
         profileHeader.stop()
         MixerClient.releaseListener(this)
+        AuxUsers.unobserve(auxUsersObserver)
     }
 
     // Hide the status/navigation bars so the mixer screen - where every

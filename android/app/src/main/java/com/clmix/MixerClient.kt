@@ -62,11 +62,11 @@ interface MixerClientListener {
  * Talks to the CLMix desktop app's RemoteServer
  * (services/remote_server.py) over a WebSocket, using the same JSON
  * protocol: login/logout/list_auxes/list_banks/select_aux/select_mixer/
- * select_bank/select_eq/select_dyn/
+ * select_bank/select_eq/select_dyn/leave_aux/
  * set_level/set_pan/set_mute/set_eq/set_dyn/set_personal_name/
  * list_presets/save_preset/load_preset out,
  * login_result/auxes/banks/levels/eq/dynamics/presets/preset_saved/
- * preset_loaded/sync/
+ * preset_loaded/sync/aux_users/
  * error in.
  *
  * The server rejects every action until a successful "login" - callers
@@ -254,6 +254,7 @@ object MixerClient {
         // The next connection may be another account, or another desk.
         Chat.clear()
         Profile.clear()
+        AuxUsers.clear()
 
         // REMOVE WITH DEMO MODE. Leaving the demo is the same act as
         // closing a socket, so it runs the same teardown and reports
@@ -311,7 +312,10 @@ object MixerClient {
         gainRange = HEAD_AMP_GAIN_RANGE
         trimRange = HEAD_AMP_TRIM_RANGE
         appContext?.let(MixerConnectionService::stop)
-        onMain { ServerSync.reset() }
+        onMain {
+            ServerSync.reset()
+            AuxUsers.clear()
+        }
     }
 
     /**
@@ -377,6 +381,16 @@ object MixerClient {
 
     fun selectAux(aux: Int) =
         send(JSONObject().put("action", "select_aux").put("aux", aux))
+
+    /**
+     * Tells the server this phone is back on its aux list and riding
+     * nothing, so it drops out of that aux's active users. Only sent to
+     * a server that reports active users at all: an older one would
+     * answer an action it does not know with an error.
+     */
+    fun leaveAux() {
+        if (AuxUsers.supported) send(JSONObject().put("action", "leave_aux"))
+    }
 
     // Switches this socket to full mixer control: from here on the
     // level/pan/mute actions below ride the console's own channel fader,
@@ -774,6 +788,8 @@ object MixerClient {
                 }
                 onMain { listener?.onAuxes(list) }
             }
+
+            "aux_users" -> onMain { AuxUsers.onMessage(json) }
 
             "banks" -> {
                 val arr = json.getJSONArray("banks")

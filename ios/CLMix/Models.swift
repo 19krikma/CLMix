@@ -533,6 +533,13 @@ struct Preset: Identifiable, Equatable {
 
 /// The logged-in account as its profile screen shows it - see
 /// ProfileView and RemoteServer._handle_profile on the desktop.
+/// One account riding an aux right now - see AppModel.auxUsers.
+struct AuxUser: Hashable {
+    let user: String
+    /// "First Last" where set, the username otherwise.
+    let name: String
+}
+
 struct AccountProfile: Equatable {
     var username: String
     var firstName: String

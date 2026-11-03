@@ -485,7 +485,16 @@ object DemoMixer {
         when (message.optString("action")) {
             "login" -> login()
             "logout" -> stop()
-            "list_auxes" -> deliver(auxesMessage())
+            "list_auxes" -> {
+                deliver(auxesMessage())
+                deliverAuxUsers()
+            }
+
+            "leave_aux" -> {
+                selectedAux = null
+                stopPushing()
+                deliverAuxUsers()
+            }
             "list_banks" -> deliver(banksMessage())
 
             "select_aux" -> {
@@ -498,6 +507,7 @@ object DemoMixer {
                 // and leaves the bank alone, and the phone's own bank
                 // picker keeps its selection across the switch too.
                 startPushing()
+                deliverAuxUsers()
             }
 
             "select_mixer" -> {
@@ -506,6 +516,7 @@ object DemoMixer {
         dynChannel = null
                 mixerMode = true
                 startPushing()
+                deliverAuxUsers()
             }
 
             "select_bank" -> {
@@ -878,6 +889,36 @@ object DemoMixer {
                 .put("username", demoProfile.getString("username"))
                 .put("display_name", demoDisplayName())
         )
+    }
+
+    /**
+     * Who is on each aux, as RemoteServer._aux_users_message sends it:
+     * the demo account wherever it is riding, plus two made-up
+     * musicians on mixes of their own so the aux list has something to
+     * show.
+     */
+    private fun deliverAuxUsers() {
+        val onAux = mutableMapOf(
+            1 to mutableListOf("alex" to "Alex Rivera"),
+            5 to mutableListOf("sam" to "Sam"),
+        )
+
+        val mine = selectedAux
+        if (mine != null && !mixerMode) {
+            onAux.getOrPut(mine) { mutableListOf() }
+                .add(demoProfile.getString("username") to demoDisplayName())
+        }
+
+        val auxes = JSONArray()
+        for ((index, users) in onAux.toSortedMap()) {
+            val arr = JSONArray()
+            users.sortedBy { it.second.lowercase() }.forEach { (user, name) ->
+                arr.put(JSONObject().put("user", user).put("name", name))
+            }
+            auxes.put(JSONObject().put("index", index).put("users", arr))
+        }
+
+        deliver(JSONObject().put("type", "aux_users").put("auxes", auxes))
     }
 
     private fun demoDisplayName(): String {
