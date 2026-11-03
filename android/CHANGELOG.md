@@ -26,6 +26,9 @@ later; with an older desktop the aux lists show no names.
 - **Rename a bank.** While editing, a Rename button sits beside the tick
   and renames the bank you're on.
 - Channels in a bank now stay in the order you put them in.
+- Opening the app with the desktop off, or on another network, no longer
+  shows "Can't Reach Server". It waits until it finds the desktop you were
+  logged in to, then reconnects on its own.
 - **Custom Banks is gone from the menu.** Making, filling, renaming and
   reordering banks now all happen in the bank panel's edit mode. Removing
   a bank and resetting to the mixer's banks are no longer available on

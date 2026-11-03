@@ -61,6 +61,13 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     private var pendingPassword: String = ""
     private var pendingToken: String? = null
 
+    // A saved session waiting for its server to turn up in discovery.
+    // Resuming is held back until then, so a launch with the desktop
+    // off (or on another network) doesn't try an address that isn't
+    // there and greet the user with "Can't Reach Server".
+    private var resumeToken: String? = null
+    private var resumeHost: String = ""
+
     // True while the two credential fields are shown as rejected - the
     // one thing typing into them clears.
     private var credentialsRejected = false
@@ -317,12 +324,26 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // connected, so navigating back here from AuxListActivity/
         // MixerActivity doesn't tear down a perfectly good live socket.
         val token = SessionStore.getToken(this)
+        // The connect itself waits for discovery to find that same server
+        // (see onServerFound).
         if (token != null && host.isNotEmpty() && !MixerClient.isConnected) {
-            pendingToken = token
-            setLoading(true)
-            showStatus("Reconnecting...")
-            MixerClient.connect(host, port.toIntOrNull() ?: return)
+            resumeToken = token
+            resumeHost = host
         }
+    }
+
+    /** Resumes the saved session against [server] if it is the one the
+     *  session was issued by. One try only - whatever happens next, the
+     *  form is what's left. */
+    private fun maybeResume(server: DiscoveredServer) {
+        val token = resumeToken ?: return
+        if (server.host != resumeHost || loading || MixerClient.isConnected) return
+
+        resumeToken = null
+        pendingToken = token
+        setLoading(true)
+        showStatus("Reconnecting...")
+        MixerClient.connect(server.host, server.port)
     }
 
     // The button stays put (unlike the old design, which hid it once
@@ -810,6 +831,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         pendingUsername = username
         pendingPassword = password
         pendingToken = null
+        resumeToken = null
 
         resetButton()
         setLoading(true)
@@ -830,6 +852,7 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         pendingUsername = "demo"
         pendingPassword = "demo"
         pendingToken = null
+        resumeToken = null
 
         resetButton()
         setLoading(true)
@@ -912,6 +935,14 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     // network. The specific cause isn't actionable from here, so the
     // button says so plainly for a moment and then offers itself again.
     override fun onConnectionFailed(message: String) {
+        // A background resume the user never asked for fails quietly -
+        // the login form is already on screen.
+        if (pendingToken != null) {
+            pendingToken = null
+            setLoading(false)
+            clearMessage()
+            return
+        }
         clearMessage()
         showButtonResult("Can't Reach Server", isRejection = false)
     }
@@ -955,6 +986,8 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     // network.
     override fun onServerFound(server: DiscoveredServer) {
         val existing = discoveredRows[server.name]
+
+        maybeResume(server)
 
         if (existing != null) {
             existing.text = server.name
