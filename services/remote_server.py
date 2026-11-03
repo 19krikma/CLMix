@@ -144,7 +144,7 @@ METER_PUSH_INTERVAL_SECONDS = 0.05
 # only one left unused (a phone sitting in a drawer, or a lost/stolen one)
 # does. Tokens are bearer credentials with no password re-check behind
 # them, so they shouldn't stay valid indefinitely the way they did before.
-SESSION_TTL_SECONDS = 12 * 60 * 60
+SESSION_TTL_SECONDS = 60 * 60
 
 # What a phone is told when the operator kicks it from the Phone List.
 # Phrased as something a person did, not as a fault: the phone shows this
