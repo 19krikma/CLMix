@@ -19,9 +19,33 @@ struct MixerView: View {
     @State private var presetsExpanded = false
     @State private var showPresetSave = false
     @State private var showPresetLoad = false
-    @State private var showCustomBanks = false
     @State private var showChat = false
     @State private var showProfile = false
+
+    // Bank edit mode (the pencil under the bank grid). Only ever on for
+    // an account holding personalization. While on, the grid ends in a
+    // "+" bank, the strips are led by a "+" channel, and banks and strips
+    // are reordered by holding and dragging. Mirrors Android's
+    // MixerActivity.setBankEditing.
+    @State private var bankEditing = false
+    @State private var newBankPlaceholder = false
+    @State private var askingBankName = false
+    @State private var newBankName = ""
+    @State private var newBankError: String?
+    @State private var renamingBank = false
+    @State private var renameText = ""
+    @State private var renameError: String?
+    @State private var showBankChannels = false
+    @State private var draggingChannel: Int?
+    @State private var channelDropTarget: Int?
+    @State private var draggingPanelBank: Int?
+    @State private var panelBankDropTarget: Int?
+
+    /// A strip's width (ChannelStripView.width) - the step between the
+    /// gaps a dragged strip can land in.
+    private static let stripPitch: CGFloat = 76
+    /// A landscape bank row and the spacing under it.
+    private static let panelRowPitch: CGFloat = 54
 
     /// Which side panel the landscape sidebar has out, if any.
     @State private var openPanel: LandscapePanel?
@@ -85,17 +109,47 @@ struct MixerView: View {
             PresetLoadSheet()
                 .presentationDetents([.medium, .large])
         }
-        // Full height, unlike the preset sheets: this one is a screen's
-        // worth of list - every channel on the desk, with a switch
-        // against each - rather than a short panel.
-        .sheet(isPresented: $showCustomBanks) {
-            CustomBanksView()
-        }
         .sheet(isPresented: $showProfile) {
             ProfileView()
         }
         .sheet(isPresented: $showChat) {
             ChatView()
+        }
+        // Slides up over the strips, which change behind it as channels
+        // are ticked.
+        .sheet(isPresented: $showBankChannels) {
+            if let bank = model.selectedBank {
+                BankChannelsSheet(bankName: bank)
+                    .presentationDetents([.large, .medium])
+            }
+        }
+        // A bank with no name is not allowed: leaving the name empty or
+        // cancelling takes the "New bank" tile away again.
+        .alert("New bank", isPresented: $askingBankName) {
+            TextField("Bank name", text: $newBankName)
+                .textInputAutocapitalization(.words)
+            Button("Cancel", role: .cancel) { newBankPlaceholder = false }
+            Button("Create") { finishNewBank() }
+        } message: {
+            if let newBankError { Text(newBankError) }
+        }
+        // Renames the selected bank. An empty name, or the same one,
+        // leaves it as it was; another bank's name is refused and asked
+        // again with the reason.
+        .alert("Rename bank", isPresented: $renamingBank) {
+            TextField("Bank name", text: $renameText)
+                .textInputAutocapitalization(.words)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { finishRename() }
+        } message: {
+            if let renameError { Text(renameError) }
+        }
+        .onChange(of: banksExpanded) { _, expanded in
+            // Edit mode lives in the panel; folding it away ends it.
+            if !expanded { setBankEditing(false) }
+        }
+        .onChange(of: openPanel) { _, panel in
+            if panel != .bank && !banksExpanded { setBankEditing(false) }
         }
         // Presets are per-aux-send, so a sheet left open from the
         // previous aux would otherwise keep acting against the new one -
@@ -109,6 +163,10 @@ struct MixerView: View {
         .onAppear {
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             readInterfaceOrientation()
+
+            // Loaded ahead of time, so the first tap in edit mode already
+            // has the set to work on.
+            if model.personalizationAllowed { model.requestCustomBanks() }
         }
         .onDisappear {
             UIDevice.current.endGeneratingDeviceOrientationNotifications()
@@ -160,10 +218,20 @@ struct MixerView: View {
                             // Fold away on pick: the panel exists to make
                             // the choice, and leaving it open would keep a
                             // third of the faders pushed off screen after
-                            // the choice is made.
-                            withAnimation(bankPanelAnimation) { banksExpanded = false }
+                            // the choice is made. Not while editing, where
+                            // picking is choosing which bank to work on.
+                            if !bankEditing {
+                                withAnimation(bankPanelAnimation) { banksExpanded = false }
+                            }
                             model.selectBank(bank)
-                        }
+                        },
+                        canEdit: model.personalizationAllowed,
+                        editing: bankEditing,
+                        placeholder: newBankPlaceholder,
+                        onToggleEdit: { setBankEditing(!bankEditing) },
+                        onRename: selectedBankEditable ? startRename : nil,
+                        onAdd: startNewBank,
+                        onMove: { model.moveBank(from: $0, to: $1) }
                     )
                     .transition(.opacity)
                 }
@@ -222,7 +290,9 @@ struct MixerView: View {
             channelGrid
                 .padding(edge, stripWidth)
 
-            if openPanel != nil {
+            // Not while editing banks: the strips behind are then part of
+            // the job, so they stay reachable.
+            if openPanel != nil && !(openPanel == .bank && bankEditing) {
                 // Catches the tap that closes the panel, over the strips
                 // so dismissing it cannot also move a fader.
                 Color.black.opacity(0.6)
@@ -374,21 +444,165 @@ struct MixerView: View {
                             }
                         }
                     } else {
-                        ForEach(model.banks, id: \.self) { bank in
-                            panelRow(bank, selected: bank == model.selectedBank) {
-                                withAnimation(panelAnimation) { openPanel = nil }
-                                model.selectBank(bank)
-                            }
-                        }
+                        landscapeBankRows
                     }
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
             }
+
+            if panel == .bank && model.personalizationAllowed {
+                BankEditRow(
+                    editing: bankEditing,
+                    onAddChannels: selectedBankEditable ? { showBankChannels = true } : nil,
+                    onRename: selectedBankEditable ? startRename : nil
+                ) { setBankEditing(!bankEditing) }
+            }
         }
         .frame(width: Self.panelWidth)
         .frame(maxHeight: .infinity)
         .background(Color.clmixSurface.ignoresSafeArea())
+    }
+
+    /// The banks as landscape's list, with edit mode's drag, "+" row and
+    /// "New bank" placeholder - the portrait grid's (BankPanelView) in a
+    /// single column.
+    private var landscapeBankRows: some View {
+        VStack(spacing: 8) {
+            ForEach(Array(model.banks.enumerated()), id: \.element) { index, bank in
+                let row = panelRow(bank, selected: bank == model.selectedBank) {
+                    if !bankEditing {
+                        withAnimation(panelAnimation) { openPanel = nil }
+                    }
+                    model.selectBank(bank)
+                }
+
+                if bankEditing {
+                    row.onDrag {
+                        draggingPanelBank = index
+                        return reorderItemProvider("bank:\(index)")
+                    }
+                } else {
+                    row
+                }
+            }
+
+            if bankEditing {
+                if newBankPlaceholder {
+                    Text("New bank")
+                        .italic()
+                        .foregroundStyle(Color.clmixPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .frame(height: 46)
+                        .background(AddTileBackground())
+                }
+
+                Button(action: startNewBank) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color.clmixPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(AddTileBackground())
+                }
+                .accessibilityLabel("Add bank")
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if let target = panelBankDropTarget {
+                GeometryReader { geo in
+                    DropLine(vertical: false, length: geo.size.width)
+                        .offset(y: max(CGFloat(target) * Self.panelRowPitch - 5.5, 0))
+                }
+            }
+        }
+        .onDrop(
+            of: [.text],
+            delegate: InsertionDropDelegate(
+                isActive: bankEditing && draggingPanelBank != nil,
+                insertionAt: { point in
+                    min(max(Int((point.y / Self.panelRowPitch).rounded()), 0), model.banks.count)
+                },
+                target: $panelBankDropTarget,
+                onDrop: { to in
+                    if let from = draggingPanelBank { model.moveBank(from: from, to: to) }
+                    draggingPanelBank = nil
+                }
+            )
+        )
+    }
+
+    private func setBankEditing(_ on: Bool) {
+        guard !on || model.personalizationAllowed else { return }
+        guard bankEditing != on else { return }
+
+        bankEditing = on
+
+        if on {
+            model.requestCustomBanks()
+        } else {
+            newBankPlaceholder = false
+            showBankChannels = false
+            channelDropTarget = nil
+            panelBankDropTarget = nil
+        }
+    }
+
+    /// Whether the bank on screen is one of this account's own, which is
+    /// what the "+" channel adds to.
+    private var selectedBankEditable: Bool {
+        model.customBanks.contains { $0.name == model.selectedBank }
+    }
+
+    /// The "+" bank: a "New bank" tile goes into the grid straight away
+    /// and the name is asked for.
+    private func startNewBank() {
+        model.requestCustomBanks()
+        newBankName = ""
+        newBankError = nil
+        newBankPlaceholder = true
+        askingBankName = true
+    }
+
+    private func finishNewBank() {
+        let name = newBankName.trimmingCharacters(in: .whitespaces)
+
+        guard !name.isEmpty else {
+            newBankPlaceholder = false
+            return
+        }
+
+        if let error = model.createBank(named: name) {
+            // Asked again with the reason, the tile still waiting - once
+            // this alert has finished going away.
+            newBankError = error
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(400))
+                askingBankName = true
+            }
+            return
+        }
+
+        newBankPlaceholder = false
+    }
+
+    private func startRename() {
+        renameText = model.selectedBank ?? ""
+        renameError = nil
+        renamingBank = true
+    }
+
+    private func finishRename() {
+        guard let current = model.selectedBank else { return }
+
+        if let error = model.renameBank(from: current, to: renameText) {
+            renameError = error
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(400))
+                renamingBank = true
+            }
+        }
     }
 
     private func panelRow(
@@ -422,31 +636,77 @@ struct MixerView: View {
         // ones that did not change - see ChannelStripView for why a
         // strip deliberately does not reach into the environment for
         // this itself.
-        ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 0) {
-                ForEach(Array(model.channels.enumerated()), id: \.element.id) { index, channel in
-                    ChannelStripView(
-                        channel: channel,
-                        fineMode: model.fineMode,
-                        alternate: index % 2 == 1,
-                        panSupported: model.panSupported,
-                        muteOffered: model.muteOffered,
-                        personalizationAllowed: model.personalizationAllowed,
-                        liveSnapshot: model.liveSnapshot,
-                        onLevel: { model.setLevel(channel: channel.channel, db: $0) },
-                        onPan: { model.setPan(channel: channel.channel, pan: $0) },
-                        onMute: { model.setMute(channel: channel.channel, muted: $0) },
-                        onPersonalName: {
-                            model.setPersonalName(channel: channel.channel, name: $0)
+        HStack(spacing: 0) {
+            // Edit mode's "+" strip, pinned ahead of the row rather than
+            // scrolled with it so it is always there.
+            if bankEditing && selectedBankEditable {
+                AddChannelTile { showBankChannels = true }
+            }
+
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(Array(model.channels.enumerated()), id: \.element.id) { index, channel in
+                        ChannelStripView(
+                            channel: channel,
+                            fineMode: model.fineMode,
+                            alternate: index % 2 == 1,
+                            panSupported: model.panSupported,
+                            muteOffered: model.muteOffered,
+                            personalizationAllowed: model.personalizationAllowed,
+                            liveSnapshot: model.liveSnapshot,
+                            onLevel: { model.setLevel(channel: channel.channel, db: $0) },
+                            onPan: { model.setPan(channel: channel.channel, pan: $0) },
+                            onMute: { model.setMute(channel: channel.channel, muted: $0) },
+                            onPersonalName: {
+                                model.setPersonalName(channel: channel.channel, name: $0)
+                            }
+                        )
+                        .equatable()
+                        .overlay {
+                            // While editing, the strips are things to
+                            // arrange rather than mix on: this takes the
+                            // touches before a fader can. A swipe still
+                            // scrolls the row, and a hold picks a strip up.
+                            if bankEditing {
+                                Color.white.opacity(0.001)
+                                    .onDrag {
+                                        draggingChannel = index
+                                        return reorderItemProvider("channel:\(index)")
+                                    }
+                            }
+                        }
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if let target = channelDropTarget {
+                        GeometryReader { geo in
+                            DropLine(length: geo.size.height - 8)
+                                .offset(x: max(CGFloat(target) * Self.stripPitch - 1.5, 0), y: 4)
+                        }
+                    }
+                }
+                .onDrop(
+                    of: [.text],
+                    delegate: InsertionDropDelegate(
+                        isActive: bankEditing && draggingChannel != nil,
+                        insertionAt: { point in
+                            min(
+                                max(Int((point.x / Self.stripPitch).rounded()), 0),
+                                model.channels.count
+                            )
+                        },
+                        target: $channelDropTarget,
+                        onDrop: { to in
+                            if let from = draggingChannel { model.moveChannel(from: from, to: to) }
+                            draggingChannel = nil
                         }
                     )
-                    .equatable()
-                }
+                )
+                .padding(10)
+                .frame(maxHeight: .infinity, alignment: .top)
             }
-            .padding(10)
-            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(maxHeight: .infinity)
         }
-        .frame(maxHeight: .infinity)
     }
 
     private var topBar: some View {
@@ -521,8 +781,10 @@ struct MixerView: View {
                 .rotationEffect(.degrees(banksExpanded ? 180 : 0))
                 .frame(width: 40, height: 40)
         }
-        .disabled(model.banks.isEmpty)
-        .opacity(model.banks.isEmpty ? 0.35 : 1)
+        // Still open for an account that can make banks: an empty panel
+        // with its "+" is where the first one gets made.
+        .disabled(model.banks.isEmpty && !model.personalizationAllowed)
+        .opacity(model.banks.isEmpty && !model.personalizationAllowed ? 0.35 : 1)
         .accessibilityLabel(banksExpanded ? "Hide banks" : "Show banks")
     }
 
@@ -587,20 +849,6 @@ struct MixerView: View {
                     .padding(.horizontal, 14)
                     .padding(.top, 8)
                 }
-            }
-
-            // Behind the personalization permission, which is the same
-            // one personal channel names sit behind: both are this
-            // account's own view of a shared console. Aux screens only -
-            // Mixer Control shows the desk's own grouping, the way it
-            // shows the desk's own names.
-            if model.personalizationAllowed {
-                tonalButton("Custom Banks") {
-                    dismissMenu()
-                    showCustomBanks = true
-                }
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
             }
 
             // Back returns to the AUX Only / Mixer Control choice; Log

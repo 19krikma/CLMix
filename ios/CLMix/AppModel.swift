@@ -697,17 +697,119 @@ final class AppModel: NSObject, ObservableObject {
         backend.requestCustomBanks()
     }
 
-    /// The whole set, every time: add, remove, rename and re-checking a
-    /// bank's channels are one write, so there is one path to get right
-    /// instead of four. The reply re-sends the set, the bank list and a
-    /// fresh frame of levels, so nothing here has to guess at what the
-    /// change did.
-    func saveCustomBanks(_ banks: [CustomBank]) {
+
+    // MARK: - Bank edit mode (the pencil under the bank grid)
+
+    /// Saves sent from edit mode and not yet answered. Replies to all but
+    /// the last are stale when they land and must not overwrite the newer
+    /// set already on screen. Mirrors Android's MixerActivity.
+    private var pendingBankSaves = 0
+
+    /// Applies a whole set on screen straight away and sends it, so a run
+    /// of quick edits each builds on the last rather than on whatever the
+    /// server last said.
+    private func applyBankEdit(_ banks: [CustomBank]) {
+        customBanks = banks
+        self.banks = banks.map(\.name)
+        pendingBankSaves += 1
         backend.saveCustomBanks(banks)
     }
 
-    func resetCustomBanks() {
-        backend.resetCustomBanks()
+    /// Adds an empty bank at the end and moves onto it. Returns why it
+    /// could not, for the caller to show.
+    func createBank(named raw: String) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespaces)
+
+        if name.isEmpty { return "A bank needs a name." }
+        if customBanks.count >= 32 { return "That's the most banks you can have (32)." }
+        if customBanks.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            return "There is already a bank called \"\(name)\"."
+        }
+
+        applyBankEdit(customBanks + [CustomBank(name: String(name.prefix(32)), channels: [])])
+        selectBank(String(name.prefix(32)))
+        return nil
+    }
+
+    /// Renames a bank in place, so it keeps its spot, and stays the one
+    /// on screen under its new name. An empty name or the same one is a
+    /// no-op; returns why it could not, for the caller to show.
+    func renameBank(from old: String, to raw: String) -> String? {
+        let name = String(raw.trimmingCharacters(in: .whitespaces).prefix(32))
+
+        if name.isEmpty || name == old { return nil }
+        // Itself left out, so "drums" can become "Drums".
+        if customBanks.contains(where: {
+            $0.name != old && $0.name.caseInsensitiveCompare(name) == .orderedSame
+        }) {
+            return "There is already a bank called \"\(name)\"."
+        }
+
+        applyBankEdit(customBanks.map {
+            $0.name == old ? CustomBank(name: name, channels: $0.channels) : $0
+        })
+
+        // The server drops a selection whose name has just gone, so the
+        // new name is picked again here.
+        selectedBank = name
+        backend.selectBank(name)
+        return nil
+    }
+
+    /// [to] is an insertion point: 0 is before the first bank and
+    /// count is after the last.
+    func moveBank(from: Int, to: Int) {
+        guard customBanks.indices.contains(from), to != from, to != from + 1 else { return }
+
+        var updated = customBanks
+        let moving = updated.remove(at: from)
+        updated.insert(moving, at: to > from ? to - 1 : to)
+        applyBankEdit(updated)
+    }
+
+    /// Moves a strip in the bank on screen to the insertion point [to]
+    /// among the strips as they are shown.
+    func moveChannel(from: Int, to: Int) {
+        guard let name = selectedBank,
+              let bank = customBanks.first(where: { $0.name == name }),
+              channels.indices.contains(from),
+              to != from, to != from + 1 else { return }
+
+        let moving = channels[from].channel
+        // Nil when it goes after the last strip.
+        let before = to < channels.count ? channels[to].channel : nil
+
+        var order = bank.channels
+        guard let at = order.firstIndex(of: moving) else { return }
+        order.remove(at: at)
+        let insertAt = before.flatMap { order.firstIndex(of: $0) } ?? order.count
+        order.insert(moving, at: insertAt)
+
+        // On screen ahead of the push that confirms it, so the strip
+        // lands where it was let go instead of jumping back first.
+        var strips = channels
+        let strip = strips.remove(at: from)
+        strips.insert(strip, at: to > from ? to - 1 : to)
+        channels = strips
+
+        applyBankEdit(customBanks.map {
+            $0.name == name ? CustomBank(name: name, channels: order) : $0
+        })
+    }
+
+    /// A tick adds the channel at the end of the bank; an untick takes it
+    /// out wherever it was. Order is the drag's job.
+    func setChannel(_ channel: Int, inBank name: String, included: Bool) {
+        let updated = customBanks.map { bank -> CustomBank in
+            guard bank.name == name else { return bank }
+            if included {
+                return bank.channels.contains(channel)
+                    ? bank : CustomBank(name: name, channels: bank.channels + [channel])
+            }
+            return CustomBank(name: name, channels: bank.channels.filter { $0 != channel })
+        }
+
+        if updated != customBanks { applyBankEdit(updated) }
     }
 
     func requestPresets() {
@@ -827,6 +929,7 @@ final class AppModel: NSObject, ObservableObject {
         auxes = []
         banks = []
         selectedBank = nil
+        pendingBankSaves = 0
         presetsAllowed = false
         muteAllowed = true
         personalizationAllowed = false
@@ -1167,6 +1270,9 @@ extension AppModel: MixerClientDelegate {
     /// button. The console's banks are the only choices. Mirrors
     /// Android's MixerActivity.onBanks.
     func mixerDidReceiveBanks(_ banks: [String]) {
+        // Same as above: stale while a newer edit is still in flight.
+        if pendingBankSaves > 0 { return }
+
         self.banks = banks
 
         if banks.isEmpty {
@@ -1255,8 +1361,14 @@ extension AppModel: MixerClientDelegate {
     }
 
     func mixerDidReceiveCustomBanks(banks: [CustomBank], channels: [BankChannel]) {
-        customBanks = banks
         bankChannels = channels
+
+        // The answer to an edit that a newer one has since overtaken -
+        // the set on screen is already the newer one.
+        if pendingBankSaves > 0 { pendingBankSaves -= 1 }
+        if pendingBankSaves > 0 { return }
+
+        customBanks = banks
     }
 
     func mixerDidReceivePresets(_ presets: [Preset]) {

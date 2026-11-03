@@ -102,7 +102,6 @@ protocol MixerBackend: AnyObject {
     func setPersonalName(channel: Int, name: String)
     func requestCustomBanks()
     func saveCustomBanks(_ banks: [CustomBank])
-    func resetCustomBanks()
     /// An SOS to the sound engineer; `reason` is one of the server's
     /// SOS_REASONS keys. See SosButton.
     func sendSos(reason: String)
@@ -496,12 +495,6 @@ final class MixerClient: NSObject, MixerBackend {
             "action": "save_custom_banks",
             "banks": banks.map { ["name": $0.name, "channels": $0.channels] },
         ])
-    }
-
-    /// Throws this account's set away so the server seeds it from the
-    /// console's own banks again.
-    func resetCustomBanks() {
-        send(["action": "reset_custom_banks"])
     }
 
     func sendSos(reason: String) {

@@ -644,11 +644,6 @@ object DemoMixer {
                 afterBanksChanged()
             }
 
-            "reset_custom_banks" -> {
-                customBanks = null
-                afterBanksChanged()
-            }
-
             "list_presets" -> deliverPresets()
 
             // No sound engineer in the demo, but the button should still
@@ -1073,7 +1068,10 @@ object DemoMixer {
         if (!mixerMode) {
             val custom = storedBanks().firstOrNull { it.name == bank }
                 ?: return emptyList()
-            return catalog.filter { custom.channels.contains(it.channel) }
+            // In the bank's own order, as the real server sends it -
+            // that order is what the phone's drag to reorder sets.
+            val byChannel = catalog.associateBy { it.channel }
+            return custom.channels.mapNotNull { byChannel[it] }
         }
 
         return catalog.filter { it.bank == bank }

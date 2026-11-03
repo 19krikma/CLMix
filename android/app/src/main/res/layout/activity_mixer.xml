@@ -110,24 +110,126 @@
              strips: opening it pushes the faders down instead of
              covering the ones behind it, so nothing is hidden while
              choosing. -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/bank_recycler"
+        <LinearLayout
+            android:id="@+id/bank_panel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:orientation="vertical"
             android:background="?attr/colorSurface"
-            android:paddingHorizontal="9dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="10dp"
-            android:visibility="gone" />
+            android:visibility="gone">
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/channel_recycler"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/bank_recycler"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="9dp"
+                android:paddingTop="2dp" />
+
+            <!-- Edit sits bottom right, under the grid. Only for an
+                 account holding personalization - see setBankEditing. -->
+            <LinearLayout
+                android:id="@+id/bank_edit_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="14dp"
+                android:paddingBottom="6dp">
+
+                <TextView
+                    android:id="@+id/bank_edit_hint"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Hold and drag to reorder"
+                    android:textSize="12sp"
+                    android:textColor="@color/on_surface_variant"
+                    android:visibility="invisible" />
+
+                <!-- Renames the selected bank. Edit mode only. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/bank_rename_button"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:text="Rename"
+                    android:textSize="13sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:visibility="gone"
+                    app:cornerRadius="10dp" />
+
+                <ImageButton
+                    android:id="@+id/bank_edit_button"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Edit banks"
+                    android:src="@drawable/ic_edit" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- baselineAligned off: left on, this row measures the channel
+             list once with no height limit to find a text baseline, and
+             the list lays its strips out collapsed during that pass - the
+             faders then came out short in the middle of their strips. -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:orientation="horizontal"
-            android:clipToPadding="false"
-            android:padding="10dp" />
+            android:baselineAligned="false"
+            android:orientation="horizontal">
+
+            <!-- Bank edit mode's "+" strip: shaped like a channel strip
+                 and pinned ahead of the list rather than scrolled with
+                 it, so it is always there however far along you are. -->
+            <LinearLayout
+                android:id="@+id/add_channel_tile"
+                android:layout_width="68dp"
+                android:layout_height="match_parent"
+                android:layout_marginVertical="10dp"
+                android:layout_marginStart="10dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/add_tile_background"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="Add channels to this bank"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_add"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Add"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary" />
+
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/channel_recycler"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="horizontal"
+                android:clipToPadding="false"
+                android:padding="10dp" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
@@ -261,6 +363,70 @@
             android:clipToPadding="false"
             android:paddingHorizontal="9dp"
             android:paddingBottom="10dp" />
+
+        <!-- The bank panel's Edit, for landscape. Shown only while the
+             panel holds the banks. -->
+        <LinearLayout
+            android:id="@+id/landscape_bank_edit_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="14dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <!-- Landscape's way to the channel list: the "+" strip sits
+                 at the left of the strips, right where this panel covers
+                 it. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/landscape_add_channels_button"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:text="+ Channels"
+                android:textSize="13sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:visibility="gone"
+                app:cornerRadius="10dp" />
+
+            <TextView
+                android:id="@+id/landscape_bank_edit_hint"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Hold and drag to reorder"
+                android:textSize="12sp"
+                android:textColor="@color/on_surface_variant"
+                android:visibility="invisible" />
+
+            <!-- Renames the selected bank. Edit mode only. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/landscape_bank_rename_button"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:text="Rename"
+                android:textSize="13sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:visibility="gone"
+                app:cornerRadius="10dp" />
+
+            <ImageButton
+                android:id="@+id/landscape_bank_edit_button"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Edit banks"
+                android:src="@drawable/ic_edit" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
@@ -482,24 +648,6 @@
                 app:cornerRadius="10dp" />
 
         </LinearLayout>
-
-        <!-- Gone unless the account holds personalization, which is the
-             same permission personal channel names sit behind: both are
-             this account's own view of a shared console. Aux screens
-             only - Mixer Control shows the desk's own grouping, the way
-             it shows the desk's own names. -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/custom_banks_button"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="14dp"
-            android:layout_marginTop="10dp"
-            android:text="Custom Banks"
-            android:visibility="gone"
-            app:cornerRadius="10dp"
-            app:backgroundTint="@color/mute_inactive"
-            android:textColor="@color/on_mute_inactive" />
 
         <!-- Back returns to the aux list, one step out the way this
              screen was come into; Log Out ends the session outright.

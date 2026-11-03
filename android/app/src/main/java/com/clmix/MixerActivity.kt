@@ -12,7 +12,11 @@ import android.os.Handler
 import android.os.Looper
 import android.text.InputFilter
 import android.text.InputType
+import android.util.TypedValue
+import android.view.WindowManager
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
@@ -34,6 +38,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.clmix.databinding.ActivityMixerBinding
 
@@ -72,6 +77,12 @@ private const val MAX_PERSONAL_NAME_LENGTH = 32
 // floating over them rather than replacing them.
 private const val AUX_SHEET_SCREEN_FRACTION = 0.55f
 
+// The server's own caps on a custom bank set (UserStore in
+// services/user_store.py), so the editor cannot build something the
+// server would quietly cut short.
+private const val MAX_CUSTOM_BANKS = 32
+private const val MAX_BANK_NAME_LENGTH = 32
+
 class MixerActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerBinding
     private lateinit var profileHeader: ProfileHeader
@@ -107,6 +118,26 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     private var presetSaveSheet: PresetSaveBottomSheet? = null
     private var presetLoadSheet: PresetLoadBottomSheet? = null
     private var presetManageSheet: PresetManageBottomSheet? = null
+
+    // Bank edit mode (the pencil under the bank grid). Only ever on for
+    // an account holding personalization. While on, the grid ends in a
+    // "+" bank, the strips are led by a "+" channel, and both banks and
+    // strips are reordered by holding and dragging.
+    private var bankEditing = false
+    // This account's banks with their channels, and the desk's channel
+    // list to pick from - both from onCustomBanks. Edits are applied here
+    // first and the whole set sent, so a run of quick changes each builds
+    // on the last rather than on whatever the server last said.
+    private var customBanks: List<CustomBank> = emptyList()
+    private var customBanksLoaded = false
+    private var bankCatalog: List<BankChannel> = emptyList()
+    // Saves sent and not yet answered. Replies to all but the last are
+    // stale by the time they land, so they are not allowed to overwrite
+    // the newer set already on screen.
+    private var pendingBankSaves = 0
+    private var bankChannelsSheet: BankChannelsBottomSheet? = null
+    private lateinit var channelDrag: ReorderDrag
+    private lateinit var bankDrags: List<ReorderDrag>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -179,19 +210,31 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             }
         }
 
-        bankAdapter = BankAdapter { bank ->
-            // Fold away on pick: the panel exists to make the choice, and
-            // leaving it open would keep a third of the faders pushed off
-            // screen after the choice is made.
-            setBanksExpanded(false)
-            closeLandscapePanel()
+        bankAdapter = BankAdapter(
+            onClick = { bank ->
+                // Fold away on pick: the panel exists to make the choice,
+                // and leaving it open would keep a third of the faders
+                // pushed off screen after the choice is made. Not while
+                // editing, where picking a bank is choosing which one to
+                // work on, and the panel is where that work happens.
+                if (!bankEditing) {
+                    setBanksExpanded(false)
+                    closeLandscapePanel()
+                }
 
-            if (bank != selectedBank) {
-                selectedBank = bank
-                bankAdapter.selectedBank = bank
-                MixerClient.selectBank(bank)
+                if (bank != selectedBank) {
+                    selectedBank = bank
+                    bankAdapter.selectedBank = bank
+                    MixerClient.selectBank(bank)
+                }
+
+                updateAddChannelTile()
+            },
+            onAddClicked = { startNewBank() },
+            onStartDrag = { view, position ->
+                bankDrags.firstOrNull { it.owns(view) }?.start(view, position)
             }
-        }
+        )
 
         // A grid rather than a row: a console can report a couple of dozen
         // banks, and a single scrolling line would put most of them off
@@ -200,8 +243,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.bankRecycler.adapter = bankAdapter
 
         binding.bankToggle.setOnClickListener {
-            setBanksExpanded(binding.bankRecycler.visibility != View.VISIBLE)
+            setBanksExpanded(binding.bankPanel.visibility != View.VISIBLE)
         }
+
+        setUpBankEditing()
 
         binding.menuButton.setOnClickListener {
             binding.drawerLayout.openDrawer(GravityCompat.START)
@@ -352,13 +397,6 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             closeMenu()
             dismissPanSheet()
             startActivity(Intent(this, ChatActivity::class.java))
-        }
-
-        binding.customBanksButton.isVisible = MixerClient.personalizationAllowed
-        binding.customBanksButton.setOnClickListener {
-            closeMenu()
-            dismissPanSheet()
-            startActivity(Intent(this, CustomBanksActivity::class.java))
         }
 
         binding.logoutButton.setOnClickListener { logout() }
@@ -625,7 +663,11 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             return
         }
 
+        if (panel != Panel.BANK) setBankEditing(false)
+
         openPanel = panel
+        binding.landscapeBankEditRow.isVisible =
+            panel == Panel.BANK && MixerClient.personalizationAllowed
         binding.landscapePanelTitle.text = when (panel) {
             Panel.MENU -> "MENU"
             Panel.AUX -> "AUX"
@@ -668,6 +710,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun closeLandscapePanel(animate: Boolean = true) {
+        setBankEditing(false)
+
         if (openPanel == null) {
             binding.landscapePanel.isVisible = false
             binding.landscapeScrim.isVisible = false
@@ -755,6 +799,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         profileHeader.start()
         MixerClient.selectAux(auxIndex)
         MixerClient.requestBanks()
+
+        // Loaded ahead of time, so the first tap in edit mode already has
+        // the set to work on.
+        if (MixerClient.personalizationAllowed) MixerClient.requestCustomBanks()
     }
 
     override fun onPause() {
@@ -912,7 +960,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     // Called from the same places as applyAuxWidth so the two can never
     // describe different auxes.
     private fun setBanksExpanded(expanded: Boolean) {
-        val panel = binding.bankRecycler
+        // Edit mode lives in the panel; folding the panel away ends it.
+        if (!expanded) setBankEditing(false)
+
+        val panel = binding.bankPanel
         val alreadyThere = (panel.visibility == View.VISIBLE) == expanded
 
         // Nothing to do, and nothing to animate - this is also what makes
@@ -1070,6 +1121,8 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         // below.
         dismissPanSheet()
         dismissPresetSheets()
+        bankChannelsSheet?.dismiss()
+        bankChannelsSheet = null
 
         val intent = Intent(this, ConnectActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -1095,6 +1148,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     override fun onBanks(banks: List<String>) {
+        // The answer to an edit that has since been overtaken by a newer
+        // one still in flight - the grid already shows the newer set.
+        if (pendingBankSaves > 0) return
+
         // No synthetic "All" entry: every channel at once is a whole
         // console's worth of strips, faders and meters for a phone that
         // can show a dozen - the same reason the desktop dropped its own
@@ -1112,7 +1169,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
                 MixerClient.selectBank(null)
             }
 
-            setBanksExpanded(false)
+            // Kept open while editing: an empty grid with its "+" is
+            // exactly where a first bank gets made.
+            if (!bankEditing) setBanksExpanded(false)
+            updateAddChannelTile()
             return
         }
 
@@ -1128,6 +1188,392 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         }
 
         bankAdapter.selectedBank = bank
+        updateAddChannelTile()
+    }
+
+    override fun onCustomBanks(banks: List<CustomBank>, channels: List<BankChannel>) {
+        bankCatalog = channels
+
+        if (pendingBankSaves > 0) pendingBankSaves--
+        if (pendingBankSaves > 0) return
+
+        customBanks = banks
+        customBanksLoaded = true
+        updateAddChannelTile()
+    }
+
+    // MARK: - Bank editing
+
+    private fun setUpBankEditing() {
+        val allowed = MixerClient.personalizationAllowed
+        binding.bankEditRow.isVisible = allowed
+
+        binding.bankEditButton.setOnClickListener { setBankEditing(!bankEditing) }
+        binding.landscapeBankEditButton.setOnClickListener { setBankEditing(!bankEditing) }
+        binding.addChannelTile.setOnClickListener { showBankChannelsSheet() }
+        binding.landscapeAddChannelsButton.setOnClickListener { showBankChannelsSheet() }
+        binding.bankRenameButton.setOnClickListener { askRenameBank() }
+        binding.landscapeBankRenameButton.setOnClickListener { askRenameBank() }
+
+        bankDrags = listOf(binding.bankRecycler, binding.landscapePanelRecycler).map { list ->
+            ReorderDrag(
+                list,
+                count = { bankAdapter.bankCount },
+                horizontalScroll = false,
+                onLift = { bankAdapter.liftedPosition = it },
+                onDrop = ::moveBank
+            )
+        }
+
+        channelDrag = ReorderDrag(
+            binding.channelRecycler,
+            count = { adapter.itemCount },
+            horizontalScroll = true,
+            onLift = { position ->
+                adapter.liftedChannel = position?.let { adapter.channelAt(it)?.channel }
+            },
+            onDrop = ::moveChannel
+        )
+
+        // While editing, the strips are things to arrange rather than to
+        // mix on: every touch is taken here before a fader or button can
+        // see it. A swipe still scrolls the row, and a hold picks a strip up.
+        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+
+            override fun onScroll(
+                e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float
+            ): Boolean {
+                binding.channelRecycler.scrollBy(distanceX.toInt(), 0)
+                return true
+            }
+
+            override fun onFling(
+                e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float
+            ): Boolean {
+                binding.channelRecycler.fling(-velocityX.toInt(), 0)
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                val list = binding.channelRecycler
+                val child = list.findChildViewUnder(e.x, e.y) ?: return
+                val position = list.getChildAdapterPosition(child)
+                if (position != RecyclerView.NO_POSITION) channelDrag.start(child, position)
+            }
+        })
+
+        binding.channelRecycler.addOnItemTouchListener(object : RecyclerView.OnItemTouchListener {
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                if (!bankEditing) return false
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) rv.stopScroll()
+                detector.onTouchEvent(e)
+                return true
+            }
+
+            override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {
+                detector.onTouchEvent(e)
+            }
+
+            override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {}
+        })
+    }
+
+    private fun setBankEditing(on: Boolean) {
+        if (on && !MixerClient.personalizationAllowed) return
+        if (bankEditing == on) return
+
+        bankEditing = on
+        bankAdapter.editMode = on
+
+        if (on) {
+            MixerClient.requestCustomBanks()
+        } else {
+            bankChannelsSheet?.dismiss()
+            bankChannelsSheet = null
+        }
+
+        listOf(
+            binding.bankEditButton to binding.bankEditHint,
+            binding.landscapeBankEditButton to binding.landscapeBankEditHint
+        ).forEach { (button, hint) ->
+            button.setImageResource(if (on) R.drawable.ic_check else R.drawable.ic_edit)
+            button.background = if (on) {
+                ContextCompat.getDrawable(this, R.drawable.edit_button_active)
+            } else {
+                borderlessBackground()
+            }
+            button.contentDescription = if (on) "Done editing banks" else "Edit banks"
+            hint.visibility = if (on) View.VISIBLE else View.INVISIBLE
+        }
+
+        // Landscape's panel normally sits over a scrim that closes it on
+        // a tap. While editing, the strips behind are part of the job.
+        if (openPanel == Panel.BANK) binding.landscapeScrim.isVisible = !on
+
+        updateAddChannelTile()
+    }
+
+    private fun borderlessBackground() = TypedValue().let { value ->
+        theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, value, true)
+        ContextCompat.getDrawable(this, value.resourceId)
+    }
+
+    private fun selectedCustomBank(): CustomBank? =
+        customBanks.firstOrNull { it.name == selectedBank }
+
+    private fun updateAddChannelTile() {
+        val canAdd = bankEditing && selectedCustomBank() != null
+        binding.addChannelTile.isVisible = canAdd
+        binding.landscapeAddChannelsButton.isVisible = canAdd
+        binding.bankRenameButton.isVisible = canAdd
+        binding.landscapeBankRenameButton.isVisible = canAdd
+        // The button takes the hint's place (there is not room for both);
+        // invisible rather than gone, so it still holds the tick at the end.
+        binding.landscapeBankEditHint.visibility = when {
+            canAdd -> View.INVISIBLE
+            bankEditing -> View.VISIBLE
+            else -> View.INVISIBLE
+        }
+    }
+
+    private fun saveBanks(banks: List<CustomBank>) {
+        customBanks = banks
+        pendingBankSaves++
+        MixerClient.saveCustomBanks(banks)
+    }
+
+    /**
+     * The "+" bank: a "New bank" tile goes into the grid straight away
+     * and the name is asked for. A bank with no name is not allowed, so
+     * leaving the name empty (or cancelling) takes the tile away again
+     * and nothing is saved.
+     */
+    private fun startNewBank() {
+        if (!customBanksLoaded) {
+            MixerClient.requestCustomBanks()
+            Toast.makeText(this, "Loading your banks - try again", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (customBanks.size >= MAX_CUSTOM_BANKS) {
+            Toast.makeText(
+                this, "That's the most banks you can have ($MAX_CUSTOM_BANKS)", Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        bankAdapter.placeholder = true
+        askNewBankName("")
+    }
+
+    private fun askNewBankName(initial: String) {
+        showBankNameDialog(
+            title = "New bank",
+            confirm = "Create",
+            initial = initial,
+            onName = { name ->
+                when {
+                    name.isEmpty() -> bankAdapter.placeholder = false
+
+                    customBanks.any { it.name.equals(name, ignoreCase = true) } -> {
+                        // Asked again, the tile still waiting.
+                        nameTakenToast(name)
+                        askNewBankName(name)
+                    }
+
+                    else -> createBank(name)
+                }
+            },
+            onCancel = { bankAdapter.placeholder = false }
+        )
+    }
+
+    /** Renames the selected bank. An empty name, or the same one, leaves
+     *  it as it was; another bank's name is refused and asked again. */
+    private fun askRenameBank(initial: String? = null) {
+        val bank = selectedCustomBank() ?: return
+
+        showBankNameDialog(
+            title = "Rename bank",
+            confirm = "Save",
+            initial = initial ?: bank.name,
+            onName = { name ->
+                when {
+                    name.isEmpty() || name == bank.name -> {}
+
+                    // Itself left out, so "drums" can become "Drums".
+                    customBanks.any {
+                        it.name != bank.name && it.name.equals(name, ignoreCase = true)
+                    } -> {
+                        nameTakenToast(name)
+                        askRenameBank(name)
+                    }
+
+                    else -> renameBank(bank.name, name)
+                }
+            }
+        )
+    }
+
+    private fun nameTakenToast(name: String) {
+        Toast.makeText(this, "There is already a bank called \"$name\"", Toast.LENGTH_SHORT)
+            .show()
+    }
+
+    /**
+     * The name prompt both New and Rename use. [onName] gets the trimmed
+     * text when the button (or the keyboard's Done) is pressed; [onCancel]
+     * runs when the dialog goes away any other way.
+     */
+    private fun showBankNameDialog(
+        title: String,
+        confirm: String,
+        initial: String,
+        onName: (String) -> Unit,
+        onCancel: () -> Unit = {}
+    ) {
+        val field = EditText(this).apply {
+            setText(initial)
+            setSelection(text.length)
+            hint = "Bank name"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            filters = arrayOf(InputFilter.LengthFilter(MAX_BANK_NAME_LENGTH))
+            isSingleLine = true
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+
+        val padding = (resources.displayMetrics.density * 20).toInt()
+        val frame = FrameLayout(this).apply {
+            setPadding(padding, padding / 2, padding, 0)
+            addView(field)
+        }
+
+        var confirmed = false
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(frame)
+            .setPositiveButton(confirm) { _, _ ->
+                confirmed = true
+                onName(field.text.toString().trim())
+            }
+            .setNegativeButton("Cancel", null)
+            .setOnDismissListener { if (!confirmed) onCancel() }
+            .create()
+
+        // The keyboard's Done presses the button. Once only: Enter can
+        // arrive here more than once for one press (a hardware key
+        // reports its down and its up), and the dialog dismisses itself a
+        // moment after the click rather than at once - so without this
+        // the prompt opened twice over.
+        var submitted = false
+        field.setOnEditorActionListener { _, _, _ ->
+            if (!submitted) {
+                submitted = true
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.performClick()
+            }
+            true
+        }
+
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
+        field.requestFocus()
+    }
+
+    /** In place, so the bank keeps its spot in the grid, and stays the
+     *  one on screen under its new name. */
+    private fun renameBank(from: String, to: String) {
+        val updated = customBanks.map { if (it.name == from) CustomBank(to, it.channels) else it }
+        saveBanks(updated)
+        bankAdapter.submit(updated.map { it.name })
+
+        // Asked for after the save: the server drops a selection whose
+        // name has just gone, so the new name is picked again here.
+        selectedBank = to
+        bankAdapter.selectedBank = to
+        MixerClient.selectBank(to)
+        updateAddChannelTile()
+    }
+
+    private fun createBank(name: String) {
+        val updated = customBanks + CustomBank(name, emptyList())
+        saveBanks(updated)
+
+        bankAdapter.placeholder = false
+        bankAdapter.submit(updated.map { it.name })
+
+        // Straight onto the new bank, so the "+" channel beside the
+        // strips is the obvious next tap.
+        selectedBank = name
+        bankAdapter.selectedBank = name
+        MixerClient.selectBank(name)
+        updateAddChannelTile()
+    }
+
+    private fun moveBank(from: Int, to: Int) {
+        if (from !in customBanks.indices) return
+
+        val updated = customBanks.toMutableList()
+        val moving = updated.removeAt(from)
+        updated.add(if (to > from) to - 1 else to, moving)
+
+        saveBanks(updated)
+        bankAdapter.submit(updated.map { it.name })
+    }
+
+    private fun moveChannel(from: Int, to: Int) {
+        val bank = selectedCustomBank() ?: return
+        val moving = adapter.channelAt(from)?.channel ?: return
+        // Null when it goes after the last strip.
+        val before = adapter.channelAt(to)?.channel
+
+        val order = bank.channels.toMutableList()
+        if (!order.remove(moving)) return
+
+        val at = before?.let { order.indexOf(it) }?.takeIf { it >= 0 } ?: order.size
+        order.add(at, moving)
+
+        adapter.reorder(order)
+        saveBanks(customBanks.map { if (it.name == bank.name) CustomBank(it.name, order) else it })
+    }
+
+    private fun showBankChannelsSheet() {
+        val bank = selectedCustomBank() ?: return
+
+        if (bankCatalog.isEmpty()) {
+            MixerClient.requestCustomBanks()
+            Toast.makeText(this, "Loading channels - try again", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        bankChannelsSheet?.dismiss()
+
+        val sheet = BankChannelsBottomSheet(
+            this, bank.name, bankCatalog, bank.channels
+        ) { channel, checked -> toggleBankChannel(bank.name, channel, checked) }
+
+        sheet.setOnDismissListener {
+            if (bankChannelsSheet === sheet) bankChannelsSheet = null
+        }
+
+        bankChannelsSheet = sheet
+        sheet.show()
+    }
+
+    /** A tick adds the channel at the end of the bank; an untick takes
+     *  it out wherever it was. Order is the drag's job. */
+    private fun toggleBankChannel(bankName: String, channel: Int, checked: Boolean) {
+        val updated = customBanks.map { bank ->
+            when {
+                bank.name != bankName -> bank
+                checked && channel !in bank.channels -> CustomBank(bank.name, bank.channels + channel)
+                !checked -> CustomBank(bank.name, bank.channels - channel)
+                else -> bank
+            }
+        }
+
+        if (updated != customBanks) saveBanks(updated)
     }
 
     override fun onLevels(aux: Int, channels: List<ChannelState>) {

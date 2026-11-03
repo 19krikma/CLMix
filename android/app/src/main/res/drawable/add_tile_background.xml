@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dashed outline the "+" tiles share in bank edit mode: the shape
+     of the thing they add, drawn as an empty slot. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="12dp" />
+    <solid android:color="@android:color/transparent" />
+    <stroke
+        android:width="1.5dp"
+        android:color="@color/primary"
+        android:dashWidth="6dp"
+        android:dashGap="4dp" />
+</shape>

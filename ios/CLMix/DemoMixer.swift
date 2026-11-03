@@ -598,11 +598,6 @@ final class DemoMixer: MixerBackend {
         Task { @MainActor in self.delegate?.mixerDidReceiveChat(message) }
     }
 
-    func resetCustomBanks() {
-        customBanks = nil
-        afterBanksChanged()
-    }
-
     /// The set, the picker and the strips all follow a change to the
     /// banks - and a bank the client was sitting on may have just been
     /// renamed out from under it, in which case it falls back to the
@@ -1001,7 +996,12 @@ final class DemoMixer: MixerBackend {
             guard let custom = storedBanks().first(where: { $0.name == bank }) else {
                 return []
             }
-            return Self.catalog.filter { custom.channels.contains($0.channel) }
+            // In the bank's own order, as the real server sends it -
+            // that order is what the phone's drag to reorder sets.
+            let byChannel = Dictionary(
+                Self.catalog.map { ($0.channel, $0) }, uniquingKeysWith: { first, _ in first }
+            )
+            return custom.channels.compactMap { byChannel[$0] }
         }
 
         return Self.catalog.filter { $0.bank == bank }

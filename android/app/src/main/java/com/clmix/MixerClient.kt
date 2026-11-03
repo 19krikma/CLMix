@@ -592,10 +592,6 @@ object MixerClient {
         send(JSONObject().put("action", "save_custom_banks").put("banks", array))
     }
 
-    /** Throws this account's set away so the server seeds it from the
-     *  console's own banks again. */
-    fun resetCustomBanks() = send(JSONObject().put("action", "reset_custom_banks"))
-
     // any_aux: list every preset this account can see, not just this
     // aux's - the Load sheet warns before loading across auxes.
     /** An SOS to the sound engineer - see Sos. reason is one of the

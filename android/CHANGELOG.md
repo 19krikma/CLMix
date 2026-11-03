@@ -3,6 +3,29 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.19.0
+
+Works with desktop 1.15.0 or later. Editing needs an account with the personalization permission.
+
+- **Edit your banks right on the mixer screen.** Open the bank panel and
+  tap the pencil at its bottom right. A **+** appears at the end of your
+  banks: tap it, type a name, and the new bank is made and opened. Leave
+  the name empty and no bank is made.
+- **Add channels from the strips.** While editing, a **+** strip sits at
+  the start of the channels. Tap it and a list of every channel slides
+  up; tick or untick channels to add them to the bank or take them out.
+- **Drag to reorder.** While editing, hold a bank or a channel strip and
+  drag it to a new place. A line shows where it will go when you let
+  go. Faders don't move while editing, so nothing changes in your mix.
+  Tap the tick to finish.
+- **Rename a bank.** While editing, a Rename button sits beside the tick
+  and renames the bank you're on.
+- Channels in a bank now stay in the order you put them in.
+- **Custom Banks is gone from the menu.** Making, filling, renaming and
+  reordering banks now all happen in the bank panel's edit mode. Removing
+  a bank and resetting to the mixer's banks are no longer available on
+  the phone.
+
 ## 2.18.0
 
 Needs desktop 1.25.0 or later; with an older desktop the menu has no

@@ -93,6 +93,33 @@ class ChannelAdapter(
 
     private var channels: List<ChannelState> = emptyList()
 
+    // The strip being dragged in bank edit mode, faded where it was
+    // picked up from until it is dropped.
+    var liftedChannel: Int? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
+    fun channelAt(position: Int): ChannelState? = channels.getOrNull(position)
+
+    /**
+     * Puts the strips in [order] straight away, ahead of the push that
+     * will confirm it, so a dropped strip lands where it was let go
+     * rather than jumping back for a moment first.
+     */
+    fun reorder(order: List<Int>) {
+        val byChannel = channels.associateBy { it.channel }
+        val reordered = order.mapNotNull { byChannel[it] } +
+            channels.filter { it.channel !in order }
+
+        if (reordered == channels) return
+        channels = reordered
+        notifyDataSetChanged()
+    }
+
     // Latest meter frame, kept here rather than folded into ChannelState
     // because it arrives ~20x a second against the levels push's ~7x -
     // rebuilding the channel list at meter rate would defeat all the
@@ -381,6 +408,8 @@ class ChannelAdapter(
         // at a stale length.
         syncFaderWidth(holder.binding, holder.binding.faderRow.height)
 
+        holder.binding.root.alpha = if (channel.channel == liftedChannel) 0.3f else 1f
+
         // Alternate a subtle background so adjacent channel strips read
         // as visually separate columns instead of blurring together.
         holder.binding.root.setBackgroundColor(
@@ -545,7 +574,12 @@ class ChannelAdapter(
         if (height <= 0) return
 
         val bar = binding.levelSeekBar
-        if (bar.layoutParams.width == height) return
+        // Checked against the measured width too, not just the asked-for
+        // one: a resize whose requestLayout was swallowed leaves the two
+        // disagreeing, and a check on layoutParams alone would then never
+        // try again - the fader stayed short in the middle of a strip
+        // added to a bank that had been empty.
+        if (bar.layoutParams.width == height && bar.width == height) return
 
         // Deferred via post(): this is sometimes called from fader_row's
         // own OnLayoutChangeListener, which fires *during* RecyclerView's
@@ -560,7 +594,16 @@ class ChannelAdapter(
             if (params.width != height) {
                 params.width = height
                 bar.layoutParams = params
+            } else if (bar.width != height) {
+                bar.requestLayout()
             }
+
+            // The list itself as well. If an earlier request was eaten
+            // by RecyclerView, the strip is left flagged as waiting for a
+            // layout, and further requests from inside it stop there
+            // instead of reaching the list - so only the list asking
+            // gets the strip measured again.
+            (binding.root.parent as? RecyclerView)?.requestLayout()
         }
     }
 

@@ -116,7 +116,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             }
         }
 
-        bankAdapter = BankAdapter { bank ->
+        bankAdapter = BankAdapter(onClick = { bank ->
             setBanksExpanded(false)
 
             if (bank != selectedBank) {
@@ -124,7 +124,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
                 bankAdapter.selectedBank = bank
                 MixerClient.selectBank(bank)
             }
-        }
+        })
 
         binding.bankRecycler.layoutManager = GridLayoutManager(this, BANK_COLUMNS)
         binding.bankRecycler.adapter = bankAdapter
