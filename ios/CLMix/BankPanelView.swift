@@ -107,6 +107,10 @@ struct BankPanelView: View {
                     .accessibilityLabel("Add bank")
             }
         }
+        // In the top bar the column count is worked out from this width,
+        // so the grid has to take what the bar leaves over first - sized
+        // to its own content it starts at one column and stays there.
+        .frame(maxWidth: inTopBar ? .infinity : nil)
         .background(
             GeometryReader { geo in
                 Color.clear

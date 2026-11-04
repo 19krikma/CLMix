@@ -179,6 +179,10 @@ final class AppModel: NSObject, ObservableObject {
     /// The aux list being waited for was asked for by Mixer Control's AUX,
     /// so it slides in rather than cutting - see showAux.
     private var slidingToAux = false
+    /// The bank Mixer Control was on when AUX was tapped, picked again on
+    /// the way back. `selectedBank` is shared with the aux screens, whose
+    /// banks are named differently, so it does not survive the trip.
+    private var mixerControlBank: String?
 
     private let mdnsDiscovery = MdnsDiscovery()
 
@@ -424,6 +428,7 @@ final class AppModel: NSObject, ObservableObject {
     func showAux() {
         closeEq()
         closeDynamics()
+        mixerControlBank = selectedBank
         slidingToAux = true
         awaitingAuxes = true
         backend.requestAuxes()
@@ -435,6 +440,9 @@ final class AppModel: NSObject, ObservableObject {
     /// way out.
     func showChannels() {
         tellServerLeftAux()
+        // Cleared so the bank list that answers picks mixerControlBank and
+        // sends it - the server still has the aux screen's bank selected.
+        selectedBank = nil
         withAnimation(Self.slide) { screen = .mixerControl }
         backend.selectMixerControl()
         backend.requestBanks()
@@ -934,9 +942,12 @@ final class AppModel: NSObject, ObservableObject {
         channels = []
         auxes = []
         banks = []
+        bankLayers = []
+        gotBankLayout = false
         auxUsers = [:]
         auxUsersSupported = false
         selectedBank = nil
+        mixerControlBank = nil
         pendingBankSaves = 0
         presetsAllowed = false
         muteAllowed = true
@@ -956,6 +967,7 @@ final class AppModel: NSObject, ObservableObject {
         dynChannel = nil
         dynamics = nil
         awaitingAuxes = false
+        slidingToAux = false
         presets = []
         shareTargets = nil
         profile = nil
@@ -1070,8 +1082,11 @@ extension AppModel: MixerClientDelegate {
             closeDynamics()
             channels = []
             banks = []
+            bankLayers = []
             selectedBank = nil
+            mixerControlBank = nil
             awaitingAuxes = false
+            slidingToAux = false
             MeterCenter.shared.clear()
             screen = mixerControlAllowed ? .mixerControl : .auxList
             return
@@ -1311,7 +1326,9 @@ extension AppModel: MixerClientDelegate {
             return
         }
 
-        let bank = usable.first(where: { $0.id == selectedBank }) ?? first
+        let wanted = selectedBank ?? mixerControlBank
+        mixerControlBank = nil
+        let bank = usable.first(where: { $0.id == wanted }) ?? first
 
         if bank.id != selectedBank {
             selectedBank = bank.id
@@ -1320,16 +1337,18 @@ extension AppModel: MixerClientDelegate {
     }
 
     func mixerDidReceiveBanks(_ banks: [String]) {
+        // Taken before the check below, so a stale list cannot leave it
+        // set for the next one, which may come without a layout.
+        let handledByLayout = gotBankLayout
+        gotBankLayout = false
+
         // Same as above: stale while a newer edit is still in flight.
         if pendingBankSaves > 0 { return }
 
         self.banks = banks
 
         // Already handled, from the layout in the same message.
-        if gotBankLayout {
-            gotBankLayout = false
-            return
-        }
+        if handledByLayout { return }
         bankLayers = []
 
         if banks.isEmpty {
