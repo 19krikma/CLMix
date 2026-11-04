@@ -20,7 +20,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:paddingBottom="@dimen/aux_sheet_peek"
+        android:paddingBottom="@dimen/mixer_bottom_reserve"
         android:background="?android:attr/colorBackground">
 
         <LinearLayout
@@ -65,6 +65,7 @@
             <!-- Takes the room the bank spinner used to, so Fine and the
                  bank toggle stay pinned to the right edge. -->
             <Space
+                android:id="@+id/top_bar_spacer"
                 android:layout_width="0dp"
                 android:layout_height="1dp"
                 android:layout_weight="1" />
@@ -246,7 +247,7 @@
         android:orientation="vertical"
         android:background="?attr/colorSurface"
         android:elevation="12dp"
-        app:behavior_peekHeight="@dimen/aux_sheet_peek"
+        app:behavior_peekHeight="@dimen/mixer_bottom_reserve"
         app:behavior_hideable="false"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
@@ -300,9 +301,20 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:clipToPadding="false"
-            android:paddingBottom="10dp" />
+            android:paddingBottom="32dp" />
 
     </LinearLayout>
+
+    <!-- Over the aux sheet, along the very bottom: the sheet peeks by its
+         handle plus this strip's height, so its handle sits just above
+         it, and the open list's last row clears it by the extra bottom
+         padding above. -->
+    <include
+        android:id="@+id/snapshot_bar"
+        layout="@layout/snapshot_bar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/snapshot_bar_height"
+        android:layout_gravity="bottom" />
 
     <!-- Landscape only, and all of it on the edge the selfie camera is
          on - which is the one strip of a landscape screen that was never
@@ -566,7 +578,7 @@
          which would bury the sidebar that opened it. -->
     <LinearLayout
         android:id="@+id/menu_content"
-        android:layout_width="280dp"
+        android:layout_width="@dimen/side_menu_width"
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:orientation="vertical"
@@ -576,6 +588,10 @@
         <include
             android:id="@+id/profile_header"
             layout="@layout/drawer_profile_header" />
+
+        <include
+            android:id="@+id/mode_buttons"
+            layout="@layout/menu_mode_buttons" />
 
         <!-- The aux list used to live here; it is now the bottom sheet,
              within thumb reach instead of behind a drawer. What is left
@@ -649,39 +665,16 @@
 
         </LinearLayout>
 
-        <!-- Back returns to the aux list, one step out the way this
-             screen was come into; Log Out ends the session outright.
-             Side by side because they are the same kind of action at
-             different depths - the same pair, in the same order, as the
-             mixer control screen's drawer. -->
-        <LinearLayout
+        <!-- Log Out ends the session outright. On its own at the bottom,
+             well away from Channels and AUX at the top, which only move
+             between screens. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/logout_button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_margin="14dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/back_button"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginEnd="6dp"
-                android:text="Back"
-                app:cornerRadius="10dp"
-                app:backgroundTint="@color/mute_inactive"
-                android:textColor="@color/on_mute_inactive" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/logout_button"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:text="Log Out"
-                app:cornerRadius="10dp" />
-
-        </LinearLayout>
+            android:layout_margin="14dp"
+            android:text="Log Out"
+            app:cornerRadius="10dp" />
 
     </LinearLayout>
 

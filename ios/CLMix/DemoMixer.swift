@@ -121,6 +121,42 @@ final class DemoMixer: MixerBackend {
 
     private static let banks = ["Drums", "Band", "Vocals"]
 
+    /// The fake desk's surface layout, as Mixer Control lists it: the
+    /// three banks above on layer 1, and a second layer cutting across
+    /// them - ending in a DCA bank with no inputs on it, so the dimmed
+    /// bank shows up in the demo too. Mirrors Android's DemoMixer.surface.
+    private static let surface: [(layer: Int, position: Int, name: String, channels: [Int])] = [
+        (0, 0, "Drums", Array(1...9)),
+        (0, 1, "Band", Array(10...16)),
+        (0, 2, "Vocals", Array(17...20)),
+        (1, 0, "Rhythm", [1, 2, 3, 10, 11]),
+        (1, 1, "Vox + Keys", [17, 18, 19, 14, 16]),
+        (1, 2, "Playback", [15, 20]),
+        (1, 3, "DCA", []),
+    ]
+
+    /// The real server's id for a surface bank (_layout_bank_id).
+    private static func layoutId(_ layer: Int, _ position: Int) -> String {
+        "layout/\(layer)/\(position)"
+    }
+
+    private static var surfaceLayers: [BankLayer] {
+        Dictionary(grouping: surface, by: \.layer)
+            .sorted { $0.key < $1.key }
+            .map { layer, banks in
+                BankLayer(
+                    number: layer + 1,
+                    banks: banks.sorted { $0.position < $1.position }.map {
+                        LayoutBank(
+                            id: layoutId($0.layer, $0.position),
+                            name: $0.name,
+                            inputs: $0.channels.count
+                        )
+                    }
+                )
+            }
+    }
+
     /// What each wedge's owner most wants to hear, seeded loudest in their
     /// own mix - so the demo opens on something shaped like a real monitor
     /// mix instead of a wall of identical faders.
@@ -544,7 +580,12 @@ final class DemoMixer: MixerBackend {
 
     func requestBanks() {
         let names = bankNames()
-        Task { @MainActor in self.delegate?.mixerDidReceiveBanks(names) }
+        // As the real server: Mixer Control gets the surface layout too.
+        let layers = mixerMode ? Self.surfaceLayers : nil
+        Task { @MainActor in
+            if let layers { self.delegate?.mixerDidReceiveBankLayers(layers) }
+            self.delegate?.mixerDidReceiveBanks(names)
+        }
     }
 
     /// Custom names in aux mode, the console's own in mixer mode - the
@@ -1032,6 +1073,15 @@ final class DemoMixer: MixerBackend {
                 Self.catalog.map { ($0.channel, $0) }, uniquingKeysWith: { first, _ in first }
             )
             return custom.channels.compactMap { byChannel[$0] }
+        }
+
+        if let surfaceBank = Self.surface.first(where: {
+            Self.layoutId($0.layer, $0.position) == bank
+        }) {
+            let byChannel = Dictionary(
+                Self.catalog.map { ($0.channel, $0) }, uniquingKeysWith: { first, _ in first }
+            )
+            return surfaceBank.channels.compactMap { byChannel[$0] }
         }
 
         return Self.catalog.filter { $0.bank == bank }

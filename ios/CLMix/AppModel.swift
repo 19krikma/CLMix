@@ -1,12 +1,8 @@
 import Foundation
+import SwiftUI
 
 enum AppScreen: Equatable {
     case connect
-    // The fork between mixing one aux send and mixing the console
-    // itself. Only accounts holding Full Mixer Control ever see it -
-    // everyone else goes from login straight on to the aux list, which
-    // is the only flow that existed before that permission.
-    case controlChoice
     case auxList
     case mixer(AuxBus)
     case mixerControl
@@ -76,6 +72,14 @@ final class AppModel: NSObject, ObservableObject {
     @Published var buttonResultIsRejection = false
     @Published var auxes: [AuxBus] = []
     @Published var banks: [String] = []
+    /// Mixer Control's banks as the console's surface lays them out, layer
+    /// by layer - empty in the aux screens, and from a server too old to
+    /// send the layout, where `banks` is all there is. See
+    /// mixerDidReceiveBankLayers.
+    @Published var bankLayers: [BankLayer] = []
+    /// The last bank list came with the layout, which wins over the plain
+    /// names in the same message.
+    private var gotBankLayout = false
     /// Who has each aux open right now, by aux index, for the aux list
     /// and the mixer's aux sheet.
     @Published var auxUsers: [Int: [AuxUser]] = [:]
@@ -172,6 +176,9 @@ final class AppModel: NSObject, ObservableObject {
     // arriving mid-session must not throw the mixer-control screen back
     // to the picker.
     private var awaitingAuxes = false
+    /// The aux list being waited for was asked for by Mixer Control's AUX,
+    /// so it slides in rather than cutting - see showAux.
+    private var slidingToAux = false
 
     private let mdnsDiscovery = MdnsDiscovery()
 
@@ -394,15 +401,14 @@ final class AppModel: NSObject, ObservableObject {
         mdnsDiscovery.start(delegate: self)
     }
 
-    /// "AUX Only" on the control choice: asks for the aux list and lets
-    /// the reply carry the screen forward, exactly as login does for an
-    /// account without Full Mixer Control.
-    func chooseAuxOnly() {
-        awaitingAuxes = true
-        backend.requestAuxes()
-    }
+    /// The slide between Mixer Control and the AUX screens: Mixer Control
+    /// sits on the left, the aux list and mixer on the right (see the
+    /// transitions in CLMixApp). Only the AUX and Channels moves run in
+    /// it - every other screen change is a cut, as before.
+    static let slide = Animation.easeOut(duration: 0.26)
 
-    /// "Mixer Control": the console's own channel faders, pans and mutes.
+    /// Mixer Control: the console's own channel faders, pans and mutes.
+    /// Where an account holding the permission lands after login.
     func enterMixerControl() {
         channels = []
         screen = .mixerControl
@@ -410,41 +416,28 @@ final class AppModel: NSObject, ObservableObject {
         backend.requestBanks()
     }
 
-    /// Back out of mixer control to the choice that led into it. The
-    /// session stays up; only the screen ends - and nothing is selected
-    /// again until the next choice is made.
-    func leaveMixerControl() {
+    /// AUX in Mixer Control's menu: over to the aux list, to mix one send.
+    /// Asks for the list and slides it in once it arrives (see
+    /// mixerDidReceiveAuxes). The strips are left as they are, so the
+    /// screen sliding away still shows them; the mixer screen clears
+    /// them itself when an aux is picked.
+    func showAux() {
         closeEq()
         closeDynamics()
-        channels = []
-        banks = []
-        selectedBank = nil
-        MeterCenter.shared.clear()
-        screen = .controlChoice
+        slidingToAux = true
+        awaitingAuxes = true
+        backend.requestAuxes()
     }
 
-    /// Back out of one aux's mix to the AUX Only / Mixer Control
-    /// choice - the same place the mixer control screen's own Back
-    /// goes, so the two modes are one tap apart in both directions
-    /// rather than one of them being a dead end.
-    ///
-    /// Not the aux list, deliberately: picking a different aux does not
-    /// need it, since the mixer screen carries its own aux picker along
-    /// the bottom. The one thing the list offered that nothing else did
-    /// was the way across to the other mode, which is what this is.
-    ///
-    /// Only offered to an account that was shown the choice in the
-    /// first place - see MixerView - and like leaveMixerControl it
-    /// tells the backend nothing: the server keeps the aux selected and
-    /// keeps pushing it, exactly as it does while the choice screen is
-    /// up, and the next pick re-selects whatever was tapped.
-    func leaveAux() {
+    /// Channels, in the aux screens: slides back over to Mixer Control.
+    /// The strips are left for the new channel list to replace rather
+    /// than cleared, so the aux mix sliding away is not emptied on its
+    /// way out.
+    func showChannels() {
         tellServerLeftAux()
-        channels = []
-        banks = []
-        selectedBank = nil
-        MeterCenter.shared.clear()
-        screen = .controlChoice
+        withAnimation(Self.slide) { screen = .mixerControl }
+        backend.selectMixerControl()
+        backend.requestBanks()
     }
 
     /// The server is told this phone is riding nothing, so it drops out
@@ -1055,10 +1048,11 @@ extension AppModel: MixerClientDelegate {
 
     /// The desktop's resync, announced by the server. Starting, it has
     /// dropped whatever this phone had selected, so the app goes back to
-    /// where that choice is made - AUX Only / Mixer Control for an
-    /// account that has it, the aux list otherwise - and the cover goes
-    /// up over it. Finishing, the cover comes down and the aux list is
-    /// asked for again, since aux names may have changed.
+    /// its first screen after login - Mixer Control for an account holding
+    /// it, the aux list otherwise - and the cover goes up over it.
+    /// Finishing, the cover comes down and that screen asks again for what
+    /// it shows: the aux list, since aux names may have changed, or mixer
+    /// mode and its banks.
     /// Mirrors Android's ServerSync.
     func mixerDidReceiveSync(_ syncing: Bool) {
         guard screen != .connect else { return }
@@ -1079,7 +1073,7 @@ extension AppModel: MixerClientDelegate {
             selectedBank = nil
             awaitingAuxes = false
             MeterCenter.shared.clear()
-            screen = mixerControlAllowed ? .controlChoice : .auxList
+            screen = mixerControlAllowed ? .mixerControl : .auxList
             return
         }
 
@@ -1095,6 +1089,11 @@ extension AppModel: MixerClientDelegate {
 
             if self.screen == .auxList {
                 self.backend.requestAuxes()
+            } else if self.screen == .mixerControl {
+                // The resync dropped mixer mode along with everything
+                // else this phone had selected.
+                self.backend.selectMixerControl()
+                self.backend.requestBanks()
             }
         }
     }
@@ -1233,11 +1232,11 @@ extension AppModel: MixerClientDelegate {
             gainRange = backend.gainRange
             trimRange = backend.trimRange
 
-            // An account holding Full Mixer Control is asked which of the
-            // two it wants before anything is selected; everyone else
-            // goes straight on to the aux list.
+            // An account holding Full Mixer Control starts on it, with
+            // the aux screens behind its menu's AUX; everyone else goes
+            // straight on to the aux list.
             if mixerControlAllowed {
-                screen = .controlChoice
+                enterMixerControl()
             } else {
                 awaitingAuxes = true
                 backend.requestAuxes()
@@ -1276,7 +1275,12 @@ extension AppModel: MixerClientDelegate {
         // carried forward by it.
         guard awaitingAuxes else { return }
         awaitingAuxes = false
-        screen = .auxList
+        if slidingToAux {
+            slidingToAux = false
+            withAnimation(Self.slide) { screen = .auxList }
+        } else {
+            screen = .auxList
+        }
         tellServerLeftAux()
     }
 
@@ -1290,11 +1294,43 @@ extension AppModel: MixerClientDelegate {
     /// show a dozen - the same reason the desktop dropped its own All
     /// button. The console's banks are the only choices. Mirrors
     /// Android's MixerActivity.onBanks.
+    /// Mixer Control's surface layout. Picks the opening bank among the
+    /// ones with input channels on - a DCA or output bank is listed but
+    /// has no strips to show. Mirrors Android's MixerControlActivity.
+    func mixerDidReceiveBankLayers(_ layers: [BankLayer]) {
+        gotBankLayout = true
+        bankLayers = layers
+
+        let usable = layers.flatMap(\.banks).filter { $0.inputs > 0 }
+
+        guard let first = usable.first else {
+            if selectedBank != nil {
+                selectedBank = nil
+                backend.selectBank(nil)
+            }
+            return
+        }
+
+        let bank = usable.first(where: { $0.id == selectedBank }) ?? first
+
+        if bank.id != selectedBank {
+            selectedBank = bank.id
+            backend.selectBank(bank.id)
+        }
+    }
+
     func mixerDidReceiveBanks(_ banks: [String]) {
         // Same as above: stale while a newer edit is still in flight.
         if pendingBankSaves > 0 { return }
 
         self.banks = banks
+
+        // Already handled, from the layout in the same message.
+        if gotBankLayout {
+            gotBankLayout = false
+            return
+        }
+        bankLayers = []
 
         if banks.isEmpty {
             // A console that reports no banks at all: fall back to every

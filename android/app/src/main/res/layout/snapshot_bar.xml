@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Snapshot: NAME" along the very bottom of both mixer screens - which
+     show the console is on, so a recall nobody announced is noticed.
+     Filled from the snapshot every levels frame carries (see
+     ScreenSlide.showSnapshot); invisible rather than gone until the first
+     one arrives, so nothing shifts when it does. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/snapshot_label"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/snapshot_bar_height"
+    android:background="?android:attr/colorBackground"
+    android:gravity="center"
+    android:maxLines="1"
+    android:ellipsize="end"
+    android:paddingHorizontal="12dp"
+    android:textColor="@color/on_surface_variant"
+    android:textSize="11sp"
+    android:visibility="invisible" />

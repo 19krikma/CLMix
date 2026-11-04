@@ -5,26 +5,27 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
+import androidx.activity.OnBackPressedCallback
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
+import androidx.core.view.isVisible
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.clmix.databinding.ActivityMixerControlBinding
 
 private const val STATE_BANK = "bank"
 
-// As MixerActivity: four bank buttons a row, and a panel animation short
-// enough to read as a control rather than a transition.
-private const val BANK_COLUMNS = 4
+// As MixerActivity: a panel animation short enough to read as a control
+// rather than a transition.
 private const val BANK_PANEL_ANIM_MS = 100L
 
 /**
@@ -33,9 +34,10 @@ private const val BANK_PANEL_ANIM_MS = 100L
  * The same strips as MixerActivity, riding different parameters - the
  * socket is put into mixer mode on resume (MixerClient.selectMixerControl)
  * and from then on every level/pan/mute write the adapter makes lands on
- * the channel itself rather than on one aux's sends. Reached only from
- * ControlChoiceActivity, which is itself only offered to accounts holding
- * the permission; the server checks it again on every write.
+ * the channel itself rather than on one aux's sends. Where an account
+ * holding the permission lands after login (see ConnectActivity), with
+ * the aux screens a slide away behind the menu's AUX; the server checks
+ * the permission again on every write.
  *
  * What is deliberately absent, because it belongs to mixing one send:
  * the aux picker sheet and presets.
@@ -47,7 +49,11 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     private lateinit var binding: ActivityMixerControlBinding
     private lateinit var profileHeader: ProfileHeader
     private lateinit var adapter: ChannelAdapter
-    private lateinit var bankAdapter: BankAdapter
+    // Whether the last bank list came with the surface layout. The
+    // layered list arrives just ahead of the plain names in the same
+    // message, and wins over them; a server too old to send it leaves
+    // this false and the names are shown as one unlabelled layer.
+    private var gotLayout = false
 
     private var selectedBank: String? = null
     private var smoothEnabled = false
@@ -116,42 +122,57 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             }
         }
 
-        bankAdapter = BankAdapter(onClick = { bank ->
+        binding.bankPanel.onPick = { bank ->
             setBanksExpanded(false)
 
-            if (bank != selectedBank) {
-                selectedBank = bank
-                bankAdapter.selectedBank = bank
-                MixerClient.selectBank(bank)
+            if (bank.id != selectedBank) {
+                selectedBank = bank.id
+                binding.bankPanel.select(bank.id)
+                MixerClient.selectBank(bank.id)
             }
-        })
+        }
 
-        binding.bankRecycler.layoutManager = GridLayoutManager(this, BANK_COLUMNS)
-        binding.bankRecycler.adapter = bankAdapter
+        // Into the top bar on a tablet, each layer's label at the start of
+        // its row so the bar does not grow a line per layer.
+        if (isLargeScreen()) {
+            binding.bankPanel.inline = true
+            moveBanksIntoTopBar(binding.topBar, binding.topBarSpacer, binding.bankPanel)
+        }
 
         binding.bankToggle.setOnClickListener {
-            setBanksExpanded(binding.bankRecycler.visibility != View.VISIBLE)
+            setBanksExpanded(binding.bankPanel.visibility != View.VISIBLE)
         }
+        applyLargeScreen()
 
         binding.menuButton.setOnClickListener {
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
-        // Back to the AUX Only / Mixer Control choice, which is still
-        // underneath in the back stack - finishing returns to it rather
-        // than building a second copy. The session stays up; only this
-        // screen ends.
-        binding.backButton.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+
+        // AUX slides over to the aux list, to mix one send. It needs the
+        // list first, so it asks for it and opens once it arrives (see
+        // onAuxes). This screen stays underneath: Channels, or Back from
+        // the list, slides back to it.
+        bindModeButtons(binding.modeButtons, MixScreen.CHANNELS) {
+            binding.drawerLayout.closeMenuDrawer()
             dismissPanSheet()
             dismissInputSheet()
-            finish()
+            awaitingAuxes = true
+            MixerClient.requestAuxes()
         }
+
+        // The first screen after login for an account holding Mixer
+        // Control, with the login screen still underneath and still
+        // connected - so backing out of it logs out, as backing out of
+        // the aux list does for everyone else.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = logout()
+        })
 
         binding.logoutButton.setOnClickListener { logout() }
 
         profileHeader = ProfileHeader(binding.profileHeader) {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            binding.drawerLayout.closeMenuDrawer()
             dismissPanSheet()
             dismissInputSheet()
             startActivity(Intent(this, ProfileActivity::class.java))
@@ -163,6 +184,21 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             updateSmoothButtonAppearance()
         }
         updateSmoothButtonAppearance()
+    }
+
+    // Set while waiting for the aux list AUX asked for, so the reply is
+    // only acted on when it was asked for here - the server pushes an aux
+    // list for other reasons too.
+    private var awaitingAuxes = false
+
+    override fun onAuxes(auxes: List<AuxBus>) {
+        if (!awaitingAuxes) return
+
+        awaitingAuxes = false
+        startActivity(
+            Intent(this, AuxListActivity::class.java).putExtra("auxes", ArrayList(auxes))
+        )
+        slideToAux()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -186,6 +222,15 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         // socket is shared with the other screens, and coming back here
         // from one of them (or after a rebuild) must put it back into
         // mixer mode before any fader on screen is touched.
+        reselect()
+    }
+
+    /**
+     * Puts the socket in mixer mode and asks for the banks - on resume,
+     * and again once a desktop resync is over (see ServerSync), which
+     * drops whatever this phone had selected.
+     */
+    fun reselect() {
         MixerClient.selectMixerControl()
         MixerClient.requestBanks()
     }
@@ -277,9 +322,29 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         binding.smoothButton.setTextColor(ContextCompat.getColor(this, textRes))
     }
 
-    /** Identical to MixerActivity's panel, minus the aux sheet it also closed. */
-    private fun setBanksExpanded(expanded: Boolean) {
-        val panel = binding.bankRecycler
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyLargeScreen()
+    }
+
+    /** As MixerActivity: a tablet keeps its banks out, in the top bar,
+     *  with no arrow. */
+    private fun applyLargeScreen() {
+        val large = isLargeScreen()
+        binding.bankToggle.isVisible = !large
+        if (large) setBanksExpanded(true)
+
+        // As MixerActivity: docked on a tablet on its side.
+        val docked = wantsDockedMenu()
+        setSideMenuDocked(binding.drawerLayout, binding.menuContent, binding.mixerColumn, docked)
+        binding.menuButton.isVisible = !docked
+    }
+
+    /** Identical to MixerActivity's panel, minus the aux sheet it also
+     *  closed - and, as there, always open on a tablet. */
+    private fun setBanksExpanded(requested: Boolean) {
+        val expanded = requested || isLargeScreen()
+        val panel = binding.bankPanel
         val alreadyThere = (panel.visibility == View.VISIBLE) == expanded
 
         if (alreadyThere && bankPanelAnimator == null) return
@@ -375,33 +440,52 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         binding.statusLabel.text = message
     }
 
-    override fun onBanks(banks: List<String>) {
-        bankAdapter.submit(banks)
+    override fun onBankLayers(layers: List<BankLayer>) {
+        gotLayout = true
+        showBanks(layers)
+    }
 
-        if (banks.isEmpty()) {
-            // A console reporting no banks: fall back to every channel,
-            // exactly as the aux screen does.
+    override fun onBanks(banks: List<String>) {
+        // Already shown, from the layout that came in the same message.
+        if (gotLayout) {
+            gotLayout = false
+            return
+        }
+
+        // An older server: the names alone, as one unlabelled layer.
+        showBanks(listOf(BankLayer(0, banks.map { LayoutBank(it, it, 1) })))
+    }
+
+    private fun showBanks(layers: List<BankLayer>) {
+        val usable = layers.flatMap { it.banks }.filter { it.inputs > 0 }
+
+        if (usable.isEmpty()) {
+            // A console reporting no banks with inputs on: fall back to
+            // every channel, exactly as the aux screen does.
             if (selectedBank != null) {
                 selectedBank = null
-                bankAdapter.selectedBank = null
                 MixerClient.selectBank(null)
             }
 
+            binding.bankPanel.show(layers, null)
             setBanksExpanded(false)
             return
         }
 
-        val bank = selectedBank.takeIf { it in banks } ?: banks.first()
+        // Whatever was showing before, if it is still there and still has
+        // strips on it; else the surface's first bank that does.
+        val bank = usable.firstOrNull { it.id == selectedBank } ?: usable.first()
 
-        if (bank != selectedBank) {
-            selectedBank = bank
-            MixerClient.selectBank(bank)
+        if (bank.id != selectedBank) {
+            selectedBank = bank.id
+            MixerClient.selectBank(bank.id)
         }
 
-        bankAdapter.selectedBank = bank
+        binding.bankPanel.show(layers, bank.id)
     }
 
     override fun onLevels(aux: Int, channels: List<ChannelState>) {
+        binding.snapshotBar.root.showSnapshot(MixerClient.liveSnapshot)
         // Anything still arriving for a bus belongs to the aux screen -
         // most likely a frame already in flight when the socket switched
         // modes, which would otherwise paint send levels onto these

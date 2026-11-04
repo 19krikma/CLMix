@@ -19,11 +19,12 @@ import androidx.appcompat.app.AlertDialog
  *
  * The server sends {"type": "sync", "syncing": true} and drops whatever
  * this phone had selected, since the names and layout it was showing are
- * being replaced. So the app goes back to where a choice is made - the
- * AUX Only / Mixer Control screen for an account that has that choice,
- * the aux list for everyone else - and holds a "Server Syncing" spinner
- * over it that cannot be dismissed. "syncing": false takes it down, and
- * the aux list asks for a fresh list, since aux names may have changed.
+ * being replaced. So the app goes back to its first screen after login -
+ * Mixer Control for an account holding it, the aux list for everyone
+ * else - and holds a "Server Syncing" spinner over it that cannot be
+ * dismissed. "syncing": false takes it down, and the screen asks again
+ * for what it shows: the aux list for a fresh list, since aux names may
+ * have changed, and Mixer Control for mixer mode and its banks.
  *
  * App-wide rather than per screen: it has to move the app between
  * screens, which no one screen can do for the others. It follows the
@@ -75,13 +76,14 @@ object ServerSync : Application.ActivityLifecycleCallbacks {
         syncing = false
         dismiss()
         (resumed as? AuxListActivity)?.refreshAuxes()
+        (resumed as? MixerControlActivity)?.reselect()
     }
 
     private fun home(): Class<out Activity> =
-        if (MixerClient.mixerControlAllowed) ControlChoiceActivity::class.java
+        if (MixerClient.mixerControlAllowed) MixerControlActivity::class.java
         else AuxListActivity::class.java
 
-    /** Take activity back to the choice screen, or show the spinner on it. */
+    /** Take activity back to the first screen after login, or show the spinner on it. */
     private fun follow(activity: Activity) {
         // The login screen has nothing selected to leave, and the server
         // only tells logged-in phones anyway.
@@ -92,7 +94,7 @@ object ServerSync : Application.ActivityLifecycleCallbacks {
             return
         }
 
-        // CLEAR_TOP finishes everything above the choice screen - the
+        // CLEAR_TOP finishes everything above that screen - the
         // mixer, EQ, Dynamics, any sheet open on them - and SINGLE_TOP
         // hands the intent to the instance already there rather than
         // building a new one, which keeps the aux list it was opened

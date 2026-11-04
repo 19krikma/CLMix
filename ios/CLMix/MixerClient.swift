@@ -14,6 +14,10 @@ protocol MixerClientDelegate: AnyObject {
     /// anyone opens or leaves one (RemoteServer._aux_users_message).
     func mixerDidReceiveAuxUsers(_ byAux: [Int: [AuxUser]])
     func mixerDidReceiveBanks(_ banks: [String])
+    /// The surface layout, layer by layer - Mixer Control only, and only
+    /// from a server new enough to send it. Arrives just before
+    /// mixerDidReceiveBanks, from the same message.
+    func mixerDidReceiveBankLayers(_ layers: [BankLayer])
     /// Arrives ~20x a second while a mix is moving, carrying one entry
     /// per visible channel. `sequence` advances per frame so views can
     /// tell a fresh sample from a redraw of the same one - the meter
@@ -323,6 +327,19 @@ final class MixerClient: NSObject, MixerBackend {
 
     func requestAuxes() {
         send(["action": "list_auxes"])
+    }
+
+    static func bankLayers(_ raw: [[String: Any]]) -> [BankLayer] {
+        raw.enumerated().map { index, layer in
+            let banks = (layer["banks"] as? [[String: Any]] ?? []).map { bank in
+                LayoutBank(
+                    id: bank["id"] as? String ?? "",
+                    name: bank["name"] as? String ?? "",
+                    inputs: bank["inputs"] as? Int ?? 0
+                )
+            }
+            return BankLayer(number: layer["layer"] as? Int ?? index + 1, banks: banks)
+        }
     }
 
     func requestBanks() {
@@ -705,6 +722,9 @@ final class MixerClient: NSObject, MixerBackend {
                 delegate?.mixerDidReceiveAuxUsers(byAux)
 
             case "banks":
+                if let layers = json["layers"] as? [[String: Any]] {
+                    delegate?.mixerDidReceiveBankLayers(Self.bankLayers(layers))
+                }
                 delegate?.mixerDidReceiveBanks(json["banks"] as? [String] ?? [])
 
             case "custom_banks":

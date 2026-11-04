@@ -50,6 +50,7 @@
                 android:textColor="?attr/colorOnSurface" />
 
             <Space
+                android:id="@+id/top_bar_spacer"
                 android:layout_width="0dp"
                 android:layout_height="1dp"
                 android:layout_weight="1" />
@@ -87,29 +88,47 @@
 
         </LinearLayout>
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/bank_recycler"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?attr/colorSurface"
-            android:paddingHorizontal="9dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="10dp"
-            android:visibility="gone" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/channel_recycler"
+        <!-- The bank picker floats over the strips rather than sitting
+             above them: opening it covers the top of the faders instead
+             of squeezing every one of them shorter, which leaves room for
+             a whole surface's worth of banks, every layer. On a tablet it
+             is moved into the top bar instead (see LargeScreen.kt). -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
-            android:orientation="horizontal"
-            android:clipToPadding="false"
-            android:padding="10dp" />
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/channel_recycler"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:clipToPadding="false"
+                android:padding="10dp" />
+
+            <com.clmix.LayeredBankPanel
+                android:id="@+id/bank_panel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:background="?attr/colorSurface"
+                android:elevation="8dp"
+                android:paddingHorizontal="9dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="10dp"
+                android:visibility="gone" />
+
+        </FrameLayout>
+
+        <include
+            android:id="@+id/snapshot_bar"
+            layout="@layout/snapshot_bar" />
 
     </LinearLayout>
 
     <LinearLayout
-        android:layout_width="280dp"
+        android:id="@+id/menu_content"
+        android:layout_width="@dimen/side_menu_width"
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:orientation="vertical"
@@ -120,6 +139,10 @@
             android:id="@+id/profile_header"
             layout="@layout/drawer_profile_header" />
 
+        <include
+            android:id="@+id/mode_buttons"
+            layout="@layout/menu_mode_buttons" />
+
         <Space
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -127,37 +150,16 @@
 
         <!-- Presets are per-aux-send, so the aux screen's Presets button
              has nothing to act on here and is deliberately absent. -->
-        <!-- Back returns to the AUX Only / Mixer Control choice; Log Out
-             ends the session outright. Side by side because they are the
-             same kind of action at different depths. -->
-        <LinearLayout
+        <!-- Log Out ends the session outright. On its own at the bottom,
+             well away from Channels and AUX at the top, which only move
+             between screens. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/logout_button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_margin="14dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/back_button"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginEnd="6dp"
-                android:text="Back"
-                app:cornerRadius="10dp"
-                app:backgroundTint="@color/mute_inactive"
-                android:textColor="@color/on_mute_inactive" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/logout_button"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:text="Log Out"
-                app:cornerRadius="10dp" />
-
-        </LinearLayout>
+            android:layout_margin="14dp"
+            android:text="Log Out"
+            app:cornerRadius="10dp" />
 
     </LinearLayout>
 

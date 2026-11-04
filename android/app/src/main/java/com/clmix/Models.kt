@@ -433,3 +433,15 @@ data class Preset(
             else -> "Public"
         } + " · " + (if (aux == null) "Any aux" else auxName ?: "Aux $aux")
 }
+
+/**
+ * One bank of the console's surface layout, as Mixer Control lists it.
+ * [id] is what select_bank sends - its place on the surface, since two
+ * layers can hold banks of the same name. [inputs] is how many input
+ * channels it holds: none for a bank of DCAs or outputs, which is listed
+ * but has no strips to show.
+ */
+data class LayoutBank(val id: String, val name: String, val inputs: Int)
+
+/** One layer of the surface layout, numbered from 1 as the desk labels it. */
+data class BankLayer(val number: Int, val banks: List<LayoutBank>)

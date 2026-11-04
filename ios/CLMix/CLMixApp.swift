@@ -15,18 +15,24 @@ struct CLMixApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                Group {
+                // A ZStack so the screen leaving and the one arriving can
+                // be on screen together while they slide. Mixer Control
+                // sits to the left of the aux screens; the slide only runs
+                // when AppModel animates the change (AUX and Channels),
+                // and every other move stays a cut.
+                ZStack {
                     switch model.screen {
                     case .connect:
                         ConnectView()
-                    case .controlChoice:
-                        ControlChoiceView()
                     case .auxList:
                         AuxListView()
+                            .transition(.move(edge: .trailing))
                     case .mixer(let aux):
                         MixerView(aux: aux)
+                            .transition(.move(edge: .trailing))
                     case .mixerControl:
                         MixerControlView()
+                            .transition(.move(edge: .leading))
                     }
                 }
                 // The channel screens go full screen - mirrors Android's
@@ -37,8 +43,8 @@ struct CLMixApp: App {
                 .statusBarHidden(isChannelScreen)
                 .persistentSystemOverlays(isChannelScreen ? .hidden : .automatic)
             }
-            // Over every screen, the choice screens it sends the app back
-            // to included - see AppModel.mixerDidReceiveSync.
+            // Over every screen, the first screen after login it sends the
+            // app back to included - see AppModel.mixerDidReceiveSync.
             .overlay {
                 if model.serverSyncing {
                     ServerSyncingCover()

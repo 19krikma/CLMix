@@ -5,9 +5,9 @@ import SwiftUI
 /// The same strips the aux screen uses, riding different parameters - the
 /// socket is put into mixer mode on the way in (AppModel.enterMixerControl)
 /// and from then on every level/pan/mute write lands on the channel itself
-/// rather than on one aux's sends. Reached only from ControlChoiceView,
-/// which is itself only offered to accounts holding the permission; the
-/// server checks it again on every write.
+/// rather than on one aux's sends. Where an account holding the
+/// permission lands after login, with the aux screens a slide away behind
+/// the menu's AUX; the server checks the permission again on every write.
 ///
 /// What is deliberately absent, because it belongs to mixing one send:
 /// the aux picker sheet and presets. Each strip also carries an EQ button
@@ -35,24 +35,42 @@ struct MixerControlView: View {
     private let bankPanelAnimation = Animation.easeOut(duration: 0.1)
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
+        GeometryReader { geo in
+            let menuDocked = LargeScreen.docksMenu(geo.size)
 
-            if banksExpanded {
-                BankPanelView(
-                    banks: model.banks,
-                    selectedBank: model.selectedBank,
-                    onSelect: { bank in
-                        withAnimation(bankPanelAnimation) { banksExpanded = false }
-                        model.selectBank(bank)
+            HStack(spacing: 0) {
+                // As MixerView: an iPad on its side keeps the menu out.
+                if menuDocked {
+                    menuContent
+                        .frame(width: LargeScreen.menuWidth)
+                        .frame(maxHeight: .infinity)
+                        .background(Color.clmixSurface)
+                }
+
+                VStack(spacing: 0) {
+                    topBar(menuDocked: menuDocked)
+
+                    // The bank picker floats over the strips rather than
+                    // sitting above them: opening it covers the top of the
+                    // faders instead of squeezing every one of them
+                    // shorter, which leaves room for a whole surface's
+                    // worth of banks, every layer.
+                    ZStack(alignment: .top) {
+                        channelGrid
+
+                        if banksExpanded && !LargeScreen.isActive {
+                            bankPanel(inTopBar: false)
+                                .background(Color.clmixSurface)
+                                .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
+                                .transition(.opacity)
+                        }
                     }
-                )
-                .transition(.opacity)
-            }
 
-            channelGrid
+                    SnapshotBar(snapshot: model.liveSnapshot)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clmixBackground.ignoresSafeArea())
         .navigationBarHidden(true)
         .sheet(isPresented: $showMenu) { menuSheet }
@@ -66,6 +84,39 @@ struct MixerControlView: View {
         // A bank switch can take the open channel off screen entirely,
         // leaving a sheet acting on a strip that is no longer there.
         .onChange(of: model.selectedBank) { _, _ in openInput = nil }
+    }
+
+    /// As MixerView: under the bar on a phone, in its middle on a tablet.
+    /// The surface layout, layer by layer, where the server sent one; the
+    /// plain bank names from one too old to.
+    @ViewBuilder
+    private func bankPanel(inTopBar: Bool) -> some View {
+        if model.bankLayers.isEmpty {
+            BankPanelView(
+                banks: model.banks,
+                selectedBank: model.selectedBank,
+                onSelect: { pick($0, inTopBar: inTopBar) },
+                inTopBar: inTopBar
+            )
+        } else {
+            LayeredBankPanelView(
+                layers: model.bankLayers,
+                selectedId: model.selectedBank,
+                inline: inTopBar,
+                onPick: { pick($0.id, inTopBar: inTopBar) }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(inTopBar ? Color.clmixDivider : .clear, lineWidth: 1)
+            )
+        }
+    }
+
+    private func pick(_ bank: String, inTopBar: Bool) {
+        if !inTopBar {
+            withAnimation(bankPanelAnimation) { banksExpanded = false }
+        }
+        model.selectBank(bank)
     }
 
     private var eqBinding: Binding<Bool> {
@@ -147,14 +198,17 @@ struct MixerControlView: View {
         }
     }
 
-    private var topBar: some View {
+    /// [menuDocked]: as MixerView, no button for a menu already out.
+    private func topBar(menuDocked: Bool) -> some View {
         HStack(spacing: 10) {
-            Button {
-                showMenu = true
-            } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 18))
-                    .frame(width: 40, height: 40)
+            if !menuDocked {
+                Button {
+                    showMenu = true
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 18))
+                        .frame(width: 40, height: 40)
+                }
             }
 
             // There is no aux bar along the bottom naming what is being
@@ -175,10 +229,17 @@ struct MixerControlView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
-            Spacer(minLength: 0)
+            // The banks, on a tablet - see MixerView.topBar.
+            if LargeScreen.isActive {
+                bankPanel(inTopBar: true)
+                    .padding(.vertical, 2)
+            } else {
+                Spacer(minLength: 0)
+            }
 
             fineButton
-            bankToggle
+            // A tablet keeps its banks out, so there is nothing to toggle.
+            if !LargeScreen.isActive { bankToggle }
 
             if model.statusIsError && !model.statusMessage.isEmpty {
                 Text(model.statusMessage)
@@ -221,6 +282,15 @@ struct MixerControlView: View {
     /// Presets are per-aux-send, so the aux screen's Presets button has
     /// nothing to act on here and is deliberately absent.
     private var menuSheet: some View {
+        menuContent
+            .frame(maxWidth: .infinity)
+            .background(Color.clmixSurface)
+            .presentationDetents([.medium])
+    }
+
+    /// The menu itself: in a sheet, or docked down the left of an iPad on
+    /// its side. One copy, as on the aux screen.
+    private var menuContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             // This account's picture and name - see ProfileView.
             ProfileHeader {
@@ -229,41 +299,31 @@ struct MixerControlView: View {
                 showProfile = true
             }
 
+            // Channels and AUX - this is the Channels one. Only an account
+            // holding Mixer Control ever reaches this screen.
+            MenuModeButtons(current: .channels) {
+                showMenu = false
+                openInput = nil
+                model.showAux()
+            }
+
             Spacer()
 
-            // Back returns to the AUX Only / Mixer Control choice; Log Out
-            // ends the session outright. Side by side because they are the
-            // same kind of action at different depths.
-            HStack(spacing: 12) {
-                Button {
-                    showMenu = false
-                    openInput = nil
-                    model.leaveMixerControl()
-                } label: {
-                    Text("Back")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .foregroundStyle(Color.clmixOnMuteInactive)
-                .background(Color.clmixMuteInactive)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                Button {
-                    showMenu = false
-                    model.logout()
-                } label: {
-                    Text("Log Out")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .foregroundStyle(Color.clmixOnPrimary)
-                .background(Color.clmixPrimary)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            // Log Out ends the session outright. On its own at the bottom,
+            // well away from Channels and AUX at the top, which only move
+            // between screens.
+            Button {
+                showMenu = false
+                model.logout()
+            } label: {
+                Text("Log Out")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
             }
+            .foregroundStyle(Color.clmixOnPrimary)
+            .background(Color.clmixPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .padding(14)
         }
-        .frame(maxWidth: .infinity)
-        .background(Color.clmixSurface)
-        .presentationDetents([.medium])
     }
 }

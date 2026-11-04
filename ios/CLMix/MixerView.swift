@@ -15,6 +15,11 @@ struct MixerView: View {
     let aux: AuxBus
 
     @State private var banksExpanded = false
+
+    /// Whether the bank panel is out: always on a tablet, where there is
+    /// room to leave it, else whatever the toggle last said. Picking a
+    /// bank folds it on a phone and does nothing to it here.
+    private var showBanks: Bool { banksExpanded || LargeScreen.isActive }
     @State private var showMenu = false
     @State private var presetsExpanded = false
     @State private var showPresetSave = false
@@ -85,7 +90,9 @@ struct MixerView: View {
 
     var body: some View {
         GeometryReader { geo in
-            if geo.size.width > geo.size.height {
+            // Phones only: a tablet on its side still has the height for
+            // the portrait layout, bars, banks and all.
+            if geo.size.width > geo.size.height && !LargeScreen.isActive {
                 landscapeBody(geo)
             } else {
                 portraitBody(geo)
@@ -149,7 +156,7 @@ struct MixerView: View {
             if !expanded { setBankEditing(false) }
         }
         .onChange(of: openPanel) { _, panel in
-            if panel != .bank && !banksExpanded { setBankEditing(false) }
+            if panel != .bank && !showBanks { setBankEditing(false) }
         }
         // Presets are per-aux-send, so a sheet left open from the
         // previous aux would otherwise keep acting against the new one -
@@ -204,36 +211,39 @@ struct MixerView: View {
     }
 
     private func portraitBody(_ geo: GeometryProxy) -> some View {
+        let menuDocked = LargeScreen.docksMenu(geo.size)
+
+        return HStack(spacing: 0) {
+            // An iPad on its side keeps the menu out down the left, with
+            // the strips and the aux sheet beside it rather than under it.
+            if menuDocked {
+                menuContent
+                    .frame(width: LargeScreen.menuWidth)
+                    .frame(maxHeight: .infinity)
+                    .background(Color.clmixSurface)
+            }
+
+            mixerColumn(geo, menuDocked: menuDocked)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(edges: [.top, .bottom])
+    }
+
+    private func mixerColumn(_ geo: GeometryProxy, menuDocked: Bool) -> some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                topBar
-                    .frame(height: max(geo.safeAreaInsets.top, Self.topBarHeight))
+                // A phone's bar is exactly the camera strip or its own
+                // height, whichever is taller; a tablet's grows past that
+                // to hold the banks in its middle.
+                let barHeight = max(geo.safeAreaInsets.top, Self.topBarHeight)
+                topBar(menuDocked: menuDocked)
+                    .frame(height: LargeScreen.isActive ? nil : barHeight)
+                    .frame(minHeight: LargeScreen.isActive ? barHeight : nil)
                     .background(Color.clmixSurface)
 
-                if banksExpanded {
-                    BankPanelView(
-                        banks: model.banks,
-                        selectedBank: model.selectedBank,
-                        onSelect: { bank in
-                            // Fold away on pick: the panel exists to make
-                            // the choice, and leaving it open would keep a
-                            // third of the faders pushed off screen after
-                            // the choice is made. Not while editing, where
-                            // picking is choosing which bank to work on.
-                            if !bankEditing {
-                                withAnimation(bankPanelAnimation) { banksExpanded = false }
-                            }
-                            model.selectBank(bank)
-                        },
-                        canEdit: model.personalizationAllowed,
-                        editing: bankEditing,
-                        placeholder: newBankPlaceholder,
-                        onToggleEdit: { setBankEditing(!bankEditing) },
-                        onRename: selectedBankEditable ? startRename : nil,
-                        onAdd: startNewBank,
-                        onMove: { model.moveBank(from: $0, to: $1) }
-                    )
-                    .transition(.opacity)
+                if banksExpanded && !LargeScreen.isActive {
+                    bankPanel(inTopBar: false)
+                        .transition(.opacity)
                 }
 
                 channelGrid
@@ -243,8 +253,10 @@ struct MixerView: View {
             // strips and takes no layout height of its own, so without
             // this they would measure themselves all the way to the
             // bottom edge and put their Mute buttons underneath it.
-            .padding(.bottom, AuxSheetView.peekHeight)
+            .padding(.bottom, AuxSheetView.peekHeight + SnapshotBar.height)
 
+            // The aux sheet stands on the snapshot strip rather than on
+            // the bottom edge, so its handle sits just above it.
             AuxSheetView(
                 auxes: model.auxes,
                 currentIndex: aux.index,
@@ -252,6 +264,9 @@ struct MixerView: View {
                 me: model.profile?.username,
                 onSelect: { model.switchAux($0) }
             )
+            .padding(.bottom, SnapshotBar.height)
+
+            SnapshotBar(snapshot: model.liveSnapshot)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Full screen hides the status bar, but the safe area still keeps
@@ -262,6 +277,34 @@ struct MixerView: View {
         // above where the indicator draws, and a tap on it never reaches
         // the system's swipe.
         .ignoresSafeArea(edges: [.top, .bottom])
+    }
+
+    /// The bank grid: under the top bar on a phone, folded away until the
+    /// arrow is pressed; in the middle of the bar on a tablet.
+    private func bankPanel(inTopBar: Bool) -> some View {
+        BankPanelView(
+            banks: model.banks,
+            selectedBank: model.selectedBank,
+            onSelect: { bank in
+                // Fold away on pick: the panel exists to make the choice,
+                // and leaving it open would keep a third of the faders
+                // pushed off screen after the choice is made. Not while
+                // editing, where picking is choosing which bank to work
+                // on - and never on a tablet, where it is always out.
+                if !bankEditing && !inTopBar {
+                    withAnimation(bankPanelAnimation) { banksExpanded = false }
+                }
+                model.selectBank(bank)
+            },
+            canEdit: model.personalizationAllowed,
+            editing: bankEditing,
+            placeholder: newBankPlaceholder,
+            onToggleEdit: { setBankEditing(!bankEditing) },
+            onRename: selectedBankEditable ? startRename : nil,
+            onAdd: startNewBank,
+            onMove: { model.moveBank(from: $0, to: $1) },
+            inTopBar: inTopBar
+        )
     }
 
     /// The top bar's own height when there is no camera strip to fill:
@@ -711,14 +754,18 @@ struct MixerView: View {
         }
     }
 
-    private var topBar: some View {
+    /// [menuDocked]: the menu is already out down the left (an iPad on
+    /// its side), so there is no button to open it.
+    private func topBar(menuDocked: Bool) -> some View {
         HStack(spacing: 10) {
-            Button {
-                showMenu = true
-            } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 18))
-                    .frame(width: 40, height: 40)
+            if !menuDocked {
+                Button {
+                    showMenu = true
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 18))
+                        .frame(width: 40, height: 40)
+                }
             }
 
             SosButton()
@@ -734,12 +781,20 @@ struct MixerView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
-            // Takes the room the bank dropdown used to, so Fine and the
-            // bank toggle stay pinned to the right edge.
-            Spacer(minLength: 0)
+            // A tablet has the room for the banks themselves here, in an
+            // outlined box between the menu and Fine. On a phone this is
+            // empty, which keeps Fine and the bank toggle pinned to the
+            // right edge.
+            if LargeScreen.isActive {
+                bankPanel(inTopBar: true)
+                    .padding(.vertical, 2)
+            } else {
+                Spacer(minLength: 0)
+            }
 
             fineButton
-            bankToggle
+            // A tablet keeps its banks out, so there is nothing to toggle.
+            if !LargeScreen.isActive { bankToggle }
 
             // Surfaces a mid-session protocol rejection (e.g. "not
             // permitted for this aux") in place - mirrors Android's
@@ -812,6 +867,15 @@ struct MixerView: View {
                 showProfile = true
             }
 
+            // Channels and AUX, for an account holding Mixer Control -
+            // this is the AUX one. Everyone else has only the aux screens.
+            if model.mixerControlAllowed {
+                MenuModeButtons(current: .aux) {
+                    dismissMenu()
+                    model.showChannels()
+                }
+            }
+
             // Held down at the bottom, in thumb reach - in the landscape
             // panel just as much as in the sheet, since the hand holding
             // the phone is at the bottom either way.
@@ -853,44 +917,20 @@ struct MixerView: View {
                 }
             }
 
-            // Back returns to the AUX Only / Mixer Control choice; Log
-            // Out ends the session outright. Side by side because they
-            // are the same kind of action at different depths - the
-            // same pair, in the same order, as the mixer control
-            // screen's own sheet.
-            //
-            // Back only exists for an account that was offered that
-            // choice: everyone else came straight here from login and
-            // has no second mode to cross to, so for them there is
-            // nothing behind this screen but the login form, and Log
-            // Out keeps the row to itself.
-            HStack(spacing: 12) {
-                if model.mixerControlAllowed {
-                    Button {
-                        dismissMenu()
-                        model.leaveAux()
-                    } label: {
-                        Text("Back")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .foregroundStyle(Color.clmixOnMuteInactive)
-                    .background(Color.clmixMuteInactive)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                Button {
-                    dismissMenu()
-                    model.logout()
-                } label: {
-                    Text("Log Out")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .foregroundStyle(Color.clmixOnPrimary)
-                .background(Color.clmixPrimary)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            // Log Out ends the session outright. On its own at the bottom,
+            // well away from Channels and AUX at the top, which only move
+            // between screens.
+            Button {
+                dismissMenu()
+                model.logout()
+            } label: {
+                Text("Log Out")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
             }
+            .foregroundStyle(Color.clmixOnPrimary)
+            .background(Color.clmixPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .padding(14)
         }
     }

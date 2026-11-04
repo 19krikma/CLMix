@@ -12,6 +12,8 @@ extension Color {
     static let clmixBackground = Color(uiColor: UIColor(red: 0x12 / 255, green: 0x13 / 255, blue: 0x17 / 255, alpha: 1))
     static let clmixSurface = Color(uiColor: UIColor(red: 0x1B / 255, green: 0x1D / 255, blue: 0x22 / 255, alpha: 1))
     static let clmixOnSurface = Color(uiColor: UIColor(red: 0xEC / 255, green: 0xED / 255, blue: 0xF0 / 255, alpha: 1))
+    /// The menu's divider grey; also the outline of the tablet bank box.
+    static let clmixDivider = Color(uiColor: UIColor(red: 0x3A / 255, green: 0x3D / 255, blue: 0x45 / 255, alpha: 1))
     static let clmixSurfaceVariant = Color(uiColor: UIColor(red: 0x25 / 255, green: 0x27 / 255, blue: 0x2E / 255, alpha: 1))
     static let clmixOnSurfaceVariant = Color(uiColor: UIColor(red: 0xA9 / 255, green: 0xAC / 255, blue: 0xB4 / 255, alpha: 1))
     static let clmixMuteActive = Color(uiColor: UIColor(red: 0xFF / 255, green: 0x6B / 255, blue: 0x62 / 255, alpha: 1))

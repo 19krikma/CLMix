@@ -40,7 +40,14 @@ struct AuxListView: View {
         .background(Color.clmixBackground.ignoresSafeArea())
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Log Out") { model.logout() }
+                // An account holding Mixer Control came here from it, and
+                // goes back the same way; it logs out from there. Everyone
+                // else logged in to this list, so this is their way out.
+                if model.mixerControlAllowed {
+                    Button("Channels") { model.showChannels() }
+                } else {
+                    Button("Log Out") { model.logout() }
+                }
             }
         }
     }

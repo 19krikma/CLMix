@@ -26,16 +26,47 @@ struct BankPanelView: View {
     var onAdd: () -> Void = {}
     var onMove: (Int, Int) -> Void = { _, _ in }
 
+    /// The tablet form: the banks in an outlined box in the middle of the
+    /// top bar, with Edit beside them rather than in a row underneath.
+    var inTopBar = false
+
     /// Bank buttons per row. Four keeps a typical name readable at phone
     /// width while still showing a couple of dozen banks without
-    /// scrolling.
-    private static let columns = 4
+    /// scrolling. In the top bar, as many as fit the box at about a phone
+    /// button's width - the box is whatever the bar leaves over.
+    private var columns: Int {
+        guard inTopBar else { return 4 }
+        return max(1, Int(gridSize.width / LargeScreen.bankTileWidth))
+    }
 
     @State private var gridSize: CGSize = .zero
     @State private var dropTarget: Int?
     @State private var dragging: Int?
 
     var body: some View {
+        if inTopBar {
+            topBarBody
+        } else {
+            panelBody
+        }
+    }
+
+    private var topBarBody: some View {
+        HStack(spacing: 0) {
+            grid
+                .padding(4)
+
+            if canEdit {
+                BankEditRow(editing: editing, onRename: onRename, onToggle: onToggleEdit, compact: true)
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.clmixDivider, lineWidth: 1)
+        )
+    }
+
+    private var panelBody: some View {
         VStack(spacing: 0) {
             grid
                 .padding(.horizontal, 9)
@@ -61,7 +92,7 @@ struct BankPanelView: View {
 
     private var grid: some View {
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: Self.columns),
+            columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columns),
             spacing: 0
         ) {
             ForEach(Array(banks.enumerated()), id: \.element) { index, bank in
@@ -98,8 +129,8 @@ struct BankPanelView: View {
         )
     }
 
-    private var rows: Int { max(1, (tileCount + Self.columns - 1) / Self.columns) }
-    private var pitch: CGFloat { gridSize.width / CGFloat(Self.columns) }
+    private var rows: Int { max(1, (tileCount + columns - 1) / columns) }
+    private var pitch: CGFloat { gridSize.width / CGFloat(columns) }
     private var rowHeight: CGFloat { gridSize.height / CGFloat(rows) }
 
     /// The gap nearest the finger, counted in banks only - the "+" and
@@ -108,9 +139,9 @@ struct BankPanelView: View {
         guard pitch > 0, rowHeight > 0 else { return banks.count }
 
         let row = min(max(Int(point.y / rowHeight), 0), rows - 1)
-        let column = min(max(Int((point.x / pitch).rounded()), 0), Self.columns)
+        let column = min(max(Int((point.x / pitch).rounded()), 0), columns)
 
-        return min(row * Self.columns + column, banks.count)
+        return min(row * columns + column, banks.count)
     }
 
     @ViewBuilder
@@ -118,9 +149,9 @@ struct BankPanelView: View {
         if let target = dropTarget, pitch > 0 {
             // At the end of a full row the gap is drawn at that row's
             // right edge, not the start of the next.
-            let row = target > 0 && target % Self.columns == 0 && target == banks.count
-                ? target / Self.columns - 1 : target / Self.columns
-            let column = target - row * Self.columns
+            let row = target > 0 && target % columns == 0 && target == banks.count
+                ? target / columns - 1 : target / columns
+            let column = target - row * columns
             let x = min(max(CGFloat(column) * pitch, 2), gridSize.width - 2)
 
             DropLine(length: rowHeight - 14)

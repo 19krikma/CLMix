@@ -329,6 +329,12 @@ class MixerWorker(threading.Thread):
 
         self.cache = {}
         self.banks = {}
+        # The console's fader layout as the surface shows it: every bank
+        # on every layer, keyed (layer, position), each {"name", "layer",
+        # "position", "channels"} - see _store_bank. self.banks above is
+        # the older name-keyed view, which loses the layer and drops a
+        # bank with no input channels on it.
+        self.bank_layout = {}
         self.loaded = False
 
         # Resync - see request_resync. Cache keys whose values predate
@@ -954,6 +960,42 @@ class MixerWorker(threading.Thread):
         if channels:
             self.banks[name] = channels
 
+        self._store_layout_bank(args, channels)
+
+    def _store_layout_bank(self, args, channels):
+        """File one reply into bank_layout, by layer and position.
+
+        The console answers once per side, and the L and R halves of a
+        bank carry the same name. Each side's inputs are kept apart and
+        merged, the left's first, so a side holding strips the other does
+        not still counts - and a later reply for one side replaces just
+        that side, so a strip taken off the desk does not linger. Kept
+        even with no inputs at all: a DCA or output bank is still a bank
+        on the surface, and the phone lists every one.
+        """
+        try:
+            layer = int(args[2])
+            position = int(args[3])
+        except (TypeError, ValueError):
+            return
+
+        key = (layer, position)
+        entry = self.bank_layout.get(key)
+
+        if entry is None or entry["name"] != args[0]:
+            entry = {"name": args[0], "layer": layer, "position": position,
+                     "sides": {}, "channels": []}
+            self.bank_layout[key] = entry
+
+        entry["sides"][str(args[1])] = list(channels)
+
+        merged = []
+        for side in sorted(entry["sides"]):
+            for channel in entry["sides"][side]:
+                if channel not in merged:
+                    merged.append(channel)
+        entry["channels"] = merged
+
     def request_resync(self):
         """Pull the console's layout, names and snapshot again without
         dropping the connection. Any thread; the worker picks it up on
@@ -1058,6 +1100,7 @@ class MixerWorker(threading.Thread):
                 # Rebuilt from the answer to the query below, so a bank
                 # deleted on the desk does not linger.
                 self.banks = {}
+                self.bank_layout = {}
                 # Everything else in the cache - levels, pans, mutes, EQ
                 # - is re-read by whoever shows it, the same way as after
                 # a snapshot recall.

@@ -36,6 +36,9 @@ interface MixerClientListener {
     // depend on that distinction (see ChannelMeterView).
     fun onMeters(sequence: Long, meters: Map<Int, MeterLevels>) {}
     fun onBanks(banks: List<String>) {}
+    /** The surface layout, layer by layer - Mixer Control only, and only
+     *  from a server new enough to send it. Arrives just before onBanks. */
+    fun onBankLayers(layers: List<BankLayer>) {}
     fun onLevels(aux: Int, channels: List<ChannelState>) {}
     fun onPresets(presets: List<Preset>) {}
 
@@ -376,6 +379,23 @@ object MixerClient {
     }
 
     fun requestAuxes() = send(JSONObject().put("action", "list_auxes"))
+
+    private fun parseBankLayers(arr: JSONArray): List<BankLayer> =
+        (0 until arr.length()).mapNotNull { i ->
+            val layer = arr.optJSONObject(i) ?: return@mapNotNull null
+            val banks = layer.optJSONArray("banks") ?: JSONArray()
+            BankLayer(
+                layer.optInt("layer", i + 1),
+                (0 until banks.length()).mapNotNull { j ->
+                    val bank = banks.optJSONObject(j) ?: return@mapNotNull null
+                    LayoutBank(
+                        bank.optString("id"),
+                        bank.optString("name"),
+                        bank.optInt("inputs")
+                    )
+                }
+            )
+        }
 
     fun requestBanks() = send(JSONObject().put("action", "list_banks"))
 
@@ -794,13 +814,20 @@ object MixerClient {
             "banks" -> {
                 val arr = json.getJSONArray("banks")
                 val list = (0 until arr.length()).map { arr.getString(it) }
-                onMain { listener?.onBanks(list) }
+                val layers = json.optJSONArray("layers")?.let(::parseBankLayers)
+                onMain {
+                    if (layers != null) listener?.onBankLayers(layers)
+                    listener?.onBanks(list)
+                }
             }
 
             "levels" -> {
                 // Mixer-mode frames carry no bus - see MIXER_AUX.
                 val aux = json.optInt("aux", MIXER_AUX)
-                liveSnapshot = json.optString("snapshot").takeIf { it.isNotEmpty() }
+                // isNull first: optString turns a JSON null - a console
+                // whose snapshot has not been read yet - into "null".
+                liveSnapshot = if (json.isNull("snapshot")) null
+                    else json.optString("snapshot").takeIf { it.isNotEmpty() }
                 val arr = json.getJSONArray("channels")
                 val list = (0 until arr.length()).map {
                     val o = arr.getJSONObject(it)

@@ -66,8 +66,18 @@ class AuxListActivity : AppCompatActivity(), MixerClientListener {
         // out would land the user on a login screen that's silently still
         // logged in behind the scenes. Covers both the back button and the
         // gesture-nav swipe, unlike overriding onBackPressed().
+        //
+        // Except for an account holding Mixer Control, which logged in to
+        // that and came here through its AUX: back slides over to it.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() = logout()
+            override fun handleOnBackPressed() {
+                if (MixerClient.mixerControlAllowed) {
+                    finish()
+                    slideToChannels()
+                } else {
+                    logout()
+                }
+            }
         })
     }
 

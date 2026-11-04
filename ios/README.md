@@ -144,7 +144,6 @@ anything that ships to App Review must not.
 | `BankPanelView.swift` | `BankAdapter.kt` + `item_bank.xml` | Pull-down grid of bank buttons |
 | `ChannelMeterView.swift` | `ChannelMeterView.kt` | Post-fader meter, plus `MeterCenter` routing frames past SwiftUI |
 | `ConnectView.swift` | `ConnectActivity` | Login screen |
-| `ControlChoiceView.swift` | `ControlChoiceActivity` | AUX Only vs Mixer Control, for accounts holding both |
 | `AuxListView.swift` | `AuxListActivity` | Aux bus picker, plus the shared `AuxRow` |
 | `MixerView.swift` | `MixerActivity` | Bank pull-down, channel grid, menu sheet |
 | `MixerControlView.swift` | `MixerControlActivity` | The console's own faders: same strips, no aux sheet, no presets |

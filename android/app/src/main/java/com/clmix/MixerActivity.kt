@@ -23,6 +23,7 @@ import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -51,6 +52,7 @@ private const val STATE_BANK = "bank"
 // banks without scrolling.
 private const val BANK_COLUMNS = 4
 
+
 // Bank panel open/close. Deliberately well under Android's own 200ms
 // "short" duration: this is a control being operated mid-show, not a
 // screen transition, so it only has to take the hard edge off the
@@ -62,9 +64,6 @@ private const val BANK_PANEL_ANIM_MS = 100L
 // than unfolding in place, and at 100ms that reads as a jump.
 private const val PANEL_ANIM_MS = 180L
 
-// The drawer's own width, kept here because landscape takes the menu
-// out of the drawer and has to be able to put it back.
-private const val MENU_WIDTH_DP = 280
 
 // Longest personal label the rename dialog accepts, matching the
 // server's own MAX_CHANNEL_NAME cap (services/remote_server.py) so the
@@ -148,6 +147,11 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding = ActivityMixerBinding.inflate(layoutInflater)
         setContentView(binding.root)
         enterFullScreen()
+
+        // Above the aux sheet (elevation 12dp), which slides up from
+        // behind it: the strip is the bottom edge, and the sheet's handle
+        // peeks out just over it.
+        binding.snapshotBar.root.elevation = 14 * resources.displayMetrics.density
 
         // Prefer the saved state over the intent extras: switching aux
         // from the drawer updates these fields but not the intent that
@@ -246,6 +250,35 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.bankRecycler.layoutManager = GridLayoutManager(this, BANK_COLUMNS)
         binding.bankRecycler.adapter = bankAdapter
 
+        if (isLargeScreen()) {
+            moveBanksIntoTopBar(
+                binding.topBar, binding.topBarSpacer, binding.bankPanel, binding.bankRecycler
+            )
+
+            // Edit beside the banks rather than under them: a row of its
+            // own would double the box's height for one pencil. The hint
+            // comes in beside it while editing, and takes no room
+            // otherwise (see setBankEditing).
+            binding.bankPanel.orientation = LinearLayout.HORIZONTAL
+            binding.bankPanel.gravity = Gravity.CENTER_VERTICAL
+            binding.bankRecycler.updateLayoutParams<LinearLayout.LayoutParams> {
+                width = 0
+                weight = 1f
+            }
+            binding.bankEditRow.updateLayoutParams<LinearLayout.LayoutParams> {
+                width = ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            binding.bankEditRow.updatePadding(
+                left = 0, right = (4 * resources.displayMetrics.density).toInt(), bottom = 0
+            )
+            binding.bankEditHint.updateLayoutParams<LinearLayout.LayoutParams> {
+                width = ViewGroup.LayoutParams.WRAP_CONTENT
+                weight = 0f
+                marginEnd = (8 * resources.displayMetrics.density).toInt()
+            }
+            binding.bankEditHint.visibility = View.GONE
+        }
+
         binding.bankToggle.setOnClickListener {
             setBanksExpanded(binding.bankPanel.visibility != View.VISIBLE)
         }
@@ -255,6 +288,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.menuButton.setOnClickListener {
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
+
 
         // The landscape sidebar carries its own copies of the top bar's
         // controls rather than the bar being moved: the bar is still
@@ -308,7 +342,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
             // edge-to-edge with the bars hidden, so the peek is exactly
             // what is asked for and the reservation matches it.
             isGestureInsetBottomIgnored = true
-            peekHeight = resources.getDimensionPixelSize(R.dimen.aux_sheet_peek)
+            peekHeight = resources.getDimensionPixelSize(R.dimen.mixer_bottom_reserve)
             binding.auxSheet.post { state = BottomSheetBehavior.STATE_COLLAPSED }
 
             addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
@@ -375,26 +409,20 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.presetSaveButton.setOnClickListener { showPresetSaveSheet() }
         binding.presetLoadButton.setOnClickListener { showPresetLoadSheet() }
 
-        // Back goes to the AUX Only / Mixer Control choice, which sits
-        // two down from here with the aux list in between - so it is
-        // CLEAR_TOP rather than finish(), which would only reach the
-        // list. SINGLE_TOP with it so the choice screen already down
-        // there is resumed rather than built again on top of itself.
-        //
-        // Only offered to an account that was shown that choice:
-        // everyone else came straight from login to the aux list, there
-        // is no choice screen in the stack for CLEAR_TOP to find, and
-        // this would put one there that the account is not entitled to.
-        // Gone rather than disabled, so Log Out simply has the row.
-        binding.backButton.isVisible = MixerClient.mixerControlAllowed
-        binding.backButton.setOnClickListener {
+        // Channels slides back to Mixer Control, which an account holding
+        // it logged in to and which sits two down from here with the aux
+        // list in between - so CLEAR_TOP rather than finish(), which
+        // would only reach the list. SINGLE_TOP with it so the screen
+        // already down there is resumed rather than built again.
+        bindModeButtons(binding.modeButtons, MixScreen.AUX) {
             closeMenu()
             dismissPanSheet()
             startActivity(
-                Intent(this, ControlChoiceActivity::class.java).addFlags(
+                Intent(this, MixerControlActivity::class.java).addFlags(
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 )
             )
+            slideToChannels()
         }
 
         binding.chatButton.setOnClickListener {
@@ -446,8 +474,9 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
      * controls go there rather than back across the top.
      */
     private fun applyOrientation() {
-        val landscape =
-            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        // Phones only. A tablet on its side still has a phone's worth of
+        // height, so it keeps the portrait layout - bars, banks and all.
+        val landscape = usesSidebar()
 
         // Closed before anything moves: a drawer cannot be taken out
         // from under itself while it is open.
@@ -483,7 +512,29 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         // the point of landscape.
         chromeVisible = !landscape
         applyChrome()
+
+        // On a tablet the banks are always out, in the top bar (see
+        // onCreate), so there is nothing for the arrow to do.
+        val large = isLargeScreen()
+        binding.bankToggle.isVisible = !large
+        if (large) setBanksExpanded(true)
+
+        // A tablet on its side keeps the menu docked down the left, so
+        // the button that slides it out has nothing to do. The drawer's
+        // main child is the CoordinatorLayout around the column, so the
+        // aux sheet moves with the strips, beside the menu.
+        val docked = wantsDockedMenu()
+        setSideMenuDocked(
+            binding.drawerLayout, binding.menuContent, binding.mixerColumn.parent as View, docked
+        )
+        binding.menuButton.isVisible = !docked
     }
+
+    /** Whether this screen folds its bars into the landscape side strip. */
+    private fun usesSidebar(): Boolean =
+        resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            !isLargeScreen()
+
 
     /**
      * Which edge the selfie camera is on, and so which edge the sidebar
@@ -517,9 +568,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
      * nothing moved, which is nearly always.
      */
     private fun applySidebarSide() {
-        if (resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE) {
-            return
-        }
+        if (!usesSidebar()) return
 
         val onRight = cameraOnRight()
 
@@ -602,9 +651,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
      * to close a drawer it no longer has throws.
      */
     private fun closeMenu() {
-        if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
-        }
+        binding.drawerLayout.closeMenuDrawer()
 
         closeLandscapePanel()
     }
@@ -620,6 +667,10 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
      * and already stops short of the sidebar, so landscape borrows it.
      */
     private fun hostMenu(inPanel: Boolean) {
+        // Docked for good on a tablet (see onCreate) - neither the drawer
+        // nor the panel gets it back.
+        if (isLargeScreen()) return
+
         val menu = binding.menuContent
         val host = binding.landscapePanelMenuHost
 
@@ -652,7 +703,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
         binding.drawerLayout.addView(
             menu,
             DrawerLayout.LayoutParams(
-                (MENU_WIDTH_DP * resources.displayMetrics.density).toInt(),
+                resources.getDimensionPixelSize(R.dimen.side_menu_width),
                 DrawerLayout.LayoutParams.MATCH_PARENT,
                 Gravity.START
             )
@@ -744,12 +795,15 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     private fun applyChrome() {
         binding.topBar.visibility = if (chromeVisible) View.VISIBLE else View.GONE
         binding.auxSheet.visibility = if (chromeVisible) View.VISIBLE else View.GONE
+        // Goes with the bars on a phone on its side, where every bit of
+        // height is the faders'.
+        binding.snapshotBar.root.visibility = if (chromeVisible) View.VISIBLE else View.GONE
 
         // The column reserves a strip for the collapsed aux sheet; with
         // the sheet gone that reservation is just wasted fader travel.
         binding.mixerColumn.updatePadding(
             bottom = if (chromeVisible) {
-                resources.getDimensionPixelSize(R.dimen.aux_sheet_peek)
+                resources.getDimensionPixelSize(R.dimen.mixer_bottom_reserve)
             } else {
                 0
             }
@@ -965,7 +1019,11 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     // the bottom of the strips, and the highlight in the drawer's list.
     // Called from the same places as applyAuxWidth so the two can never
     // describe different auxes.
-    private fun setBanksExpanded(expanded: Boolean) {
+    private fun setBanksExpanded(requested: Boolean) {
+        // A tablet has the room to leave the banks out for good, so the
+        // calls that fold the panel away after a pick do nothing there.
+        val expanded = requested || isLargeScreen()
+
         // Edit mode lives in the panel; folding the panel away ends it.
         if (!expanded) setBankEditing(false)
 
@@ -1310,7 +1368,14 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
                 borderlessBackground()
             }
             button.contentDescription = if (on) "Done editing banks" else "Edit banks"
-            hint.visibility = if (on) View.VISIBLE else View.INVISIBLE
+            // A phone keeps the hint's room so the pencil does not jump;
+            // a tablet has it beside the banks, where held room would
+            // only squeeze them.
+            hint.visibility = when {
+                on -> View.VISIBLE
+                isLargeScreen() -> View.GONE
+                else -> View.INVISIBLE
+            }
         }
 
         // Landscape's panel normally sits over a scrim that closes it on
@@ -1583,6 +1648,7 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
     }
 
     override fun onLevels(aux: Int, channels: List<ChannelState>) {
+        if (chromeVisible) binding.snapshotBar.root.showSnapshot(MixerClient.liveSnapshot)
         if (aux != auxIndex) return
         adapter.updateChannels(channels, draggingChannels, dragReleasedAt)
 

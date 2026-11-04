@@ -3,6 +3,14 @@
          name and hit the arrows, short enough not to eat fader travel. -->
     <dimen name="aux_sheet_peek">52dp</dimen>
 
+    <!-- The "Snapshot: NAME" strip along the very bottom of both mixer
+         screens (snapshot_bar.xml). -->
+    <dimen name="snapshot_bar_height">22dp</dimen>
+    <!-- What the aux screen keeps clear at the bottom: the collapsed aux
+         sheet's handle, and under it the snapshot strip. The sheet peeks
+         by the whole of this, its handle sitting just above the strip. -->
+    <dimen name="mixer_bottom_reserve">74dp</dimen>
+
     <!-- What the channel strips reserve at the bottom so the collapsed
          sheet never covers a Mute button. The strips' own 10dp padding
          is included in this rather than added to it. -->
@@ -15,4 +23,9 @@
          anyway, so it costs the faders nothing. -->
     <dimen name="landscape_sidebar_width">58dp</dimen>
     <dimen name="landscape_panel_width">300dp</dimen>
+    <!-- The side menu on both mixer screens, as a drawer and docked on a
+         tablet on its side. Narrower than the usual 280dp drawer: it
+         holds a few buttons, and the rest of that width is better spent
+         on faders. -->
+    <dimen name="side_menu_width">220dp</dimen>
 </resources>

@@ -100,6 +100,30 @@ object DemoMixer {
 
     private val banks = listOf("Drums", "Band", "Vocals")
 
+    private class DemoLayoutBank(
+        val layer: Int,
+        val position: Int,
+        val name: String,
+        val channels: List<Int>
+    ) {
+        // The real server's id for a surface bank (_layout_bank_id).
+        val id get() = "layout/$layer/$position"
+    }
+
+    /** The fake desk's surface layout, as Mixer Control lists it: the
+     *  three banks above on layer 1, and a second layer cutting across
+     *  them - ending in a DCA bank with no inputs on it, so the dimmed
+     *  bank shows up in the demo too. */
+    private val surface = listOf(
+        DemoLayoutBank(0, 0, "Drums", (1..9).toList()),
+        DemoLayoutBank(0, 1, "Band", (10..16).toList()),
+        DemoLayoutBank(0, 2, "Vocals", (17..20).toList()),
+        DemoLayoutBank(1, 0, "Rhythm", listOf(1, 2, 3, 10, 11)),
+        DemoLayoutBank(1, 1, "Vox + Keys", listOf(17, 18, 19, 14, 16)),
+        DemoLayoutBank(1, 2, "Playback", listOf(15, 20)),
+        DemoLayoutBank(1, 3, "DCA", emptyList())
+    )
+
     /** What each wedge's owner most wants to hear, seeded loudest in
      *  their own mix - so the demo opens on something shaped like a real
      *  monitor mix instead of a wall of identical faders. */
@@ -1038,8 +1062,27 @@ object DemoMixer {
         return JSONObject().put("type", "auxes").put("auxes", arr)
     }
 
-    private fun banksMessage(): JSONObject =
-        JSONObject().put("type", "banks").put("banks", JSONArray(bankNames()))
+    private fun banksMessage(): JSONObject {
+        val message = JSONObject().put("type", "banks").put("banks", JSONArray(bankNames()))
+
+        // As the real server: Mixer Control gets the surface layout too.
+        if (mixerMode) {
+            val layers = JSONArray()
+            surface.groupBy { it.layer }.toSortedMap().forEach { (layer, banks) ->
+                val arr = JSONArray()
+                banks.sortedBy { it.position }.forEach {
+                    arr.put(
+                        JSONObject().put("id", it.id).put("name", it.name)
+                            .put("inputs", it.channels.size)
+                    )
+                }
+                layers.put(JSONObject().put("layer", layer + 1).put("banks", arr))
+            }
+            message.put("layers", layers)
+        }
+
+        return message
+    }
 
     /** Custom names in aux mode, the console's own in mixer mode - the
      *  same split the real server makes. */
@@ -1113,6 +1156,11 @@ object DemoMixer {
             // that order is what the phone's drag to reorder sets.
             val byChannel = catalog.associateBy { it.channel }
             return custom.channels.mapNotNull { byChannel[it] }
+        }
+
+        surface.firstOrNull { it.id == bank }?.let { layoutBank ->
+            val byChannel = catalog.associateBy { it.channel }
+            return layoutBank.channels.mapNotNull { byChannel[it] }
         }
 
         return catalog.filter { it.bank == bank }

@@ -72,6 +72,9 @@ struct BankEditRow: View {
     /// when there is a bank of this account's own to rename.
     var onRename: (() -> Void)? = nil
     let onToggle: () -> Void
+    /// Beside the banks in the tablet top bar rather than under them: the
+    /// hint only takes room while editing, and there is no row to pad.
+    var compact = false
 
     var body: some View {
         HStack {
@@ -85,14 +88,14 @@ struct BankEditRow: View {
                 .foregroundStyle(Color.clmixOnSurface)
                 .background(Color.clmixSurfaceVariant)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-            } else {
+            } else if !compact || editing {
                 Text("Hold and drag to reorder")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.clmixOnSurfaceVariant)
                     .opacity(editing ? 1 : 0)
             }
 
-            Spacer()
+            if !compact { Spacer() }
 
             if editing, let onRename {
                 Button(action: onRename) {
@@ -115,8 +118,9 @@ struct BankEditRow: View {
             }
             .accessibilityLabel(editing ? "Done editing banks" : "Edit banks")
         }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 6)
+        .padding(.leading, compact ? 0 : 14)
+        .padding(.trailing, compact ? 6 : 14)
+        .padding(.bottom, compact ? 0 : 6)
     }
 }
 

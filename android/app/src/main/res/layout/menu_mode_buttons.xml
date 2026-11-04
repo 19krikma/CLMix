@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The two screens an account holding Mixer Control moves between,
+     at the top of both mixer screens' side menu, just under the account.
+     Both always shown, Channels above AUX; the one in front is filled
+     in the accent and the other is the way across (see
+     ScreenSlide.bindModeButtons). Gone entirely for an account without
+     Mixer Control, which only ever has the aux screens. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="14dp"
+    android:paddingTop="12dp">
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/channels_button"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Channels"
+        app:cornerRadius="10dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/aux_button"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="AUX"
+        app:cornerRadius="10dp" />
+
+</LinearLayout>

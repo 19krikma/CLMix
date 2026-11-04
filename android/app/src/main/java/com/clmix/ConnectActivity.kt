@@ -236,16 +236,28 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // window was actually laid out at, rather than only reacting when it
         // changes: setPadding is a no-op when nothing differs, so this
         // settles after one extra pass at most.
+        //
+        // Posted, not applied here: this runs inside the layout pass, and a
+        // relayout asked for from in there is dropped. The padding changed
+        // but the boxes stayed where the old value put them, and as the form
+        // clips to its padding, turning landscape -> portrait cut the top
+        // ~200px off Discovered until something else happened to relayout.
         binding.content.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
             val expectedTop =
                 contentBasePadding.top + contentTopFor(binding.loginBackground.height)
-            if (view.paddingTop != expectedTop) {
-                view.setPadding(
-                    view.paddingLeft,
-                    expectedTop,
-                    view.paddingRight,
-                    view.paddingBottom
-                )
+            // Discovered is the first child with no margin, so once laid out
+            // its top is the padding - if not, the padding moved without a
+            // relayout and the boxes are sitting where the old value was.
+            val stale = view.paddingTop != expectedTop ||
+                (binding.discoveredContainer.visibility == View.VISIBLE &&
+                    binding.discoveredContainer.top != view.paddingTop)
+            if (stale) {
+                view.post {
+                    val top = contentBasePadding.top +
+                        contentTopFor(binding.loginBackground.height)
+                    view.setPadding(view.paddingLeft, top, view.paddingRight, view.paddingBottom)
+                    view.requestLayout()
+                }
             }
             // The band is pinned to the box it sits behind rather than to any
             // fixed height. Discovered's top is already in the background's
@@ -881,12 +893,12 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
                 SessionStore.saveToken(this, token)
             }
 
-            // An account holding Full Mixer Control is asked which of the
-            // two it wants before anything is selected; everyone else
-            // goes straight on to the aux list, which is the only flow
-            // that existed before that permission.
+            // An account holding Full Mixer Control starts on it, with the
+            // aux screens behind its menu's AUX; everyone else goes
+            // straight on to the aux list, which is the only flow that
+            // existed before that permission.
             if (MixerClient.mixerControlAllowed) {
-                startActivity(Intent(this, ControlChoiceActivity::class.java))
+                startActivity(Intent(this, MixerControlActivity::class.java))
             } else {
                 MixerClient.requestAuxes()
             }
@@ -973,6 +985,10 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
     }
 
     override fun onAuxes(auxes: List<AuxBus>) {
+        // A list the server pushed on its own, landing before Mixer
+        // Control has taken over - that account was never asking for one.
+        if (MixerClient.mixerControlAllowed) return
+
         val intent = Intent(this, AuxListActivity::class.java)
         intent.putExtra("auxes", ArrayList(auxes))
         startActivity(intent)

@@ -698,10 +698,15 @@ class RemoteServer:
             await self._send(websocket, self._aux_users_message())
 
         elif action == "list_banks":
-            await self._send(
-                websocket,
-                {"type": "banks", "banks": self._bank_names(worker, state)}
-            )
+            message = {"type": "banks", "banks": self._bank_names(worker, state)}
+
+            # Mixer Control also gets the surface's whole layout, layer by
+            # layer - every bank, inputs on it or not. "banks" stays for a
+            # phone that predates it, which just ignores the extra key.
+            if self._in_mixer_mode(state):
+                message["layers"] = self._bank_layers(worker)
+
+            await self._send(websocket, message)
 
         elif action == "select_aux":
             aux = msg.get("aux")
@@ -1298,6 +1303,10 @@ class RemoteServer:
                     "aux": -1,
                     "mode": "mixer",
                     "channels": self._mixer_channel_states(worker, channels),
+                    # The live snapshot, as the aux frames carry it - for
+                    # the "Snapshot: NAME" strip along the bottom of the
+                    # phone's Mixer Control.
+                    "snapshot": worker.snapshot_name,
                 }
             else:
                 payload = {
@@ -1354,7 +1363,7 @@ class RemoteServer:
         Starting, the phone is sent {"type": "sync", "syncing": true} and
         its selection is dropped, so nothing it has open keeps writing to
         strips whose names and layout are being replaced: it goes back to
-        its aux list, or to the AUX Only / Mixer Control choice, and
+        its aux list, or to Mixer Control for an account holding it, and
         shows "Server Syncing" there. Done, it gets "syncing": false and
         asks again for whatever it needs, as after logging in.
         """
@@ -2525,6 +2534,12 @@ class RemoteServer:
             channel_count = int(worker.cache["/Console/Input_Channels"][0])
             return list(range(1, channel_count + 1))
 
+        if self._in_mixer_mode(state):
+            layout_bank = self._layout_bank(worker, bank)
+
+            if layout_bank is not None:
+                return list(layout_bank["channels"])
+
         if not self._in_mixer_mode(state):
             custom = self._stored_banks(worker, state)
 
@@ -2595,6 +2610,56 @@ class RemoteServer:
         self.user_store.set_custom_banks(user, seeded)
 
         return seeded
+
+    # How a bank from the surface layout is named on the wire: by where it
+    # sits, since two layers can hold banks of the same name. A prefix no
+    # bank name on a console is going to start with, so select_bank can
+    # tell these from the plain names older phones send.
+    LAYOUT_BANK_PREFIX = "layout/"
+
+    @classmethod
+    def _layout_bank_id(cls, layer, position):
+        return f"{cls.LAYOUT_BANK_PREFIX}{layer}/{position}"
+
+    def _layout_bank(self, worker, bank_id):
+        """The layout bank select_bank named by its id, or None."""
+        if not isinstance(bank_id, str) or \
+                not bank_id.startswith(self.LAYOUT_BANK_PREFIX):
+            return None
+
+        try:
+            layer, position = (
+                int(part) for part in
+                bank_id[len(self.LAYOUT_BANK_PREFIX):].split("/", 1)
+            )
+        except ValueError:
+            return None
+
+        layout = getattr(worker, "bank_layout", None) or {}
+        return layout.get((layer, position))
+
+    def _bank_layers(self, worker):
+        """The surface layout for Mixer Control's bank picker.
+
+        One entry per layer that has any banks, numbered from 1 the way
+        the surface labels them, each bank with its id, name and how many
+        input channels it holds - none, for a bank of DCAs or outputs,
+        which the phone still lists but has no strips to show for.
+        """
+        layout = getattr(worker, "bank_layout", None) or {}
+        layers = {}
+
+        for (layer, position), entry in sorted(layout.items()):
+            layers.setdefault(layer, []).append({
+                "id": self._layout_bank_id(layer, position),
+                "name": entry["name"],
+                "inputs": len(entry["channels"]),
+            })
+
+        return [
+            {"layer": layer + 1, "banks": banks}
+            for layer, banks in sorted(layers.items())
+        ]
 
     def _bank_names(self, worker, state):
         """What the phone's bank picker should list."""
