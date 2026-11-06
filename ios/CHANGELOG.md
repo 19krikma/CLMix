@@ -9,6 +9,33 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.16.0
+
+Bank layers and the snapshot name on Mixer Control need desktop 1.27.0
+or later; with an older desktop the banks show as one plain list.
+
+- **Mixer Control opens first.** The AUX Only / Mixer Control choice
+  screen is gone. If your account has Mixer Control you land straight on
+  it after logging in; everyone else goes to the aux list as before.
+- **New side menu.** Mixer Control accounts get Channels and AUX buttons
+  at the top of the menu, under your profile, with the screen you're on
+  highlighted. Log Out sits on its own at the bottom.
+- **Slide between screens.** Mixer Control and the aux screens slide
+  sideways into each other. Back from the aux list takes you to Mixer
+  Control.
+- **Banks by layer.** Mixer Control lists every bank under Layer 1,
+  Layer 2 and so on, laid out as on the mixer. Banks with no input
+  channels are dimmed and can't be picked.
+- **The bank panel floats** over the channel strips instead of pushing
+  them down.
+- **Snapshot name.** The current snapshot is shown along the bottom of
+  both mixer screens.
+- **iPad layout.** On iPad, banks are always shown in a box in
+  the middle of the top bar, and landscape uses the full layout with the
+  menu docked on the left.
+- If you leave the app unused for over an hour, you'll be asked for your
+  password again.
+
 ## 1.15.0
 
 Bank editing works with desktop 1.15.0 or later and needs an account with
