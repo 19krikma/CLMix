@@ -321,9 +321,26 @@ def compile_pattern(pattern):
     if not pattern.startswith("/"):
         return None
 
+    # Forgiving on the Companion side, where addresses are typed by hand
+    # into a button: case and a trailing slash are ignored. What is sent
+    # to the console is never loosened like this.
+    pattern = pattern.strip().rstrip("/") or "/"
     parts = [r"([^/]+)" if segment == "*" else re.escape(segment)
              for segment in pattern.split("/")]
-    return re.compile("^" + "/".join(parts) + "$")
+    return re.compile("^" + "/".join(parts) + "/?$", re.IGNORECASE)
+
+
+def placeholder_problem(match, *templates):
+    """Why templates use a {n} that match has no * for, or None."""
+    stars = match.split("/").count("*")
+    for template in templates:
+        for found in _PLACEHOLDER.finditer(template):
+            key = found.group(1)
+            if key != "value" and int(key) > stars:
+                have = f"only {stars}" if stars else "no"
+                return (f"{{{key}}} is used, but the incoming address has "
+                        f"{have} * to fill it from.")
+    return None
 
 
 def fill_template(template, captures, value):
@@ -576,6 +593,8 @@ class CompanionBridge:
         self._own_until = {}
         # address -> (rule, deadline) for toggles waiting on the console.
         self._pending_toggles = {}
+        # target -> how many times a step asked the console for it in vain.
+        self._unanswered = {}
 
         self.packets_from_companion = 0
         self.packets_to_companion = 0
@@ -720,9 +739,10 @@ class CompanionBridge:
         if not matched:
             if pass_to_console:
                 self._to_console(address, args, types)
-                self._remember("IN", text)
+                self._remember("IN", f"{text}   (no rule matched - sent to "
+                                     f"the console unchanged)")
             else:
-                self._remember("IN", f"{text}   (no rule, not passed on)")
+                self._remember("IN", f"{text}   (no rule matched, not passed on)")
             return
 
         keep = False
@@ -746,8 +766,18 @@ class CompanionBridge:
                 # tick has it; this one is lost, which a turning encoder
                 # never notices.
                 self._to_console(target + "/?", [], None)
-                self._remember("IN", f"{text}   -> [{rule.name}] level not "
-                                     f"known yet, asked the console")
+                with self._lock:
+                    asked = self._unanswered[target] = \
+                        self._unanswered.get(target, 0) + 1
+                if asked == 1:
+                    note = "level not known yet, asked the console"
+                else:
+                    # Asked before and never answered: the console does not
+                    # know this address, which is nearly always a typo in
+                    # Send, not a slow console.
+                    note = (f"the console has not answered for {target} "
+                            f"({asked} asks) - check the Send address")
+                self._remember("IN", f"{text}   -> [{rule.name}] {note}")
                 continue
 
             if out is None:
@@ -797,12 +827,18 @@ class CompanionBridge:
         self.translated += 1
         self._remember("IN", f"[{rule.name}] {_describe(out[0], out[1])}")
 
+    def current_value(self, address):
+        """What the bridge believes address holds now, for the rule
+        editor's Test - None if it has not seen it."""
+        return self._current_value(address, self.get_worker())
+
     def _note_value(self, address, value, own=False):
         """Remember a value. own: we just sent it, so hold it against the
         console's late echoes for a moment - see OWN_WRITE_HOLD_SECONDS."""
         now = time.monotonic()
 
         with self._lock:
+            self._unanswered.pop(address, None)
             if own:
                 self._own_until[address] = now + OWN_WRITE_HOLD_SECONDS
             elif self._own_until.get(address, 0.0) > now:

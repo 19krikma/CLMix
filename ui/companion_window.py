@@ -13,8 +13,9 @@ from tkinter import messagebox, ttk
 
 from services.companion_bridge import (
     ARG_TYPES, COMPANION_TIMEOUT_SECONDS, MODE_FIXED, MODE_NONE, MODE_PASS,
-    MODE_SCALE, MODE_STEP, MODE_TOGGLE, TO_COMPANION, TO_CONSOLE, compile_pattern,
-    default_rule, missing_default_rules, normalize_rule, normalize_settings,
+    MODE_SCALE, MODE_STEP, MODE_TOGGLE, TO_COMPANION, TO_CONSOLE, Rule,
+    compile_pattern, default_rule, fill_template, missing_default_rules,
+    normalize_rule, normalize_settings, placeholder_problem,
 )
 from services.network_info import list_ipv4_interfaces
 from ui.companion_rulebook import RuleBookWindow
@@ -414,11 +415,16 @@ class CompanionPanel:
         self._save()
         self.refresh_rules(select)
 
+    def _current_value(self, address):
+        bridge = self.get_bridge()
+        return bridge.current_value(address) if bridge is not None else None
+
     def _add_rule(self, prefill=None):
         RuleDialog(self.window, prefill or default_rule(),
                    on_saved=lambda rule: self._set_rules(
                        self.config["rules"] + [rule],
-                       select=len(self.config["rules"])))
+                       select=len(self.config["rules"])),
+                   get_current=self._current_value)
 
     def _edit_rule(self):
         index = self._selected_index()
@@ -432,7 +438,7 @@ class CompanionPanel:
             self._set_rules(rules, select=index)
 
         RuleDialog(self.window, copy.deepcopy(rules[index]), on_saved=saved,
-                   title="Edit Rule")
+                   title="Edit Rule", get_current=self._current_value)
 
     def _toggle_rule(self):
         index = self._selected_index()
@@ -583,9 +589,13 @@ class CompanionPanel:
 class RuleDialog:
     """Add or edit one translation rule."""
 
-    def __init__(self, master, rule, on_saved, title="Add Rule"):
+    def __init__(self, master, rule, on_saved, title="Add Rule",
+                 get_current=None):
         self.rule = normalize_rule(rule)
         self.on_saved = on_saved
+        # address -> the console's current value as the bridge knows it,
+        # for Test.
+        self.get_current = get_current or (lambda address: None)
 
         self.window = tk.Toplevel(master)
         self.window.title(title)
@@ -719,6 +729,28 @@ class RuleDialog:
                              pady=(10, 0))
         row += 1
 
+        ttk.Separator(frame).grid(row=row, column=0, columnspan=4,
+                                  sticky="ew", pady=(10, 6))
+        row += 1
+
+        ttk.Label(frame, text="Test").grid(row=row, column=0, sticky="w")
+        test_row = ttk.Frame(frame)
+        test_row.grid(row=row, column=1, columnspan=3, sticky="ew", pady=3)
+        self.test_entry = ttk.Entry(test_row, width=34)
+        self.test_entry.insert(0, self._test_example())
+        self.test_entry.pack(side="left", fill="x", expand=True)
+        self.test_entry.bind("<Return>", lambda e: (self.run_test(), "break")[1])
+        ttk.Button(test_row, text="Test", command=self.run_test) \
+            .pack(side="left", padx=(5, 0))
+        row += 1
+
+        self.test_result = ttk.Label(frame, text="Type the message Companion "
+                                     "sends, with its value, and press Test.",
+                                     wraplength=440, justify="left")
+        self.test_result.grid(row=row, column=0, columnspan=4, sticky="w",
+                              pady=(2, 0))
+        row += 1
+
         bar = ttk.Frame(frame)
         bar.grid(row=row, column=0, columnspan=4, sticky="e", pady=(12, 0))
         ttk.Button(bar, text="Cancel", command=self.window.destroy) \
@@ -783,7 +815,85 @@ class RuleDialog:
                 else:
                     widget.grid_remove()
 
+    def _test_example(self):
+        match = self.rule["match"]
+        if not match:
+            return ""
+        numbers = iter(("1", "1", "1"))
+        address = "/".join(next(numbers) if part == "*" else part
+                           for part in match.split("/"))
+        if self.rule["mode"] == MODE_STEP and self.rule["step_by_incoming"]:
+            return f"{address} 1"
+        return address
+
+    def run_test(self):
+        rule, problem = self._collect()
+        if problem:
+            self.test_result.config(text=f"Can't test yet: {problem}")
+            return
+
+        parts = self.test_entry.get().split()
+        if not parts:
+            self.test_result.config(text="Type an address to test, e.g. "
+                                         "/clmix/ch/1/fader/step 1")
+            return
+
+        address, raw_args = parts[0], parts[1:]
+        args = []
+        for raw in raw_args:
+            try:
+                args.append(float(raw))
+            except ValueError:
+                args.append(raw)
+
+        compiled = Rule(rule)
+        captures = compiled.match(address)
+        if captures is None:
+            self.test_result.config(
+                text=f"No match: {address} does not fit {rule['match']}. "
+                     f"Companion's message would go to the console unchanged.")
+            return
+
+        if rule["direction"] == TO_COMPANION:
+            current = None
+        else:
+            target = fill_template(rule["target"], captures,
+                                   args[0] if args else None)
+            current = self.get_current(target)
+
+        if rule["mode"] in (MODE_STEP, MODE_TOGGLE) and current is None:
+            self.test_result.config(
+                text=f"Matches. CLMix doesn't know the current value of "
+                     f"{target} yet - the first message asks the console, the "
+                     f"next one {'steps' if rule['mode'] == MODE_STEP else 'toggles'} "
+                     f"it. (Connect to the console and Test again to see the "
+                     f"result.)")
+            return
+
+        out = compiled.build(captures, args, "f" * len(args), current)
+        if out is None:
+            self.test_result.config(text="Matches, but sends nothing - the "
+                                         "value it needs is missing or not a number.")
+            return
+
+        now = "" if current is None else f" (now {current:g})" \
+            if isinstance(current, (int, float)) else f" (now {current})"
+        shown = " ".join(f"{v:g}" if isinstance(v, float) else str(v)
+                         for v in out[1])
+        self.test_result.config(text=f"Matches → sends {out[0]} {shown}{now}")
+
     def save(self):
+        rule, problem = self._collect()
+
+        if problem:
+            messagebox.showerror("Rule", problem, parent=self.window)
+            return
+
+        self.on_saved(rule)
+        self.window.destroy()
+
+    def _collect(self):
+        """(rule, problem) from the form - problem is why it can't be saved."""
         direction = self._direction()
         mode = self._mode()
         match = self.match_entry.get().strip()
@@ -794,6 +904,8 @@ class RuleDialog:
             problem = "The incoming address must start with /."
         elif not target.startswith("/"):
             problem = "The address to send must start with /."
+        elif placeholder_problem(match, target, self.fixed_entry.get()):
+            problem = placeholder_problem(match, target, self.fixed_entry.get())
         elif mode in (MODE_TOGGLE, MODE_STEP) and direction == TO_COMPANION:
             problem = (f"{MODE_LABELS[mode]} only works for Companion → "
                        f"Console rules.")
@@ -824,10 +936,6 @@ class RuleDialog:
                 port.isdigit() and 1 <= int(port) <= 65535):
             problem = "Port must be 1-65535, or blank."
 
-        if problem:
-            messagebox.showerror("Rule", problem, parent=self.window)
-            return
-
         rule = dict(
             self.rule,
             name=self.name_entry.get().strip(),
@@ -845,5 +953,4 @@ class RuleDialog:
             step_by_incoming=self.step_incoming_var.get(),
         )
 
-        self.on_saved(normalize_rule(rule))
-        self.window.destroy()
+        return normalize_rule(rule), problem
