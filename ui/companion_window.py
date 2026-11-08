@@ -60,7 +60,10 @@ def _value_summary(rule):
         return rule["value"] or "(empty)"
     if mode == MODE_STEP:
         step = rule["step"]
-        text = step if step.startswith("-") else f"+{step}"
+        if rule["step_by_incoming"]:
+            text = "value" if step in ("1", "1.0") else f"{step} × value"
+        else:
+            text = step if step.startswith("-") else f"+{step}"
         limits = [f"{word} {rule[key]}" for word, key in
                   (("min", "step_min"), ("max", "step_max")) if rule[key]]
         return f"{text} ({', '.join(limits)})" if limits else text
@@ -679,6 +682,11 @@ class RuleDialog:
             entry.insert(0, self.rule[key])
             entry.pack(side="left", padx=(0, 4))
             self.step_entries[key] = entry
+        self.step_incoming_var = tk.BooleanVar(value=self.rule["step_by_incoming"])
+        ttk.Checkbutton(
+            self.step_frame, text="× incoming value",
+            variable=self.step_incoming_var
+        ).pack(side="left", padx=(8, 0))
         self.step_row = (self.step_label, self.step_frame)
         row += 1
 
@@ -753,10 +761,12 @@ class RuleDialog:
         if mode == MODE_STEP:
             examples = ("Step reads the target's current value and adds Step "
                         "every time the message arrives - for Companion's "
-                        "rotate left/right. Make one rule per direction: "
-                        "e.g. /clmix/fader/*/up → /Input_Channels/{1}/fader "
-                        "by 1, and /clmix/fader/*/down by -1. Faders run "
-                        "-150 to 10 dB.")
+                        "rotate left/right. Tick × incoming value and have "
+                        "Companion send -1 on rotate left and 1 on rotate "
+                        "right to the same address: one rule does both. "
+                        "Without it, Step is added whatever value arrives, "
+                        "so make one rule per direction with a negative step "
+                        "for down. Faders run -150 to 10 dB.")
 
         self.help_label.config(
             text="* matches any one part of the address, and {1}, {2}... "
@@ -832,6 +842,7 @@ class RuleDialog:
             enabled=self.enabled_var.get(),
             **{key: entry.get().strip() for key, entry in self.scale_entries.items()},
             **{key: entry.get().strip() for key, entry in self.step_entries.items()},
+            step_by_incoming=self.step_incoming_var.get(),
         )
 
         self.on_saved(normalize_rule(rule))

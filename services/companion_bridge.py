@@ -134,6 +134,10 @@ def default_rule(direction=TO_CONSOLE):
         "step": "1",
         "step_min": "",
         "step_max": "",
+        # MODE_STEP: multiply step by the incoming value, so one message
+        # carries the direction - Companion sends -1 to turn down and 1 to
+        # turn up, to the same address.
+        "step_by_incoming": False,
         "arg_type": ARG_AUTO,
         # TO_COMPANION only: a port other than companion_port, for
         # Companion's own OSC API (12321 by default) rather than the
@@ -164,9 +168,9 @@ def default_rules():
 
     Everything a Companion button does in one press - on, off, toggle, set
     a level - for the switches every strip type has, all under /clmix/ so
-    they never collide with the DiGiCo module's own addresses. Stepping
-    (rotate left/right) is left to the user: how big a step is, and what
-    it should stop at, is a matter of taste. The Rule Book lists them all.
+    they never collide with the DiGiCo module's own addresses. Each fader
+    also gets a step rule for rotate left/right, 1 dB per tick with the
+    direction taken from the value sent. The Rule Book lists them all.
     """
     rules = []
 
@@ -190,6 +194,8 @@ def default_rules():
         switch(f"{key}.solo", f"{label} solo", f"{prefix}/solo", f"{console}/solo")
         add(f"{key}.fader", f"{label} fader (dB)", f"{prefix}/fader",
             f"{console}/fader", MODE_PASS, arg_type="float")
+        add(f"{key}.fader.step", f"{label} fader step (send -1 or 1)",
+            f"{prefix}/fader/step", f"{console}/fader", MODE_STEP)
 
     channel = "/Input_Channels/{1}"
     add("ch.pan", "Channel pan (0-1)", "/clmix/ch/*/pan",
@@ -231,6 +237,9 @@ def default_rules():
 
     for rule in rules:
         rule["keep_original"] = rule["direction"] == TO_COMPANION
+        if rule["mode"] == MODE_STEP:
+            rule.update(step="1", step_by_incoming=True,
+                        step_min="-150", step_max="10")
 
     return rules
 
@@ -268,6 +277,7 @@ def normalize_rule(raw):
 
     rule["enabled"] = bool(rule["enabled"])
     rule["keep_original"] = bool(rule["keep_original"])
+    rule["step_by_incoming"] = bool(rule["step_by_incoming"])
     return rule
 
 
@@ -381,9 +391,11 @@ class Rule:
         toggle  1 if the target is currently off, otherwise 0 - read from
                 the last value the console reported for the target
         step    the target's current value plus step, clamped to
-                step_min..step_max - for Companion's rotate left/right,
-                which send the same message on every tick. One rule per
-                direction, with a negative step for down
+                step_min..step_max - for Companion's rotate left/right.
+                With step_by_incoming the step is multiplied by the
+                incoming value, so one address takes -1 for down and 1
+                for up; otherwise it is one rule per direction, with a
+                negative step for down
         scale   the incoming first argument mapped from in_min..in_max to
                 out_min..out_max, clamped (a 0..127 MIDI fader onto 0..1)
         none    no arguments - a trigger, or a query ending in /?
@@ -408,6 +420,7 @@ class Rule:
         self.step = _number(raw["step"]) or 0.0
         self.step_min = _number(raw["step_min"]) if raw["step_min"] else None
         self.step_max = _number(raw["step_max"]) if raw["step_max"] else None
+        self.step_by_incoming = raw["step_by_incoming"]
 
     @property
     def usable(self):
@@ -449,7 +462,14 @@ class Rule:
             if current is None:
                 return None
 
-            new = current + self.step
+            step = self.step
+            if self.step_by_incoming:
+                incoming = _number(first) if first is not None else None
+                if incoming is None:
+                    return None
+                step *= incoming
+
+            new = current + step
             if self.step_min is not None:
                 new = max(self.step_min, new)
             if self.step_max is not None:

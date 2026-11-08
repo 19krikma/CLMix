@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from services.companion_bridge import (
-    MODE_FIXED, MODE_PASS, MODE_TOGGLE, TO_CONSOLE, default_rule,
+    MODE_FIXED, MODE_PASS, MODE_STEP, MODE_TOGGLE, TO_CONSOLE, default_rule,
     default_rules,
 )
 
@@ -122,9 +122,12 @@ VALUE
                        console's current state; if it does not know it yet it asks the
                        console first, so even the first press is right.
   Step up/down         add Step to the target's current value on every message, kept
-                       between Min and Max - for Companion's rotate left/right. Use a
-                       negative step to go down. The first tick only asks the console
-                       for the current level.
+                       between Min and Max - for Companion's rotate left/right.
+                       With "× incoming value" ticked the step is multiplied by the
+                       value that arrives: send -1 to go down and 1 to go up, to the
+                       same address. Unticked, Step is added whatever value arrives,
+                       so you need one rule per direction (negative step for down).
+                       The first tick only asks the console for the current level.
   Scale value          map the incoming value from one range onto another
                        (e.g. a 0-127 MIDI fader onto -150..10 dB).
   No value             send the address with nothing - a trigger, or a query (/?).
@@ -173,11 +176,19 @@ Pick the way that suits the job. They can all be used at once.
    The Default Rules tab lists every address CLMix answers to out of the box.
 
 3. ROTATE LEFT / RIGHT  (Stream Deck+ dials, encoders)
-   Make two Step rules, e.g.:
-     /clmix/ch/*/fader/up    → /Input_Channels/{1}/fader   Step 1,  Min -150, Max 10
-     /clmix/ch/*/fader/down  → /Input_Channels/{1}/fader   Step -1, Min -150, Max 10
-   In Companion, set the dial's rotate-right action to send /clmix/ch/5/fader/up
-   and rotate-left to send /clmix/ch/5/fader/down.
+   The default rules already do this, 1 dB per tick, -150 to 10:
+     /clmix/ch/*/fader/step  → /Input_Channels/{1}/fader   Step 1 × incoming value
+   (and the same for aux, group, matrix and dca). In Companion, using the
+   Generic OSC module pointed at CLMix's Listen Port:
+     rotate right:  "Send float"  /clmix/ch/5/fader/step   value 1
+     rotate left:   "Send float"  /clmix/ch/5/fader/step   value -1
+   For finer steps send 0.5 / -0.5, or edit the rule's Step.
+
+   Don't put a Step rule on the DiGiCo module's own fader address
+   (/Input_Channels/*/fader): with "Relative" ticked the module works out
+   the new level itself and sends an absolute value, which a Step rule
+   would then step again. Either use the module's Relative on its own, or
+   Generic OSC with the rule above.
 
 4. FEEDBACK INTO COMPANION  (Console → Companion rules)
    Companion has an OSC server of its own (Settings → Protocols → OSC,
@@ -205,6 +216,8 @@ def _example(address):
 def _default_value_hint(rule):
     if rule["mode"] in (MODE_FIXED, MODE_TOGGLE):
         return "nothing"
+    if rule["mode"] == MODE_STEP:
+        return "-1 down, 1 up (dB)"
     name = rule["name"].lower()
     if "pan" in name:
         return "0 to 1 (0.5 centre)"
