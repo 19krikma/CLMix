@@ -23,6 +23,7 @@ from pythonosc.parsing import osc_types
 from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
 from services.chat_log import KIND_TECH, ChatLog
+from services.companion_bridge import CompanionBridge, normalize_settings
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log, log_store
 from services.network_info import list_ipv4_interfaces, source_ip_for
@@ -50,6 +51,7 @@ from ui.copy_to_window import CopyToWindow
 from ui.show_backup_window import ShowBackupWindow
 from ui.sos_window import SosWindow
 from ui.chat_window import ChatWindow
+from ui.companion_window import CompanionPanel
 from version import VERSION
 
 SETTINGS_PATH = Path.home() / ".clmix.json"
@@ -416,6 +418,11 @@ class MixerWorker(threading.Thread):
         # services/digico_bridge.py.
         self.bridge = None
 
+        # The CompanionBridge, when the Bitfocus Companion switch is on;
+        # handed every datagram the console sends. See
+        # services/companion_bridge.py.
+        self.companion = None
+
         # Called with (address, args, type_tags) for every message the
         # console sends bar /Meters/values, whether CLMix keeps it or not
         # - how a Show Backup reads whole strips, which arrive as bursts
@@ -562,6 +569,10 @@ class MixerWorker(threading.Thread):
         bridge = self.bridge
         if bridge is not None:
             bridge.from_console(data, sender)
+
+        companion = self.companion
+        if companion is not None:
+            companion.from_console(data)
 
         self._handle_datagram(data, sender)
 
@@ -3530,6 +3541,13 @@ class MainWindow:
         self._capture_error = None
         self._capture_status_shown = None
 
+        # Bitfocus Companion bridge - see services/companion_bridge.py.
+        # Runs whenever its switch is on, connected to the console or not;
+        # _companion_error is why the last start failed, if it did.
+        self.companion_bridge = None
+        self.companion_panel = None
+        self._companion_error = None
+
         self._user_disconnected = True
         self._reconnect_job = None
 
@@ -3583,6 +3601,7 @@ class MainWindow:
         self.apply_theme()
         self.build_ui()
         self._fit_window_size()
+        self._apply_companion()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         # Escape backs out of a page the same as the sidebar's Back, and
@@ -4289,6 +4308,7 @@ class MainWindow:
         self.settings_sections = {
             "General": ttk.Frame(self.settings_page),
             "AUX Setup": ttk.Frame(self.settings_page),
+            "BitFocus": ttk.Frame(self.settings_page),
         }
 
         self.build_config_tab(self.settings_sections["General"])
@@ -4303,6 +4323,15 @@ class MainWindow:
             self.settings_sections["AUX Setup"], self.settings,
             self.save_settings,
             lambda: self.worker, on_change=self.aux_panel.refresh_aux_list
+        )
+
+        self.companion_panel = CompanionPanel(
+            self.settings_sections["BitFocus"], self.settings,
+            self.save_settings,
+            on_apply=lambda restart: self._apply_companion(restart),
+            get_bridge=lambda: self.companion_bridge,
+            get_error=lambda: self._companion_error,
+            get_worker=lambda: self.worker,
         )
 
         # (title, frame, owner) for the page on screen, or None. owner is
@@ -4994,6 +5023,9 @@ class MainWindow:
             # desktop's own login list, which services/autostart.py reads
             # back directly rather than mirroring here.
             "connect_on_launch": False,
+            # Bitfocus Companion bridge - see services/companion_bridge.py
+            # for the keys, which normalize_settings fills in.
+            "companion": normalize_settings(None),
         }
 
         try:
@@ -5280,6 +5312,8 @@ class MainWindow:
             # load - its first meter subscription included - ever reaches
             # the console.
             self.worker.apply_capture_mode(True, self._capture_allows_control())
+
+        self.worker.companion = self.companion_bridge
 
         self.worker.start()
         log("debug", "Worker thread started")
@@ -5617,6 +5651,58 @@ class MainWindow:
             self._stop_capture()
             self._set_digico_mode(capture)
 
+        self.companion_panel.reload()
+        self._apply_companion(restart=True)
+
+    def _apply_companion(self, restart=False):
+        """Start, reconfigure or stop the Companion bridge to match
+        settings["companion"]. restart replaces a running bridge - needed
+        when the listening port changes, since a socket keeps its port."""
+        config = normalize_settings(self.settings.get("companion"))
+        self.settings["companion"] = config
+        bridge = self.companion_bridge
+
+        if bridge is not None and (restart or not config["enabled"]
+                                   or bridge.listen_port != config["listen_port"]):
+            self._stop_companion()
+            bridge = None
+
+        if not config["enabled"]:
+            self._companion_error = None
+            return
+
+        if bridge is not None:
+            bridge.configure(config)
+            return
+
+        # Every adapter, so a Companion on this same machine (127.0.0.1)
+        # reaches it as well as one across the network. Companion IP in
+        # its settings is what narrows who is listened to.
+        bridge = CompanionBridge(config, self.command_queue, lambda: self.worker)
+
+        try:
+            bridge.start()
+        except OSError as ex:
+            log("error", f"Companion bridge could not start on port "
+                f"{config['listen_port']}: {ex}")
+            self._companion_error = str(ex)
+            return
+
+        self._companion_error = None
+        self.companion_bridge = bridge
+
+        if self.worker is not None:
+            self.worker.companion = bridge
+
+    def _stop_companion(self):
+        # Detached first, so the worker stops handing it datagrams.
+        if self.worker is not None:
+            self.worker.companion = None
+
+        if self.companion_bridge is not None:
+            self.companion_bridge.stop()
+            self.companion_bridge = None
+
     def _on_capture_toggled(self):
         self._set_digico_mode(self.capture_var.get())
 
@@ -5893,6 +5979,9 @@ class MainWindow:
         self._refresh_capture_status()
         self._refresh_capture_view()
 
+        if self.companion_panel is not None:
+            self.companion_panel.refresh()
+
         self.root.after(100, self.process_messages)
 
     def _failure_notice(self, value):
@@ -5972,6 +6061,7 @@ class MainWindow:
 
     def on_close(self):
         self.disconnect()
+        self._stop_companion()
         self.root.destroy()
 
 
