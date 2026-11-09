@@ -553,6 +553,62 @@ def _build_dgram(address, args, types):
     return builder.build().dgram
 
 
+def explain_no_match(address, rules):
+    """Why no rule took an incoming address, for the Activity list: the
+    rule that would have matched and what stops it, or the nearest rule
+    and the part of the address that differs."""
+    rules = [rule for rule in rules if rule.direction == TO_CONSOLE]
+
+    for rule in rules:
+        if rule.pattern is None or not rule.pattern.match(address):
+            continue
+        if not rule.raw["enabled"]:
+            return f"rule '{rule.name}' would match but is switched off"
+        if not rule.target.startswith("/"):
+            return (f"rule '{rule.name}' would match but its Send address "
+                    f"does not start with /")
+
+    incoming = address.strip().rstrip("/").lower().split("/")
+    roots = {rule.raw["match"].strip().split("/")[1].lower()
+             for rule in rules if rule.raw["match"].startswith("/")
+             and rule.raw["match"].count("/") >= 1}
+
+    if len(incoming) > 1 and incoming[1] not in roots:
+        first = address.strip().split("/")[1]
+        hint = ""
+        if roots == {"clmix"} or "clmix" in roots:
+            hint = (" - this looks like a console address (DiGiCo module?); "
+                    "send /clmix/... from a Generic OSC button, e.g. "
+                    "/clmix/ch/5/fader/step")
+        return f"no rule's When address starts with /{first}{hint}"
+
+    best, best_score, best_detail = None, -1, ""
+
+    for rule in rules:
+        if not rule.raw["match"].startswith("/"):
+            continue
+        wanted = rule.raw["match"].strip().rstrip("/").split("/")
+        same = sum(1 for a, b in zip(incoming, wanted)
+                   if b == "*" or a == b.lower())
+        score = same - abs(len(incoming) - len(wanted))
+        if score <= best_score:
+            continue
+        best, best_score, best_detail = rule, score, ""
+        if len(incoming) != len(wanted):
+            best_detail = (f"it has {len(wanted) - 1} parts, yours has "
+                           f"{len(incoming) - 1}")
+        else:
+            for a, b in zip(address.strip().rstrip("/").split("/"), wanted):
+                if b != "*" and a.lower() != b.lower():
+                    best_detail = f"'{a}' where it expects '{b}'"
+                    break
+
+    if best is None:
+        return ("there are no Companion -> Console rules - press "
+                "Add Default Rules")
+    return f"closest rule '{best.name}' expects {best.raw['match']}: {best_detail}"
+
+
 def _describe(address, args):
     def one(arg):
         if isinstance(arg, float):
@@ -622,6 +678,7 @@ class CompanionBridge:
             settings["pass_to_companion"],
             tuple(r for r in rules if r.usable and r.direction == TO_CONSOLE),
             tuple(r for r in rules if r.usable and r.direction == TO_COMPANION),
+            tuple(rules),
         )
 
     # ----------------------------------------------------------- lifecycle
@@ -722,7 +779,8 @@ class CompanionBridge:
                     log("warning", f"Companion: could not handle {address}: {ex!r}")
 
     def _from_companion(self, address, args, types):
-        _ip, _port, pass_to_console, _pass_back, rules, _back = self._config
+        _ip, _port, pass_to_console, _pass_back, rules, _back, every_rule = \
+            self._config
         text = _describe(address, args)
 
         worker = self.get_worker()
@@ -737,12 +795,14 @@ class CompanionBridge:
             return
 
         if not matched:
+            why = explain_no_match(address, every_rule)
             if pass_to_console:
                 self._to_console(address, args, types)
                 self._remember("IN", f"{text}   (no rule matched - sent to "
-                                     f"the console unchanged)")
+                                     f"the console unchanged; {why})")
             else:
-                self._remember("IN", f"{text}   (no rule matched, not passed on)")
+                self._remember("IN", f"{text}   (no rule matched, not passed "
+                                     f"on; {why})")
             return
 
         keep = False
@@ -860,7 +920,7 @@ class CompanionBridge:
         if sock is None:
             return
 
-        ip, port, _to_console, pass_to_companion, _rules, rules = self._config
+        ip, port, _to_console, pass_to_companion, _rules, rules, _every = self._config
         destination_ip = ip or self._learned
 
         # Read even with no rules this way: toggles going the other way
