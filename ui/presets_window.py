@@ -86,6 +86,10 @@ class PresetsWindow:
             btn_bar, text="Share…", command=self.share_preset
         )
         self.share_button.pack(side="left", padx=5)
+        self.owner_button = ttk.Button(
+            btn_bar, text="Change Owner…", command=self.change_owner
+        )
+        self.owner_button.pack(side="left", padx=(0, 5))
         self.delete_button = ttk.Button(
             btn_bar, text="Delete", command=self.delete_preset
         )
@@ -159,7 +163,8 @@ class PresetsWindow:
         preset = self.selected_preset()
         state = "normal" if preset else "disabled"
 
-        for button in (self.public_button, self.share_button, self.delete_button):
+        for button in (self.public_button, self.share_button,
+                       self.owner_button, self.delete_button):
             button.config(state=state)
 
         self.public_button.config(
@@ -190,6 +195,36 @@ class PresetsWindow:
         self.preset_store.set_shared_with(preset_id, users)
         self.refresh_list()
 
+    def change_owner(self):
+        preset = self.selected_preset()
+
+        if preset is None:
+            return
+
+        OwnerDialog(
+            self.window, preset, self.user_store, self.aux_name(preset),
+            on_saved=lambda owner, keep: self._save_owner(preset, owner, keep)
+        )
+
+    def _save_owner(self, preset, owner, keep_old_owner):
+        """False when the new owner already has a preset of that name on
+        that aux - the dialog stays open so another can be picked."""
+        clash = self.preset_store.owner_conflict(preset["id"], owner)
+
+        if clash is not None:
+            messagebox.showerror(
+                "Change owner",
+                f"{self.user_store.display_name(owner)} already has a preset "
+                f"called '{preset['name']}' on this aux. Delete one of them "
+                "first, or pick someone else.",
+                parent=self.window
+            )
+            return False
+
+        self.preset_store.set_owner(preset["id"], owner, keep_old_owner)
+        self.refresh_list()
+        return True
+
     def delete_preset(self):
         preset = self.selected_preset()
 
@@ -205,6 +240,95 @@ class PresetsWindow:
         ):
             self.preset_store.delete_preset(preset["id"])
             self.refresh_list()
+
+
+def can_use_preset(record, aux_name):
+    """Whether an account could load a preset from this aux: it needs
+    preset access and the aux. aux_name None is a preset from before
+    auxes were recorded, which loads anywhere."""
+    return record.get("presets", False) and (
+        aux_name is None or record.get("aux") == ALL_AUX
+        or aux_name in record.get("aux", [])
+    )
+
+
+class OwnerDialog:
+    """Hands a preset to another account: one choice per account that
+    has preset access and may use the preset's aux, since nobody else
+    could load it. The old owner can be kept on the share list so they
+    do not lose it."""
+
+    def __init__(self, master, preset, user_store, aux_name, on_saved):
+        self.on_saved = on_saved
+        self.user_store = user_store
+
+        self.window = tk.Toplevel(master)
+        self.window.title("Change Owner")
+        self.window.transient(master)
+        self.window.grab_set()
+
+        frame = ttk.Frame(self.window, padding=15)
+        frame.pack(fill="both", expand=True)
+
+        where = f" ({aux_name})" if aux_name else ""
+        ttk.Label(
+            frame, text=f"Give '{preset['name']}'{where} to:"
+        ).pack(anchor="w", pady=(0, 8))
+
+        old_owner = preset["owner"]
+        candidates = sorted(
+            (name for name, record in user_store.list_users()
+             if name != old_owner and can_use_preset(record, aux_name)),
+            key=lambda n: user_store.display_name(n).lower()
+        )
+
+        self.owner = tk.StringVar(value="")
+        self.keep = tk.BooleanVar(value=True)
+
+        if not candidates:
+            ttk.Label(
+                frame, text="No other account has Preset Access to this aux.",
+                foreground="gray"
+            ).pack(anchor="w")
+
+        for name in candidates:
+            ttk.Radiobutton(
+                frame, text=user_store.display_name(name), value=name,
+                variable=self.owner, command=self.update_save
+            ).pack(anchor="w", pady=2)
+
+        # Only when there is someone to keep - and a public preset stays
+        # open to them anyway, but keeping them on the list still does
+        # no harm if it is later made private.
+        if old_owner is not None and user_store.get(old_owner) is not None:
+            ttk.Separator(frame).pack(fill="x", pady=(10, 6))
+            ttk.Checkbutton(
+                frame, variable=self.keep,
+                text=f"Keep it shared with {user_store.display_name(old_owner)}"
+            ).pack(anchor="w")
+        else:
+            self.keep.set(False)
+
+        btn_bar = ttk.Frame(frame)
+        btn_bar.pack(fill="x", pady=(12, 0))
+
+        ttk.Button(btn_bar, text="Cancel", command=self.window.destroy).pack(side="right")
+        self.save_button = ttk.Button(
+            btn_bar, text="Save", style="Accent.TButton", command=self.save,
+            state="disabled"
+        )
+        self.save_button.pack(side="right", padx=(0, 5))
+
+        self.window.bind("<Escape>", lambda event: self.window.destroy())
+
+    def update_save(self):
+        self.save_button.config(state="normal" if self.owner.get() else "disabled")
+
+    def save(self):
+        owner = self.owner.get()
+
+        if owner and self.on_saved(owner, self.keep.get()):
+            self.window.destroy()
 
 
 class ShareDialog:
@@ -230,16 +354,10 @@ class ShareDialog:
             frame, text=f"Share '{preset['name']}'{where} with:"
         ).pack(anchor="w", pady=(0, 8))
 
-        def can_use(record):
-            return record.get("presets", False) and (
-                aux_name is None or record.get("aux") == ALL_AUX
-                or aux_name in record.get("aux", [])
-            )
-
         shared = set(preset["shared_with"])
         candidates = {
             name: "" for name, record in user_store.list_users()
-            if name != preset["owner"] and can_use(record)
+            if name != preset["owner"] and can_use_preset(record, aux_name)
         }
 
         for name in shared - set(candidates):

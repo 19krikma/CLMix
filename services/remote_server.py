@@ -10,7 +10,7 @@ import websockets
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
-from services.chat_log import KIND_SOS, KIND_USER, clean_text
+from services.chat_log import KIND_SOS, KIND_USER, TECH_NAME, clean_text
 from services.log_store import log
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
@@ -436,9 +436,11 @@ class RemoteServer:
         async with websockets.serve(self._handle_client, host, self.port):
             log("info", f"Remote server listening on {host}:{self.port}")
             await self._advertise_mdns()
+            tech_task = asyncio.create_task(self._watch_tech_aux())
             try:
                 await self._stop_event.wait()
             finally:
+                tech_task.cancel()
                 await self._stop_mdns()
 
     async def _advertise_mdns(self):
@@ -2134,6 +2136,25 @@ class RemoteServer:
         record = self.user_store.get(user) or {}
         return {"type": "picture", "user": user, "picture": record.get("picture")}
 
+    async def _watch_tech_aux(self):
+        """Tells the phones when the sound tech opens or closes an aux on
+        the surface (MixerWorker.tech_editing_aux). The console says so
+        on its own, not in answer to a phone, so nothing else would."""
+        while True:
+            await asyncio.sleep(PUSH_INTERVAL_SECONDS)
+            try:
+                await self._announce_aux_users()
+            except Exception as ex:
+                log("error", f"Announcing aux users failed: {ex!r}")
+
+    def _tech_editing_aux(self):
+        worker = self.get_worker()
+
+        if not worker or not worker.is_alive():
+            return None
+
+        return getattr(worker, "tech_editing_aux", None)
+
     def _aux_users_message(self):
         """Who has each aux open right now, for the phones' aux lists.
 
@@ -2142,6 +2163,11 @@ class RemoteServer:
         its aux list, in Mixer Control or not yet logged in is on none.
         Every aux is listed whoever asks; a phone shows the ones in its
         own list and ignores the rest.
+
+        The sound tech, while they have an aux open on the surface,
+        comes first on it under their chat name, with "user" empty
+        (no account has that name) and "tech" true. A phone from before
+        "tech" shows them as just another name, which reads right.
         """
         by_aux = {}
 
@@ -2154,19 +2180,26 @@ class RemoteServer:
 
             by_aux.setdefault(aux, set()).add(user)
 
+        tech_aux = self._tech_editing_aux()
+
+        if tech_aux is not None:
+            by_aux.setdefault(tech_aux, set())
+
         auxes = []
 
         for aux in sorted(by_aux):
             users = sorted(
                 by_aux[aux], key=lambda u: self.user_store.display_name(u).lower()
             )
-            auxes.append({
-                "index": aux,
-                "users": [
-                    {"user": u, "name": self.user_store.display_name(u)}
-                    for u in users
-                ],
-            })
+            entries = [
+                {"user": u, "name": self.user_store.display_name(u)}
+                for u in users
+            ]
+
+            if aux == tech_aux:
+                entries.insert(0, {"user": "", "name": TECH_NAME, "tech": True})
+
+            auxes.append({"index": aux, "users": entries})
 
         return {"type": "aux_users", "auxes": auxes}
 

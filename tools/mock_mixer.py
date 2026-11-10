@@ -688,6 +688,15 @@ class MockMixer:
             self.patch_alt(int(address.rsplit("/", 1)[1]),
                            address.startswith("/Mock/Patch_Alt/"))
 
+        elif address.startswith(("/Mock/Open_Aux/", "/Mock/Close_Aux/")):
+            # The sound tech putting an aux on the faders to edit it, or
+            # taking it off - the desk announces it as sends_to_faders.
+            aux = int(address.rsplit("/", 1)[1])
+            opened = address.startswith("/Mock/Open_Aux/")
+            self.send(f"/Aux_Outputs/{aux}/sends_to_faders",
+                      [1.0 if opened else 0.0])
+            print(f"* aux {aux} {'opened' if opened else 'closed'} on the surface")
+
         elif address == "/Mock/Store_Snapshot":
             # The operator pressing Update on the current snapshot.
             self.snapshot_state[self.snapshot] = copy.deepcopy(self.params)

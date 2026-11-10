@@ -46,6 +46,9 @@ ACTIVITY_MAX_ROWS = 200
 
 WRAP = 780
 
+# Top-level setting: Activity under the rules rather than beside them.
+STACKED_SETTING = "companion_activity_stacked"
+
 
 def _label_to_key(labels, label):
     for key, text in labels.items():
@@ -174,14 +177,19 @@ class CompanionPanel:
 
         ttk.Separator(frame).pack(fill="x", pady=(10, 8))
 
-        lower = ttk.Frame(frame)
-        lower.pack(fill="both", expand=True)
-        lower.columnconfigure(0, weight=3)
-        lower.columnconfigure(1, weight=2)
-        lower.rowconfigure(1, weight=1)
+        # Rules and Activity share a split the operator can drag, side by
+        # side or stacked (see _set_stacked). The two panes are children
+        # of `lower` rather than of the split itself, so switching layout
+        # only swaps the split around them and keeps what they hold.
+        self._lower = ttk.Frame(frame)
+        self._lower.pack(fill="both", expand=True)
+        self._split = None
 
-        self._build_rules(lower)
-        self._build_activity(lower)
+        self.rules_pane = ttk.Frame(self._lower)
+        self.activity_pane = ttk.Frame(self._lower)
+        self._build_rules(self.rules_pane)
+        self._build_activity(self.activity_pane)
+        self._set_stacked(bool(self.settings.get(STACKED_SETTING, False)))
 
         self.refresh_rules()
         self.refresh()
@@ -247,13 +255,67 @@ class CompanionPanel:
                  f"commands from that address only."
         )
 
+    def _set_stacked(self, stacked):
+        """Rules beside Activity, or Activity under Rules at full width -
+        where long messages have the room to show."""
+        self.stacked = stacked
+
+        if self._split is not None:
+            for pane in self._split.panes():
+                self._split.forget(pane)
+            self._split.destroy()
+
+        self._split = ttk.PanedWindow(
+            self._lower, orient="vertical" if stacked else "horizontal"
+        )
+        self._split.pack(fill="both", expand=True)
+
+        # Made before the split, so they would sit under it unless raised.
+        for pane in (self.rules_pane, self.activity_pane):
+            pane.lift(self._split)
+
+        gap = (0, 0, 0, 10) if stacked else (0, 0, 10, 0)
+        self.rules_pane.configure(padding=gap)
+        self.activity_pane.configure(
+            padding=(0, 10, 0, 0) if stacked else (10, 0, 0, 0)
+        )
+        self._split.add(self.rules_pane, weight=1 if stacked else 3)
+        self._split.add(self.activity_pane, weight=1 if stacked else 2)
+
+        self.stack_button.configure(
+            text="Side by Side" if stacked else "Stack"
+        )
+
+        # Left alone, the split sizes the panes to what they ask for,
+        # which squeezes Activity - so start it at a fair share, once
+        # the split knows its size.
+        split = self._split
+        share = 0.5 if stacked else 0.6
+
+        def place_sash(event=None):
+            size = split.winfo_height() if stacked else split.winfo_width()
+            if size > 1:
+                split.unbind("<Configure>")
+                split.sashpos(0, int(size * share))
+
+        split.bind("<Configure>", place_sash)
+        split.after_idle(place_sash)
+
+    def _toggle_stacked(self):
+        self._set_stacked(not self.stacked)
+        self.settings[STACKED_SETTING] = self.stacked
+        self.save_settings()
+
     def _build_rules(self, parent):
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
         ttk.Label(parent, text="Translation Rules",
                   font=("TkDefaultFont", 10, "bold")) \
             .grid(row=0, column=0, sticky="w")
 
         box = ttk.Frame(parent)
-        box.grid(row=1, column=0, sticky="nsew", padx=(0, 12), pady=(4, 0))
+        box.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
 
         columns = (
             ("on", "On", 34, "center", False),
@@ -299,25 +361,40 @@ class CompanionPanel:
             .pack(side="left", padx=(15, 0))
 
     def _build_activity(self, parent):
-        ttk.Label(parent, text="Activity",
-                  font=("TkDefaultFont", 10, "bold")) \
-            .grid(row=0, column=1, sticky="w")
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        header = ttk.Frame(parent)
+        header.grid(row=0, column=0, sticky="ew")
+        ttk.Label(header, text="Activity",
+                  font=("TkDefaultFont", 10, "bold")).pack(side="left")
+        # Its label is set by _set_stacked.
+        self.stack_button = ttk.Button(header, width=11,
+                                       command=self._toggle_stacked)
+        self.stack_button.pack(side="right")
 
         box = ttk.Frame(parent)
-        box.grid(row=1, column=1, sticky="nsew", pady=(4, 0))
+        box.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        box.columnconfigure(0, weight=1)
+        box.rowconfigure(0, weight=1)
 
         self.activity = tk.Listbox(box, height=7, activestyle="none",
                                    exportselection=False, borderwidth=0,
                                    highlightthickness=0)
         scrollbar = ttk.Scrollbar(box, orient="vertical",
                                   command=self.activity.yview)
-        self.activity.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        self.activity.pack(side="left", fill="both", expand=True)
+        # For a message longer than even a widened pane.
+        xscrollbar = ttk.Scrollbar(box, orient="horizontal",
+                                   command=self.activity.xview)
+        self.activity.configure(yscrollcommand=scrollbar.set,
+                                xscrollcommand=xscrollbar.set)
+        self.activity.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        xscrollbar.grid(row=1, column=0, sticky="ew")
         self.activity.bind("<Double-1>", lambda e: self._rule_from_activity())
 
         bar = ttk.Frame(parent)
-        bar.grid(row=2, column=1, sticky="w", pady=(6, 0))
+        bar.grid(row=2, column=0, sticky="w", pady=(6, 0))
 
         ttk.Button(bar, text="Make Rule", command=self._rule_from_activity) \
             .pack(side="left")

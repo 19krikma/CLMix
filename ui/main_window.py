@@ -22,7 +22,7 @@ from pythonosc.parsing import osc_types
 
 from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
-from services.chat_log import KIND_TECH, ChatLog
+from services.chat_log import KIND_USER, KIND_TECH, ChatLog
 from services.companion_bridge import CompanionBridge, normalize_settings
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log, log_store
@@ -51,6 +51,8 @@ from ui.copy_to_window import CopyToWindow
 from ui.show_backup_window import ShowBackupWindow
 from ui.sos_window import SosWindow
 from ui.chat_window import ChatWindow
+from ui.startup_section import StartupSection
+from ui.chat_toast import ChatToast, DesktopNotifier
 from ui.companion_window import CompanionPanel
 from version import VERSION
 
@@ -123,6 +125,11 @@ CACHEABLE_ADDRESSES = [
 ]
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
+
+# 1 when the sound tech opens an aux on the surface (aux on the faders,
+# to edit its mix), 0 when they close it again. See
+# MixerWorker.tech_editing_aux.
+SENDS_TO_FADERS_PATTERN = re.compile(r"^/Aux_Outputs/(\d+)/sends_to_faders$")
 
 # The console's word that a channel's input was patched or unpatched.
 # For the alt slot, the burst that ends in input_type says which
@@ -330,6 +337,11 @@ class MixerWorker(threading.Thread):
         self.recv_sock = None
 
         self.cache = {}
+        # The aux the sound tech has open on the surface right now, or
+        # None. Only one aux can be on the faders at a time, so opening
+        # one replaces the last. Not known until the console says - it
+        # only says when it changes. RemoteServer shows it on the phones.
+        self.tech_editing_aux = None
         self.banks = {}
         # The console's fader layout as the surface shows it: every bank
         # on every layer, keyed (layer, position), each {"name", "layer",
@@ -672,6 +684,8 @@ class MixerWorker(threading.Thread):
             self._handle_snapshot_name(args)
         elif RENAME_SNAPSHOT_PATTERN.match(address):
             self._handle_snapshot_renamed(address, args)
+        elif SENDS_TO_FADERS_PATTERN.match(address):
+            self._handle_sends_to_faders(address, args)
         elif any(pattern.match(address) for pattern in CACHEABLE_ADDRESSES):
             self.cache[address] = args
 
@@ -686,6 +700,19 @@ class MixerWorker(threading.Thread):
 
         if not self.loaded or self.resyncing:
             self.request_next_parameter()
+
+    def _handle_sends_to_faders(self, address, args):
+        aux = int(SENDS_TO_FADERS_PATTERN.match(address).group(1))
+
+        try:
+            opened = bool(args) and float(args[0]) >= 0.5
+        except (TypeError, ValueError):
+            return
+
+        if opened:
+            self.tech_editing_aux = aux
+        elif self.tech_editing_aux == aux:
+            self.tech_editing_aux = None
 
     def _track_alt_route(self, address, args):
         """Whether a channel has an alt route, from its input bursts -
@@ -3590,6 +3617,10 @@ class MainWindow:
         self.chat_log = ChatLog()
         self.chat_window = None
         self.chat_seen_id = 0
+        # The newest message a ChatToast has been raised for - separate
+        # from chat_seen_id, which only the Chat window moves.
+        self.chat_notified_id = 0
+        self.chat_toast = None
         self._chat_badge_shown = None
 
         self.settings = self.load_settings()
@@ -4309,9 +4340,11 @@ class MainWindow:
             "General": ttk.Frame(self.settings_page),
             "AUX Setup": ttk.Frame(self.settings_page),
             "BitFocus": ttk.Frame(self.settings_page),
+            "DiGiCo Capture": ttk.Frame(self.settings_page),
         }
 
         self.build_config_tab(self.settings_sections["General"])
+        self.build_capture_section(self.settings_sections["DiGiCo Capture"])
 
         self.access_panel = AccessPanel(
             self.accounts_page, self.user_store, lambda: self.worker,
@@ -4388,8 +4421,6 @@ class MainWindow:
                     host, self.server_details,
                     initial_result=self.latest_update,
                     on_result=self._apply_update_result,
-                    get_startup_options=self.startup_options,
-                    set_startup_option=self.set_startup_option,
                 ),
                 False, "about_window"
             ),
@@ -4684,15 +4715,16 @@ class MainWindow:
 
         self._refresh_nic_choices()
 
-        self.build_capture_section(parent)
+        ttk.Separator(parent).pack(fill="x", padx=15, pady=(0, 4))
+        self.startup_section = StartupSection(
+            parent, self.startup_options, self.set_startup_option
+        )
 
     def build_capture_section(self, parent):
-        """DiGiCo App Capture, in its own section under the connection
-        settings - it changes what this machine pretends to be, which is
-        a different kind of setting from where the console is."""
-        ttk.Separator(parent).pack(fill="x", padx=15, pady=(0, 4))
-
-        frame = ttk.Frame(parent, padding=(15, 8, 15, 15))
+        """DiGiCo App Capture, a Settings tab of its own - it changes
+        what this machine pretends to be, which is a different kind of
+        setting from where the console is."""
+        frame = ttk.Frame(parent, padding=15)
         frame.pack(fill="both", expand=True)
 
         heading = ttk.Frame(frame)
@@ -4722,7 +4754,7 @@ class MainWindow:
             text="Stands in for the console so the official DiGiCo app can "
                  "connect to this computer instead. Everything is passed "
                  "through unchanged in both directions and recorded to a "
-                 "capture file. Set the app to the same ports as above; it "
+                 "capture file. Set the app to the same ports as in General; it "
                  "finds this computer on the Server adapter's network. "
                  "While on, CLMix works only as this bridge: its own "
                  "controls, meters and phone connections are locked.",
@@ -4961,7 +4993,11 @@ class MainWindow:
         )
 
     def _show_settings_section(self, name):
-        if name == "AUX Setup":
+        if name == "General":
+            # Launch on Startup lives in the desktop's login list, which
+            # can change from outside CLMix.
+            self.startup_section.refresh()
+        elif name == "AUX Setup":
             # Rebuilt outright rather than refreshed: its rows are laid
             # out from the aux list and colored with values read at build
             # time, so there is nothing to update in place.
@@ -5461,9 +5497,47 @@ class MainWindow:
         if self.remote_server is not None:
             self.remote_server.send_tech_chat(message)
 
+    def _chat_in_view(self):
+        """Whether the Chat window is open and the one being typed in -
+        when it is, a new message needs no notice of its own."""
+        if self.chat_window is None or not self.chat_window.window.winfo_exists():
+            return False
+        try:
+            focus = self.root.focus_get()
+        except (KeyError, tk.TclError):
+            return False
+        return focus is not None and focus.winfo_toplevel() is self.chat_window.window
+
+    def _notify_chat(self):
+        """Raises a ChatToast for what phones have said since the last
+        one. The desk's own messages need none, and an SOS has its own
+        window."""
+        fresh = self.chat_log.messages(after_id=self.chat_notified_id)
+        if not fresh:
+            return
+
+        self.chat_notified_id = fresh[-1]["id"]
+        from_phones = [m for m in fresh if m["kind"] == KIND_USER]
+
+        if not from_phones or self._chat_in_view():
+            return
+
+        if self.chat_toast is None:
+            # Linux desktops get their own notifications: under Wayland a
+            # Tk window cannot come up over other apps.
+            if DesktopNotifier.available():
+                self.chat_toast = DesktopNotifier(on_open=self.open_chat_window)
+            else:
+                self.chat_toast = ChatToast(self.root, on_open=self.open_chat_window)
+        self.chat_toast.notify(from_phones)
+        self.root.bell()
+
     def _refresh_chat(self):
         """Catches the open Chat window up, or counts what phones have
         said since it was last open onto the sidebar's Chat button."""
+        self._notify_chat()
+        if self.chat_toast is not None and hasattr(self.chat_toast, "poll"):
+            self.chat_toast.poll()
         newest = self.chat_log.messages(after_id=self.chat_seen_id)
 
         if self.chat_window is not None and self.chat_window.window.winfo_exists():
@@ -5531,7 +5605,7 @@ class MainWindow:
         }
 
     def startup_options(self):
-        """State of the two startup switches, for the About window.
+        """State of the two startup switches, for Settings > General.
 
         Launch on Startup is read back from the desktop's login list
         rather than from our settings file: that list is where the setting
@@ -5548,7 +5622,7 @@ class MainWindow:
         """Applies one startup switch. Returns an error string, or None.
 
         The error is handed back rather than raised or shown here: the
-        About window is what has a place to put it, right under the switch
+        Startup section is what has a place to put it, right under the switch
         it belongs to.
         """
         if key == "launch_on_startup":
@@ -6060,6 +6134,8 @@ class MainWindow:
         self.root.mainloop()
 
     def on_close(self):
+        if self.chat_toast is not None:
+            self.chat_toast.close()
         self.disconnect()
         self._stop_companion()
         self.root.destroy()

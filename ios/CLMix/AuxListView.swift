@@ -67,9 +67,13 @@ struct AuxRow: View {
     var me: String? = nil
     let action: () -> Void
 
+    /// The sound tech first - if they are in your mix, that is the news -
+    /// then yourself, then everyone else in the server's order.
     private var userNames: [String] {
-        let mine = users.filter { $0.user == me }.map { _ in "You" }
-        return mine + users.filter { $0.user != me }.map(\.name)
+        let tech = users.filter(\.tech).map(\.name)
+        let people = users.filter { !$0.tech }
+        let mine = people.filter { $0.user == me }.map { _ in "You" }
+        return tech + mine + people.filter { $0.user != me }.map(\.name)
     }
 
     var body: some View {

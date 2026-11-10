@@ -716,7 +716,10 @@ final class MixerClient: NSObject, MixerBackend {
                     byAux[index] = (entry["users"] as? [[String: Any]] ?? []).compactMap { u in
                         guard let user = u["user"] as? String else { return nil }
                         let name = u["name"] as? String ?? ""
-                        return AuxUser(user: user, name: name.isEmpty ? user : name)
+                        return AuxUser(
+                            user: user, name: name.isEmpty ? user : name,
+                            tech: u["tech"] as? Bool ?? false
+                        )
                     }
                 }
                 delegate?.mixerDidReceiveAuxUsers(byAux)

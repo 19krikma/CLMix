@@ -237,9 +237,10 @@ class AuxAdapter(
         }
 
         val me = Profile.current?.username
-        // Yourself first, then everyone else in the server's order.
-        val names = onAux.sortedBy { if (it.user == me) 0 else 1 }
-            .map { if (it.user == me) "You" else it.name }
+        // The sound tech first - if they are in your mix, that is the
+        // news - then yourself, then everyone else in the server's order.
+        val names = onAux.sortedBy { if (it.tech) 0 else if (it.user == me) 1 else 2 }
+            .map { if (!it.tech && it.user == me) "You" else it.name }
 
         val color = ContextCompat.getColor(
             label.context,

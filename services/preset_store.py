@@ -245,6 +245,51 @@ class PresetStore:
                 )
                 self._save()
 
+    def owner_conflict(self, preset_id, new_owner):
+        """The new owner's own preset that would clash with this one -
+        same name, same aux - if it were handed over, else None. Names
+        are unique per owner and aux, so the move has to wait until one
+        of the two is renamed or deleted."""
+        with self._lock:
+            record = self._find(preset_id)
+
+            if record is None:
+                return None
+
+            for other in self.presets:
+                if other is not record and other["owner"] == new_owner \
+                        and other["name"] == record["name"] \
+                        and other["aux"] == record["aux"]:
+                    return self._copy(other)
+
+            return None
+
+    def set_owner(self, preset_id, new_owner, keep_old_owner=False):
+        """Hands a preset to another account. The new owner comes off the
+        share list, having it anyway; the old one goes on it if
+        keep_old_owner, so they can still load it, else loses it unless
+        it is public. Returns False, changing nothing, when the new owner
+        already has a preset of that name on that aux."""
+        with self._lock:
+            record = self._find(preset_id)
+
+            if record is None or record["owner"] == new_owner:
+                return record is not None
+
+            if self.owner_conflict(preset_id, new_owner) is not None:
+                return False
+
+            old_owner = record["owner"]
+            shared = set(record["shared_with"]) - {new_owner}
+
+            if keep_old_owner and old_owner is not None:
+                shared.add(old_owner)
+
+            record["owner"] = new_owner
+            record["shared_with"] = sorted(shared)
+            self._save()
+            return True
+
     def rename_user(self, old, new):
         """Follows an account to its new username: the presets it owns
         and every share list it is on."""

@@ -45,12 +45,6 @@ ISSUES_URL = f"{REPO_URL}/issues"
 # The muted gray the rest of the desktop UI already uses for secondary text.
 MUTED_FG = "#888888"
 
-# Where a startup-switch failure wraps. A little under the banner width,
-# which is the narrowest this window ever gets - so the message reflows
-# onto a second line rather than stretching the window (and the banner
-# with it) to fit one long OS error on one line.
-STATUS_WRAPLENGTH = 470
-
 # The banner is drawn at half the artwork's own 1024px width - Tk scales a
 # PhotoImage only by whole-number subsampling, so this is 2:1 rather than
 # an arbitrary fit-to-window size.
@@ -291,35 +285,16 @@ def _build_banner(widget, width, background):
 
 
 class AboutWindow:
-    """Product identity, version/update controls, links and startup options.
+    """Product identity, version/update controls and links. (The startup
+    switches that used to be here are in Settings > General - see
+    ui/startup_section.py.)
 
     `get_server_details` is a callable returning the live server facts -
     a getter rather than a snapshot, so it reports the state as it is now
     rather than as it was when the window was first built. Nothing it
     returns is displayed any more; it is read only by the update
     confirmation, to warn about what installing is about to cut off.
-
-    `get_startup_options` / `set_startup_option` are the other half of the
-    same arrangement for the two startup toggles: MainWindow owns the
-    setting and the registration with the desktop, this window only draws
-    the switches. set_startup_option returns an error string to show
-    beneath them, or None if it took.
     """
-
-    # The startup switches, in display order: (settings key, caption,
-    # one-line explanation).
-    STARTUP_ROWS = (
-        (
-            "launch_on_startup",
-            "Launch on Startup",
-            "Opens CLMix automatically when you log in to this computer.",
-        ),
-        (
-            "connect_on_launch",
-            "Connect on Launch",
-            "Connects to the mixer as soon as CLMix opens.",
-        ),
-    )
 
     # The update check and the download both run on a worker thread and
     # hand their results back through a queue this window polls, rather
@@ -328,11 +303,8 @@ class AboutWindow:
     POLL_MS = 100
 
     def __init__(self, master, get_server_details=None,
-                 initial_result=None, on_result=None,
-                 get_startup_options=None, set_startup_option=None):
+                 initial_result=None, on_result=None):
         self.get_server_details = get_server_details or (lambda: {})
-        self.get_startup_options = get_startup_options or (lambda: {})
-        self.set_startup_option = set_startup_option or (lambda *_: None)
 
         # The result of the check MainWindow ran at startup, so the window
         # can already say "update available" without the operator pressing
@@ -352,20 +324,10 @@ class AboutWindow:
         self._cancel = None
         self._ready_installer = None
         self._results = queue.Queue()
-        # Guards the toggle callbacks while refresh() writes the switches
-        # back from the settings, so redrawing state never looks like an
-        # operator flipping it.
-        self._syncing_startup = False
 
         self.link_font = _scaled_font(0, underline=True)
 
         self.build_ui()
-
-        # refresh() before apply_theme(), not after: apply_theme measures
-        # the finished body to build a banner that reaches both edges, so
-        # everything that can change the body's width has to have been
-        # filled in by then.
-        self.refresh()
         self.apply_theme()
         self._show_result()
 
@@ -385,7 +347,6 @@ class AboutWindow:
 
         self.build_update_section(self.body)
         self.build_links_section(self.body)
-        self.build_startup_section(self.body)
 
         ttk.Separator(self.body, orient="horizontal").pack(fill="x", pady=(10, 8))
         ttk.Label(
@@ -451,93 +412,6 @@ class AboutWindow:
                     row=row_index, column=column, sticky="w", padx=(0, 24), pady=1
                 )
 
-    def build_startup_section(self, parent):
-        """The two "what happens when this machine boots" switches.
-
-        Deliberately switches rather than a menu item: both are things an
-        operator sets once for a machine that lives in a rack and then
-        never touches again, which is the same reason they are worth
-        having at all.
-        """
-        ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=12)
-
-        ttk.Label(parent, text="Startup").pack(anchor="w")
-
-        grid = ttk.Frame(parent)
-        grid.pack(fill="x", pady=(6, 0))
-        grid.columnconfigure(1, weight=1)
-
-        self.startup_vars = {}
-
-        for row, (key, caption, hint) in enumerate(self.STARTUP_ROWS):
-            var = tk.BooleanVar(value=False)
-            self.startup_vars[key] = var
-
-            ttk.Checkbutton(
-                grid,
-                style="Switch.TCheckbutton",
-                variable=var,
-                command=lambda k=key: self._on_startup_toggled(k),
-            ).grid(row=row * 2, column=0, sticky="w", padx=(0, 12), pady=(0, 2))
-
-            ttk.Label(grid, text=caption).grid(
-                row=row * 2, column=1, sticky="w"
-            )
-            ttk.Label(grid, text=hint, foreground=MUTED_FG).grid(
-                row=row * 2 + 1, column=1, sticky="w", pady=(0, 6)
-            )
-
-        self.startup_grid = grid
-
-        # Packed and immediately hidden, the same way the download
-        # progress row is: this line has something to say only when a
-        # switch fails to take, and a blank one held open permanently is
-        # 20px of a window that has to fit on a laptop screen.
-        self.startup_status_label = ttk.Label(
-            parent, text="", foreground=MUTED_FG,
-            wraplength=STATUS_WRAPLENGTH, justify="left"
-        )
-        self.startup_status_label.pack(anchor="w")
-        self.startup_status_label.pack_forget()
-
-    def _set_startup_status(self, text):
-        if not text:
-            self.startup_status_label.pack_forget()
-            return
-
-        self.startup_status_label.config(text=text)
-        # `after` rather than a bare pack(): re-packing a hidden widget
-        # puts it back at the end of the body, under the copyright line.
-        self.startup_status_label.pack(
-            anchor="w", pady=(2, 0), after=self.startup_grid
-        )
-
-    def _on_startup_toggled(self, key):
-        if self._syncing_startup:
-            return
-
-        var = self.startup_vars[key]
-        error = self.set_startup_option(key, bool(var.get()))
-
-        if error:
-            # Put the switch back where it was: the setting did not take,
-            # and a switch that stays on would be claiming otherwise.
-            self._syncing_startup = True
-            var.set(not var.get())
-            self._syncing_startup = False
-
-        self._set_startup_status(error)
-
-    def refresh_startup(self):
-        options = self.get_startup_options()
-
-        self._syncing_startup = True
-
-        for key, _caption, _hint in self.STARTUP_ROWS:
-            self.startup_vars[key].set(bool(options.get(key)))
-
-        self._syncing_startup = False
-
     def _link(self, parent, text, url):
         label = ttk.Label(parent, text=text, font=self.link_font, cursor="hand2")
         label.bind("<Button-1>", lambda _event: webbrowser.open(url))
@@ -567,9 +441,8 @@ class AboutWindow:
         background = panel_bg(self.window)
 
         # Measured, not assumed: the banner is built to whatever width the
-        # rest of the content settled on - the startup hints and the link
-        # rows are the widest things in the window and both change with
-        # the user's font size, so a fixed width would leave the fade
+        # rest of the content settled on - the link rows are the widest
+        # thing in the window and change with the user's font size, so a fixed width would leave the fade
         # stopping short of the edges.
         self.body.update_idletasks()
         width = max(BANNER_WIDTH, self.body.winfo_reqwidth())
@@ -588,18 +461,6 @@ class AboutWindow:
         # `before` rather than a bare pack(): re-packing on a recolor
         # would otherwise drop the banner below the body.
         self.banner_label.pack(fill="x", before=self.body)
-
-    def refresh(self):
-        """Re-reads everything this window shows that can change under it.
-
-        That is now only the startup switches, so that reopening the
-        window reports what is actually registered with the desktop rather
-        than what was last clicked in some earlier session. The phone
-        count that used to live here moved to the Phone List window on the
-        main window, where it can say who is connected and not just how
-        many.
-        """
-        self.refresh_startup()
 
     # -------------------------------------------------------------- update
 

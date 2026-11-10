@@ -2,11 +2,15 @@ package com.clmix
 
 import org.json.JSONObject
 
-/** One account riding an aux right now. */
+/** One account riding an aux right now - or the sound tech, who has it
+ *  open on the desk to edit. */
 data class AuxUser(
     val user: String,
-    /** "First Last" where set, the username otherwise. */
-    val name: String
+    /** "First Last" where set, the username otherwise. For the sound
+     *  tech, the name they go by in chat. */
+    val name: String,
+    /** The sound tech rather than an account; user is empty then. */
+    val tech: Boolean = false
 )
 
 /**
@@ -52,7 +56,10 @@ object AuxUsers {
                 map[entry.optInt("index")] = (0 until users.length()).mapNotNull { j ->
                     users.optJSONObject(j)?.let { u ->
                         val user = u.optString("user")
-                        AuxUser(user, u.optString("name").ifEmpty { user })
+                        AuxUser(
+                            user, u.optString("name").ifEmpty { user },
+                            u.optBoolean("tech")
+                        )
                     }
                 }
             }
