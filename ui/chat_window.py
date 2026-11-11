@@ -3,7 +3,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
-from services.chat_log import KIND_SOS, KIND_TECH, MAX_TEXT, TECH_NAME, clean_text
+from services.chat_log import KIND_SOS, KIND_TECH, MAX_TEXT, clean_text
 
 # Backgrounds per kind of message. The sound engineer's own stand out in
 # the theme's blue, the way they do on the phones; an SOS is red.
@@ -17,7 +17,8 @@ LOG_BG = "#161616"
 
 class ChatWindow:
     """The shared chat, from the desk: everything every phone has said,
-    SOS calls included, and a box to answer as "Sound Tech".
+    SOS calls included, and a box to answer under the desktop's chat name
+    (Settings > General, "Sound Tech" unless changed).
 
     A window of its own rather than a page in the main window, so it can
     be put wherever suits during a show and left open beside the mixer.
@@ -25,9 +26,12 @@ class ChatWindow:
     draws it, and is told to catch up by refresh().
     """
 
-    def __init__(self, master, chat_log, on_send, on_closed):
+    def __init__(self, master, chat_log, on_send, on_closed, get_name):
         self.chat_log = chat_log
         self.on_send = on_send
+        # The name phones see the desktop's messages under right now - it
+        # can change with the snapshot. See update_name.
+        self.get_name = get_name
         self.on_closed = on_closed
         self.shown_id = 0
 
@@ -85,13 +89,20 @@ class ChatWindow:
             entry_row, text="Send", style="Accent.TButton", command=self.send
         ).grid(row=0, column=1)
 
-        tk.Label(
-            body, text=f"Phones see your messages as “{TECH_NAME}”.",
-            bg=window_bg, fg=META_FG,
-        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.name_label = tk.Label(body, bg=window_bg, fg=META_FG)
+        self.name_label.grid(row=2, column=0, columnspan=2, sticky="w",
+                             pady=(6, 0))
+        self.update_name()
 
         self.refresh()
         self.entry.focus_set()
+
+    def update_name(self):
+        """Re-reads the chat name - after a recall onto a snapshot with a
+        name of its own, or an edit in Settings."""
+        self.name_label.configure(
+            text=f"Phones see your messages as “{self.get_name()}”."
+        )
 
     def _cap_length(self, *args):
         text = self.entry_var.get()

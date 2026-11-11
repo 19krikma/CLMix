@@ -85,7 +85,9 @@ object Chat {
             // Chat closed: the sound engineer's words still reach the
             // performer, on whatever screen they are on.
             appContext?.let {
-                Toast.makeText(it, "Sound Tech: ${message.text}", Toast.LENGTH_LONG).show()
+                // Under the name the desktop chats as, which it can change.
+                val name = message.name.ifEmpty { "Sound Tech" }
+                Toast.makeText(it, "$name: ${message.text}", Toast.LENGTH_LONG).show()
             }
         }
     }

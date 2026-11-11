@@ -628,8 +628,8 @@ object MixerClient {
 
     // any_aux: list every preset this account can see, not just this
     // aux's - the Load sheet warns before loading across auxes.
-    /** An SOS to the sound engineer - see Sos. reason is one of the
-     *  server's SOS_REASONS keys. */
+    /** An SOS to the sound engineer - see Sos. reason is the id of one
+     *  of the options the server sent. */
     fun sendSos(reason: String) = send(
         JSONObject().put("action", "sos").put("reason", reason)
     )
@@ -788,8 +788,12 @@ object MixerClient {
                 mixerControlAllowed = ok && json.optBoolean("mixer_control", false)
                 personalizationAllowed = ok && json.optBoolean("personalization", false)
                 readHeadAmpRanges(json.optJSONObject("head_amp"))
+                val sosOptions = json.optJSONArray("sos_options")
                 onMain {
-                    if (ok) Profile.onLogin(json)
+                    if (ok) {
+                        Profile.onLogin(json)
+                        Sos.onOptions(sosOptions)
+                    }
                     listener?.onLoginResult(ok, message, token)
                 }
                 // The full profile, picture included, for the menu's header.
@@ -958,6 +962,13 @@ object MixerClient {
             // Not through the screen listener either: the SOS button is
             // on every screen, not one.
             "sos_sent" -> onMain { Sos.onSent() }
+
+            // The SOS choices changed: a snapshot with its own list was
+            // recalled, or the sound engineer edited them.
+            "sos_options" -> {
+                val sosOptions = json.optJSONArray("options") ?: JSONArray()
+                onMain { Sos.onOptions(sosOptions) }
+            }
 
             // Not through the screen listener: chat arrives on every
             // screen, and only the chat screen draws it - see Chat.

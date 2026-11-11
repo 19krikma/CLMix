@@ -6,11 +6,13 @@ import errno
 import threading
 import queue
 import re
+import select
 import socket
 import sys
 import json
 import math
 import time
+import zlib
 from pathlib import Path
 
 import sv_ttk
@@ -22,13 +24,18 @@ from pythonosc.parsing import osc_types
 
 from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
-from services.chat_log import KIND_USER, KIND_TECH, ChatLog
-from services.companion_bridge import CompanionBridge, normalize_settings
+from services.chat_log import (
+    KIND_USER, KIND_TECH, ChatLog, normalize_tech_names, tech_name_for,
+)
+from services.companion_bridge import (
+    COMPANION_TIMEOUT_SECONDS, CompanionBridge, normalize_settings,
+)
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
 from services.log_store import capture, log, log_store
 from services.network_info import list_ipv4_interfaces, source_ip_for
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
+from services import sos_options
 
 # Before anything parses a datagram: the console does not always send
 # UTF-8, and python-osc's UnicodeDecodeError is not a ParseError, so
@@ -52,6 +59,8 @@ from ui.show_backup_window import ShowBackupWindow
 from ui.sos_window import SosWindow
 from ui.chat_window import ChatWindow
 from ui.startup_section import StartupSection
+from ui.sos_section import SosSection
+from ui.chat_name_section import ChatNameSection
 from ui.chat_toast import ChatToast, DesktopNotifier
 from ui.companion_window import CompanionPanel
 from version import VERSION
@@ -186,7 +195,52 @@ SNAPSHOT_CHANGED_PATTERN = re.compile(
 )
 
 
+# How a worker with two connections to the console uses them - see
+# MixerWorker._route. "failover": everything goes down Connection 1, and
+# down Connection 2 only while 1 is not answering. "balanced": both carry
+# traffic, each OSC address always on the same one so that the writes to
+# one control never overtake each other.
+LINK_FAILOVER = "failover"
+LINK_BALANCED = "balanced"
+LINK_MODES = {LINK_FAILOVER: "Fail Over", LINK_BALANCED: "Balanced"}
+
+
+class MixerLink:
+    """One OSC connection to the console: where it is, the two sockets,
+    and whether it is answering. The console sees each as a device of its
+    own in its External Control setup, so a second one needs its own
+    pair of ports there."""
+
+    def __init__(self, name, ip, send_port, recv_port, bind_ip=None):
+        self.name = name
+        self.ip = ip
+        self.send_port = send_port
+        self.recv_port = recv_port
+        self.bind_ip = bind_ip or None
+
+        self.send_sock = None
+        self.recv_sock = None
+        # Why it could not be opened, if it could not - the session then
+        # runs on the other connection alone.
+        self.failed = None
+        # Answering within MixerWorker.HEARTBEAT_TIMEOUT_SECONDS.
+        self.up = True
+        self.last_received_at = 0.0
+        self.last_heartbeat_sent_at = 0.0
+
+    @property
+    def open(self):
+        return self.send_sock is not None and self.recv_sock is not None
+
+
 class MixerWorker(threading.Thread):
+
+    # A datagram arriving on the second connection that the first
+    # delivered within this long is the console's copy of the same
+    # message, and is dropped - see _is_duplicate.
+    DUPLICATE_WINDOW_SECONDS = 0.25
+    # Most datagrams remembered for that, as a backstop to the pruning.
+    DUPLICATE_MEMORY = 20000
 
     # How often to poll the mixer for a sign of life, and how long to go
     # without any reply before treating the connection as dead - UDP has
@@ -316,9 +370,13 @@ class MixerWorker(threading.Thread):
     SEND_BURST_GAP = 0.002
 
     def __init__(self, mixer_ip, send_port, recv_port,
-                 command_queue, message_queue, bind_ip=None):
+                 command_queue, message_queue, bind_ip=None,
+                 second_link=None, link_mode=LINK_FAILOVER):
         super().__init__(daemon=True)
 
+        # Connection 1's. Kept as attributes of their own because the
+        # DiGiCo App bridge, the Analyzer and the info bar all describe
+        # the console by its first connection.
         self.mixer_ip = mixer_ip
         self.send_port = send_port
         self.recv_port = recv_port
@@ -328,6 +386,19 @@ class MixerWorker(threading.Thread):
         # than one network card, where the console is reachable down one
         # of them and the route is ambiguous or simply wrong.
         self.bind_ip = bind_ip or None
+
+        # Every connection to the console - one, or two when Settings >
+        # DiGiCo has a second - and how they share the traffic.
+        # second_link is (ip, send_port, recv_port, bind_ip).
+        self.links = [MixerLink("Connection 1", mixer_ip, send_port,
+                                recv_port, bind_ip)]
+        if second_link is not None:
+            self.links.append(MixerLink("Connection 2", *second_link))
+        self.link_mode = link_mode if link_mode in LINK_MODES \
+            else LINK_FAILOVER
+        # For _is_duplicate: datagram -> (link index, arrived at).
+        self._recent_datagrams = {}
+        self._recent_pruned_at = 0.0
 
         self.command_queue = command_queue
         self.message_queue = message_queue
@@ -491,39 +562,33 @@ class MixerWorker(threading.Thread):
                 f"(recv on port {self.recv_port})")
             self.message_queue.put(("status", "Connecting"))
 
-            self.send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                self.send_sock.setsockopt(
-                    socket.SOL_SOCKET, socket.SO_SNDBUF, self.SEND_BUFFER_BYTES
-                )
-            except OSError as ex:
-                log("warning", f"Could not enlarge the send buffer: {ex}")
+            # Connection 1 failing to open fails the attempt, as it
+            # always has. A second one that will not open is reported
+            # and left out: the console is still reachable down the
+            # first.
+            self._open_link(self.links[0])
+            self.send_sock = self.links[0].send_sock
+            self.recv_sock = self.links[0].recv_sock
 
-            if self.bind_ip:
-                # Port 0 - the source port does not matter, only which
-                # card the packets leave by. Without this the routing
-                # table picks, which on a two-card machine may not be the
-                # card the console is on.
-                self.send_sock.bind((self.bind_ip, 0))
+            for link in self.links[1:]:
+                try:
+                    self._open_link(link)
+                except OSError as ex:
+                    self._close_link(link)
+                    link.failed = str(ex)
+                    link.up = False
+                    log("error", f"{link.name} to {link.ip}:{link.send_port} "
+                        f"could not open: {ex}")
 
-            log("debug", f"Send socket created (from {self.bind_ip or 'any'})")
-
-            self.recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                self.recv_sock.setsockopt(
-                    socket.SOL_SOCKET, socket.SO_RCVBUF, self.RECV_BUFFER_BYTES
-                )
-            except OSError as ex:
-                log("warning", f"Could not enlarge the receive buffer: {ex}")
-            self.recv_sock.bind((self.bind_ip or "", self.recv_port))
-            self.recv_sock.settimeout(0.1)
-            log("debug", f"Recv socket bound on "
-                f"{self.bind_ip or 'all adapters'}:{self.recv_port}")
+            if len(self.links) > 1:
+                log("info", f"Connection mode: {LINK_MODES[self.link_mode]}")
 
             self.message_queue.put(("status", "Connected"))
             log("info", "Connected to mixer, loading parameters...")
 
             self._last_received_at = time.monotonic()
+            for link in self.links:
+                link.last_received_at = self._last_received_at
 
             # Start the heartbeat clock here rather than leaving it at 0,
             # which made the very first loop iteration fire one - its
@@ -534,6 +599,8 @@ class MixerWorker(threading.Thread):
             # liveness probe during load anyway: the replies are the
             # liveness.
             self._last_heartbeat_sent_at = time.monotonic()
+            for link in self.links:
+                link.last_heartbeat_sent_at = self._last_heartbeat_sent_at
 
             self.request_next_parameter()
 
@@ -559,22 +626,152 @@ class MixerWorker(threading.Thread):
             self.message_queue.put(("status", f"Error: {ex}"))
 
         finally:
-            if self.send_sock:
-                self.send_sock.close()
-
-            if self.recv_sock:
-                self.recv_sock.close()
+            for link in self.links:
+                self._close_link(link)
 
             log("info", "Disconnected from mixer")
             self.message_queue.put(("status", "Disconnected"))
 
-    def receive_osc(self):
+    def _open_link(self, link):
+        """Opens one connection's two sockets. Raises OSError if either
+        will not open (a port in use, an adapter gone)."""
+        link.send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            data, sender = self.recv_sock.recvfrom(65535)
-        except socket.timeout:
-            return
+            link.send_sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_SNDBUF, self.SEND_BUFFER_BYTES
+            )
+        except OSError as ex:
+            log("warning", f"Could not enlarge the send buffer: {ex}")
 
-        self._last_received_at = time.monotonic()
+        if link.bind_ip:
+            # Port 0 - the source port does not matter, only which
+            # card the packets leave by. Without this the routing
+            # table picks, which on a two-card machine may not be the
+            # card the console is on.
+            link.send_sock.bind((link.bind_ip, 0))
+
+        log("debug", f"{link.name}: send socket created "
+            f"(from {link.bind_ip or 'any'}) to {link.ip}:{link.send_port}")
+
+        link.recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            link.recv_sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_RCVBUF, self.RECV_BUFFER_BYTES
+            )
+        except OSError as ex:
+            log("warning", f"Could not enlarge the receive buffer: {ex}")
+        link.recv_sock.bind((link.bind_ip or "", link.recv_port))
+        link.recv_sock.settimeout(0.1)
+        log("debug", f"{link.name}: recv socket bound on "
+            f"{link.bind_ip or 'all adapters'}:{link.recv_port}")
+
+    @staticmethod
+    def _close_link(link):
+        for sock in (link.send_sock, link.recv_sock):
+            if sock is not None:
+                sock.close()
+        link.send_sock = None
+        link.recv_sock = None
+
+    def link_status(self):
+        """[(name, state)] for every connection, state one of "active"
+        (carrying traffic), "standby" (answering, held in reserve),
+        "down" (not answering) or "failed: <why>" (would not open). Read
+        from the UI thread."""
+        status = []
+        carrying = self._route_candidates()
+
+        for link in self.links:
+            if link.failed:
+                state = f"failed: {link.failed}"
+            elif not link.up:
+                state = "down"
+            elif self.link_mode == LINK_BALANCED or \
+                    (carrying and carrying[0] is link):
+                state = "active"
+            else:
+                state = "standby"
+            status.append((link.name, state))
+
+        return status
+
+    def _route_candidates(self):
+        return [link for link in self.links if link.open and link.up]
+
+    def _route(self, address):
+        """The connection a message goes down - see LINK_FAILOVER and
+        LINK_BALANCED. Connection 1 when none is answering, so the
+        heartbeat still goes out and can notice it come back."""
+        usable = self._route_candidates()
+
+        if not usable:
+            return self.links[0]
+
+        if self.link_mode == LINK_BALANCED and len(usable) > 1:
+            # By address, not in turn: two writes to one fader taking
+            # different routes could arrive in the wrong order and leave
+            # it at the older value.
+            return usable[zlib.crc32(address.encode()) % len(usable)]
+
+        return usable[0]
+
+    def _is_duplicate(self, data, index, now):
+        """Whether this datagram is the console's copy, on another
+        connection, of one just handled - the console sends a change to
+        every device it has, so with two connections most things arrive
+        twice."""
+        if len(self.links) < 2:
+            return False
+
+        recent = self._recent_datagrams
+
+        if now - self._recent_pruned_at > 1.0 or \
+                len(recent) > self.DUPLICATE_MEMORY:
+            self._recent_pruned_at = now
+            cutoff = now - self.DUPLICATE_WINDOW_SECONDS
+            for key in [k for k, (_, at) in recent.items() if at < cutoff]:
+                del recent[key]
+
+        seen = recent.get(data)
+
+        if seen is not None and seen[0] != index and \
+                now - seen[1] <= self.DUPLICATE_WINDOW_SECONDS:
+            # Forgotten once matched, so a genuine repeat that follows
+            # is not taken for a copy.
+            del recent[data]
+            return True
+
+        recent[data] = (index, now)
+        return False
+
+    def receive_osc(self):
+        socks = [link.recv_sock for link in self.links if link.recv_sock]
+
+        if len(socks) == 1:
+            readable = socks
+        else:
+            try:
+                readable, _, _ = select.select(socks, [], [], 0.1)
+            except (OSError, ValueError):
+                return
+
+        for sock in readable:
+            try:
+                data, sender = sock.recvfrom(65535)
+            except socket.timeout:
+                continue
+
+            self._receive_datagram(sock, data, sender)
+
+    def _receive_datagram(self, sock, data, sender):
+        now = time.monotonic()
+        index = next(i for i, link in enumerate(self.links)
+                     if link.recv_sock is sock)
+        self.links[index].last_received_at = now
+        self._last_received_at = now
+
+        if self._is_duplicate(data, index, now):
+            return
 
         # Relayed before CLMix reads it, so the app is never kept
         # waiting on this side's own handling.
@@ -905,17 +1102,36 @@ class MixerWorker(threading.Thread):
         self._meter_unmapped = 0
 
     def _check_heartbeat(self):
+        """Each connection is polled and timed on its own. The session
+        only ends when none is answering; one that stops while another
+        still does is logged, and its traffic moves to the other."""
         now = time.monotonic()
+        answering = False
 
-        if now - self._last_received_at > self.HEARTBEAT_TIMEOUT_SECONDS:
+        for link in self.links:
+            if not link.open:
+                continue
+
+            alive = now - link.last_received_at <= self.HEARTBEAT_TIMEOUT_SECONDS
+
+            if alive != link.up:
+                link.up = alive
+                if len(self.links) > 1:
+                    log("warning" if not alive else "info",
+                        f"{link.name} ({link.ip}) "
+                        + ("stopped answering" if not alive else "is back"))
+
+            answering = answering or alive
+
+            if now - link.last_heartbeat_sent_at > self.HEARTBEAT_INTERVAL_SECONDS:
+                link.last_heartbeat_sent_at = now
+                self._last_heartbeat_sent_at = now
+                self.send_osc("/Snapshots/Current_Snapshot/?", [], link=link)
+
+        if not answering:
             log("error", f"No response from mixer for "
                 f"{self.HEARTBEAT_TIMEOUT_SECONDS:.0f}s - connection lost")
             self.running = False
-            return
-
-        if now - self._last_heartbeat_sent_at > self.HEARTBEAT_INTERVAL_SECONDS:
-            self._last_heartbeat_sent_at = now
-            self.send_osc("/Snapshots/Current_Snapshot/?", [])
 
     def _handle_current_snapshot(self, args):
         changed = self.cache.get("/Snapshots/Current_Snapshot") != args
@@ -1401,11 +1617,13 @@ class MixerWorker(threading.Thread):
             self._snapshot_name_requested = False
             self.command_queue.put("/Snapshots/names/?")
 
-    def send_osc(self, address, args, types=None):
+    def send_osc(self, address, args, types=None, link=None):
         """Send one message. types, when given, is its OSC type tag
         string ("f", "s", "ff"...) - for a restore, which must write a
         value back exactly as the console reported it rather than as
-        whatever python-osc would infer from the Python value."""
+        whatever python-osc would infer from the Python value. link sends
+        it down that connection rather than the one _route picks - for
+        each connection's own heartbeat."""
         log("debug", f"send_osc: {address} {args}")
 
         # So their answers are not mistaken for an ALT burst - see
@@ -1431,7 +1649,7 @@ class MixerWorker(threading.Thread):
 
         dgram = builder.build().dgram
 
-        if not self._sendto(dgram, address):
+        if not self._sendto(dgram, address, link):
             return
 
         analyzer.record(OUT, address, args, self._type_tags(dgram), dgram)
@@ -1440,7 +1658,7 @@ class MixerWorker(threading.Thread):
         if bridge is not None:
             bridge.from_clmix(dgram)
 
-    def _sendto(self, dgram, address):
+    def _sendto(self, dgram, address, link=None):
         """Put one datagram on the wire. False if it did not go.
 
         A failed send used to come out of run()'s try, which ended the
@@ -1452,9 +1670,14 @@ class MixerWorker(threading.Thread):
         difference again, and anything else here is re-sent by the next
         move of the control that sent it.
         """
+        link = link or self._route(address)
+
+        if link.send_sock is None:
+            return False
+
         for wait in self.SEND_RETRY_WAITS + (None,):
             try:
-                self.send_sock.sendto(dgram, (self.mixer_ip, self.send_port))
+                link.send_sock.sendto(dgram, (link.ip, link.send_port))
                 return True
             except OSError as ex:
                 if wait is None or ex.errno not in self.SEND_RETRY_ERRNOS:
@@ -3779,6 +4002,8 @@ class MainWindow:
 
         self._sections = []
         self._selected_section = None
+        self._section_status = None
+        self._section_states = {}
 
         self._place_sidebar_panels(0)
 
@@ -3787,31 +4012,109 @@ class MainWindow:
     SECTION_ROW_HEIGHT = 34
     SECTION_TAB_RADIUS = 6
 
+    # A group heading among the sections - shorter than a row, with a
+    # little extra space above it to set the group apart.
+    SECTION_HEADING_HEIGHT = 30
+
     # The soft shadow around the selected tab: how strongly each 1px ring
     # outward from the outline is darkened toward black, nearest first.
     # Light needs far less than dark to read as the same depth.
     SECTION_SHADOW = (0.45, 0.25, 0.1)
 
-    def _show_page_sections(self, sections):
+    def _show_page_sections(self, sections, status=None):
         """List a page's sections under its title in the Back panel.
 
+        status, if given, is called with a section's label and returns
+        "ok" (a green tick), "fail" (a red cross) or None (no badge) - for
+        sections that stand for a connection. Polled on the status tick,
+        see _poll_section_status.
+
         sections is [(label, select)] - select shows that section and is
-        handed the label. Empty for a page with none. The first section
-        is the one shown on opening.
+        handed the label. A select of None makes the entry a group
+        heading over the sections after it, not something to click.
+        Empty for a page with none. The first section is the one shown
+        on opening.
         """
         self._sections = list(sections)
         self._selected_section = None
+        self._section_status = status
+        self._section_states = self._read_section_states()
+        rows = self._section_rows()
         # Room above the first row and below the last for the shadow.
         self.sections_canvas.configure(
-            height=len(self._sections) * self.SECTION_ROW_HEIGHT
-            + 2 * self._shadow_size()
+            height=(rows[-1][1] if rows else 0) + self._shadow_size()
         )
 
-        if self._sections:
-            label, select = self._sections[0]
+        first = next(
+            ((label, select) for label, select in self._sections
+             if select is not None), None
+        )
+
+        if first is not None:
+            label, select = first
             select(label)
         else:
             self._draw_sections()
+
+    def _section_rows(self):
+        """(top, bottom, label, select) for each entry in _sections,
+        bottom exclusive - headings are shorter than sections."""
+        rows = []
+        top = self._shadow_size()
+
+        for label, select in self._sections:
+            height = (self.SECTION_ROW_HEIGHT if select is not None
+                      else self.SECTION_HEADING_HEIGHT)
+            rows.append((top, top + height, label, select))
+            top += height
+
+        return rows
+
+    def _read_section_states(self):
+        status = self._section_status
+        if status is None:
+            return {}
+        return {label: status(label) for label, select in self._sections
+                if select is not None}
+
+    def _poll_section_status(self):
+        """Redraws the section list when a badge has changed - a
+        connection made or lost while its page is open."""
+        # getattr: the status tick may start before the sidebar is built.
+        if getattr(self, "_page", None) is None or \
+                getattr(self, "_section_status", None) is None:
+            return
+
+        states = self._read_section_states()
+        if states != self._section_states:
+            self._section_states = states
+            self._draw_sections()
+
+    # Badge beside a connection's section: radius, gap from the right
+    # edge, and fill for each state.
+    SECTION_BADGE_RADIUS = 7
+    SECTION_BADGE_MARGIN = 14
+    SECTION_BADGE_COLORS = {"ok": "#2ea043", "fail": "#d73a49"}
+
+    def _draw_section_badge(self, state, right, middle):
+        """A green circle with a tick, or a red one with a cross."""
+        canvas = self.sections_canvas
+        r = self.SECTION_BADGE_RADIUS
+        x = right - self.SECTION_BADGE_MARGIN - r
+        y = middle
+
+        canvas.create_oval(x - r, y - r, x + r, y + r,
+                           fill=self.SECTION_BADGE_COLORS[state], outline="")
+
+        if state == "ok":
+            canvas.create_line(x - 3.5, y + 0.5, x - 1, y + 3, x + 4, y - 3,
+                               fill="#ffffff", width=2, capstyle="round",
+                               joinstyle="round")
+        else:
+            d = 3
+            for dx in (-d, d):
+                canvas.create_line(x - dx, y - d, x + dx, y + d,
+                                   fill="#ffffff", width=2, capstyle="round")
 
     def _mark_section(self, label):
         """Show which of the open page's sections is on screen."""
@@ -3822,13 +4125,11 @@ class MainWindow:
         return len(self.SECTION_SHADOW)
 
     def _on_section_click(self, event):
-        index = (event.y - self._shadow_size()) // self.SECTION_ROW_HEIGHT
-
-        if 0 <= index < len(self._sections):
-            label, select = self._sections[index]
-
-            if label != self._selected_section:
-                select(label)
+        for top, bottom, label, select in self._section_rows():
+            if top <= event.y < bottom:
+                if select is not None and label != self._selected_section:
+                    select(label)
+                return
 
     def _separator_color(self):
         # sv_ttk draws separators from a one-colour image rather than a
@@ -3853,15 +4154,25 @@ class MainWindow:
         background = panel_bg(canvas)
         canvas.configure(bg=background)
 
-        row = self.SECTION_ROW_HEIGHT
         shadow = self._shadow_size()
         right = canvas.winfo_width()
         font = ttk.Style().lookup("TLabel", "font") or "TkDefaultFont"
 
-        for index, (label, _select) in enumerate(self._sections):
-            top = shadow + index * row
+        for top, row_end, label, select in self._section_rows():
+            if select is None:
+                # A group heading: small, dimmed, sitting low in its row
+                # so it reads with the sections below it.
+                canvas.create_text(
+                    shadow + 8, row_end - 6, text=label.upper(),
+                    anchor="sw",
+                    fill=_blend_hex(panel_fg(canvas), background, 0.45),
+                    font=("TkDefaultFont", 8, "bold")
+                )
+                continue
+
+            row = row_end - top
             # Inset by one so the bottom edge stays inside its row.
-            bottom = top + row - 1
+            bottom = row_end - 1
 
             if label == self._selected_section:
                 # Outermost ring first, so each nearer one draws over it.
@@ -3880,6 +4191,10 @@ class MainWindow:
                 shadow + 14, top + row // 2, text=label, anchor="w",
                 fill=panel_fg(canvas), font=font
             )
+
+            state = self._section_states.get(label)
+            if state in self.SECTION_BADGE_COLORS:
+                self._draw_section_badge(state, right, top + row // 2)
 
         self._place_tab_gap()
 
@@ -3911,18 +4226,20 @@ class MainWindow:
         """Open the sidebar's separator beside the selected tab, or close
         it again. Only while the Back panel is fully in: mid-slide the tab
         is somewhere else, and the gap would be a hole in the line."""
-        index = next(
-            (i for i, (label, _) in enumerate(self._sections)
-             if label == self._selected_section), None
+        row_top = next(
+            (top for top, _bottom, label, select in self._section_rows()
+             if select is not None and label == self._selected_section),
+            None
         )
 
-        if index is None or self._page is None or self._slide_job is not None:
+        if row_top is None or self._page is None or \
+                self._slide_job is not None:
             self.tab_gap.place_forget()
             return
 
         separator = self.sidebar_separator
         top = (self.sections_canvas.winfo_rooty() - self.root.winfo_rooty()
-               + self._shadow_size() + index * self.SECTION_ROW_HEIGHT)
+               + row_top)
 
         # Between the tab's top and bottom lines, so both still meet the
         # separator and the outline reads as one continuous stroke.
@@ -4339,12 +4656,22 @@ class MainWindow:
         self.settings_sections = {
             "General": ttk.Frame(self.settings_page),
             "AUX Setup": ttk.Frame(self.settings_page),
+            "DiGiCo": ttk.Frame(self.settings_page),
             "BitFocus": ttk.Frame(self.settings_page),
-            "DiGiCo Capture": ttk.Frame(self.settings_page),
         }
 
+        # The sidebar groups these under headings - see
+        # open_settings_window. Connections are how CLMix reaches the
+        # console and the phones; Add-ins are the optional links to other
+        # gear and software, kept apart from CLMix's own settings.
+        self.settings_groups = (
+            (None, ("General", "AUX Setup")),
+            ("Connections", ("DiGiCo",)),
+            ("Add-ins", ("BitFocus",)),
+        )
+
         self.build_config_tab(self.settings_sections["General"])
-        self.build_capture_section(self.settings_sections["DiGiCo Capture"])
+        self.build_digico_section(self.settings_sections["DiGiCo"])
 
         self.access_panel = AccessPanel(
             self.accounts_page, self.user_store, lambda: self.worker,
@@ -4490,7 +4817,7 @@ class MainWindow:
                 max(height for _, height in sizes))
 
     def _open_page(self, title, frame=None, build=None, fill=True,
-                   sections=()):
+                   sections=(), section_status=None):
         """Show a page over the mixer, sliding it in from the left.
 
         Either frame - a persistent page - or build, which makes the
@@ -4500,7 +4827,8 @@ class MainWindow:
         fill=False centres the page at its natural size instead of
         stretching it over the whole area - for About, which is laid out
         as a card around its banner. sections, if any, are listed in the
-        sidebar under the title - see _show_page_sections.
+        sidebar under the title - see _show_page_sections, which also
+        takes section_status.
         """
         if self._slide_job is not None:
             return None
@@ -4527,7 +4855,7 @@ class MainWindow:
 
         self._page = (title, frame, owner)
         self.page_title_label.config(text=title)
-        self._show_page_sections(sections)
+        self._show_page_sections(sections, section_status)
 
         self.page_host.lift()
         self._slide(opening=True, sidebar=sidebar_moves)
@@ -4641,89 +4969,206 @@ class MainWindow:
         )
 
     def build_config_tab(self, parent):
+        self.startup_section = StartupSection(
+            parent, self.startup_options, self.set_startup_option
+        )
+
+        ttk.Separator(parent).pack(fill="x", padx=15)
+        self.chat_name_section = ChatNameSection(
+            parent,
+            get_config=lambda: self.settings["tech_name"],
+            set_config=self._set_tech_name_config,
+            get_snapshots=self._known_snapshot_names,
+        )
+
+        ttk.Separator(parent).pack(fill="x", padx=15)
+        self.sos_section = SosSection(
+            parent,
+            get_config=lambda: self.settings["sos"],
+            set_config=self._set_sos_config,
+            get_snapshots=self._known_snapshot_names,
+        )
+
+    def _set_tech_name_config(self, config):
+        # Swapped whole: the phone server reads it from its own thread.
+        self.settings["tech_name"] = config
+        self.save_settings()
+        self._refresh_chat_name()
+
+    def _refresh_chat_name(self):
+        """The Chat window's "Phones see your messages as" line, after
+        the name may have changed - an edit, or a snapshot recall."""
+        window = self.chat_window
+        if window is not None and window.window.winfo_exists():
+            window.update_name()
+
+    def _set_sos_config(self, config):
+        # Swapped whole: the phone server reads it from its own thread.
+        self.settings["sos"] = config
+        self.save_settings()
+
+    def _known_snapshot_names(self):
+        worker = self.worker
+        return sorted(set(worker.snapshot_names.values())) if worker else []
+
+    def build_digico_section(self, parent):
+        """Settings > Connections > DiGiCo: where the console is, the
+        ports to talk to it and the phones on, and which network card
+        each of those goes through."""
+        # On/off for the console connection - the same as the sidebar's
+        # Connect / Disconnect button, and kept in step with it by
+        # _update_connect_button.
+        heading = ttk.Frame(parent, padding=(15, 15, 15, 0))
+        heading.pack(fill="x")
+
+        ttk.Label(
+            heading, text="DiGiCo Network", font=("TkDefaultFont", 10, "bold")
+        ).pack(side="left")
+
+        self.digico_switch_var = tk.BooleanVar(value=self._session_active())
+        ttk.Checkbutton(
+            heading, style="Switch.TCheckbutton",
+            variable=self.digico_switch_var,
+            command=self._on_digico_switch,
+        ).pack(side="left", padx=(12, 0))
+
         frame = ttk.Frame(parent, padding=15)
         frame.pack(fill="x")
 
         port_vcmd = (parent.register(self._validate_port_input), "%P")
+        bold = ("TkDefaultFont", 10, "bold")
+
+        def port_entry(row, value):
+            entry = ttk.Entry(frame, width=15, validate="key",
+                              validatecommand=port_vcmd)
+            entry.insert(0, value)
+            entry.grid(row=row, column=1, padx=5, pady=5, sticky="w")
+            return entry
+
+        # --- Connection 1 ---
+
+        ttk.Label(frame, text="Connection 1", font=bold).grid(
+            row=0, column=0, columnspan=3, sticky="w"
+        )
 
         ttk.Label(frame, text="Mixer IP Address").grid(
-            row=0, column=0, sticky="w"
+            row=1, column=0, sticky="w"
         )
 
         self.ip_entry = ttk.Entry(frame, width=25)
         self.ip_entry.insert(0, self.settings["mixer_ip"])
-        self.ip_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.ip_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
 
         # Which network card to reach the console from. The entry beside
         # it is the console's own address; this is our end of that
         # conversation.
         self.mixer_nic_combo = ttk.Combobox(frame, width=26, state="readonly")
-        self.mixer_nic_combo.grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        self.mixer_nic_combo.grid(row=1, column=2, padx=5, pady=5, sticky="w")
 
-        ttk.Label(frame, text="Send Port").grid(
-            row=1, column=0, sticky="w"
-        )
+        ttk.Label(frame, text="Send Port").grid(row=2, column=0, sticky="w")
+        self.send_port_entry = port_entry(2, self.settings["send_port"])
 
-        self.send_port_entry = ttk.Entry(
-            frame,
-            width=15,
-            validate="key",
-            validatecommand=port_vcmd
-        )
-        self.send_port_entry.insert(0, self.settings["send_port"])
-        self.send_port_entry.grid(row=1, column=1, padx=5, pady=5)
+        ttk.Label(frame, text="Rec Port").grid(row=3, column=0, sticky="w")
+        self.recv_port_entry = port_entry(3, self.settings["recv_port"])
 
-        ttk.Label(frame, text="Rec Port").grid(
-            row=2, column=0, sticky="w"
-        )
+        # --- Connection 2: a second External Control device on the
+        # console, with its own pair of ports there ---
 
-        self.recv_port_entry = ttk.Entry(
-            frame,
-            width=15,
-            validate="key",
-            validatecommand=port_vcmd
+        second_heading = ttk.Frame(frame)
+        second_heading.grid(row=4, column=0, columnspan=3, sticky="w",
+                            pady=(14, 0))
+        ttk.Label(second_heading, text="Connection 2", font=bold).pack(
+            side="left"
         )
-        self.recv_port_entry.insert(0, self.settings["recv_port"])
-        self.recv_port_entry.grid(row=2, column=1, padx=5, pady=5)
+        self.mixer2_var = tk.BooleanVar(
+            value=bool(self.settings.get("mixer2_enabled"))
+        )
+        ttk.Checkbutton(
+            second_heading, style="Switch.TCheckbutton",
+            variable=self.mixer2_var, command=self._on_mixer2_toggled,
+        ).pack(side="left", padx=(12, 0))
+
+        ttk.Label(frame, text="Mixer IP Address").grid(
+            row=5, column=0, sticky="w"
+        )
+        self.ip2_entry = ttk.Entry(frame, width=25)
+        self.ip2_entry.insert(0, self.settings.get("mixer2_ip", ""))
+        self.ip2_entry.grid(row=5, column=1, padx=5, pady=5, sticky="w")
+
+        self.mixer2_nic_combo = ttk.Combobox(frame, width=26, state="readonly")
+        self.mixer2_nic_combo.grid(row=5, column=2, padx=5, pady=5,
+                                   sticky="w")
+
+        ttk.Label(frame, text="Send Port").grid(row=6, column=0, sticky="w")
+        self.send_port2_entry = port_entry(6, self.settings.get("send_port2", ""))
+
+        ttk.Label(frame, text="Rec Port").grid(row=7, column=0, sticky="w")
+        self.recv_port2_entry = port_entry(7, self.settings.get("recv_port2", ""))
+
+        ttk.Label(frame, text="Communication").grid(
+            row=8, column=0, sticky="w"
+        )
+        self.link_mode_combo = ttk.Combobox(
+            frame, width=22, state="readonly",
+            values=list(LINK_MODES.values())
+        )
+        self.link_mode_combo.set(
+            LINK_MODES.get(self.settings.get("link_mode"),
+                           LINK_MODES[LINK_FAILOVER])
+        )
+        self.link_mode_combo.grid(row=8, column=1, padx=5, pady=5, sticky="w")
+        self.link_mode_combo.bind("<<ComboboxSelected>>",
+                                  lambda event: self._on_link_mode_chosen())
+
+        self.link_mode_hint = ttk.Label(
+            frame, foreground="#888888", wraplength=420, justify="left"
+        )
+        self.link_mode_hint.grid(row=8, column=2, padx=5, sticky="w")
+
+        # Which connection is carrying traffic, while connected.
+        self.link_status_label = ttk.Label(frame, text="", wraplength=780,
+                                           justify="left")
+        self.link_status_label.grid(row=9, column=0, columnspan=3,
+                                    sticky="w", pady=(4, 0))
+        self._link_status_shown = ""
+
+        # --- The phones ---
+
+        ttk.Label(frame, text="Phones", font=bold).grid(
+            row=10, column=0, columnspan=3, sticky="w", pady=(14, 0)
+        )
 
         ttk.Label(frame, text="Remote Port").grid(
-            row=3, column=0, sticky="w"
+            row=11, column=0, sticky="w"
         )
-
-        self.remote_port_entry = ttk.Entry(
-            frame,
-            width=15,
-            validate="key",
-            validatecommand=port_vcmd
-        )
-        self.remote_port_entry.insert(0, self.settings["remote_port"])
-        self.remote_port_entry.grid(row=3, column=1, padx=5, pady=5)
+        self.remote_port_entry = port_entry(11, self.settings["remote_port"])
 
         # Which network card the phones connect to. Pinning it also pins
         # what the server advertises over mDNS, so a phone that discovers
         # it is handed an address that is actually being listened on.
         self.remote_nic_combo = ttk.Combobox(frame, width=26, state="readonly")
-        self.remote_nic_combo.grid(row=3, column=2, padx=5, pady=5, sticky="w")
+        self.remote_nic_combo.grid(row=11, column=2, padx=5, pady=5, sticky="w")
 
         ttk.Label(
             frame,
             text="Adapter chooses which network card a connection uses. "
-                 "Leave on Automatic unless this machine has more than one.",
+                 "Leave on Automatic unless this machine has more than one. "
+                 "Changes take effect the next time CLMix connects.",
             wraplength=780,
             justify="left"
-        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ).grid(row=12, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
         self._refresh_nic_choices()
+        self._update_mixer2_widgets()
 
-        ttk.Separator(parent).pack(fill="x", padx=15, pady=(0, 4))
-        self.startup_section = StartupSection(
-            parent, self.startup_options, self.set_startup_option
-        )
+        # App Capture below the connection it stands in for - it uses
+        # these same ports and the Remote adapter's network.
+        ttk.Separator(parent).pack(fill="x", padx=15)
+        self.build_capture_section(parent)
 
     def build_capture_section(self, parent):
-        """DiGiCo App Capture, a Settings tab of its own - it changes
-        what this machine pretends to be, which is a different kind of
-        setting from where the console is."""
+        """DiGiCo App Capture, in Settings > Connections > DiGiCo below
+        the console's own connection settings."""
         frame = ttk.Frame(parent, padding=15)
         frame.pack(fill="both", expand=True)
 
@@ -4754,7 +5199,7 @@ class MainWindow:
             text="Stands in for the console so the official DiGiCo app can "
                  "connect to this computer instead. Everything is passed "
                  "through unchanged in both directions and recorded to a "
-                 "capture file. Set the app to the same ports as in General; it "
+                 "capture file. Set the app to the same ports as above; it "
                  "finds this computer on the Server adapter's network. "
                  "While on, CLMix works only as this bridge: its own "
                  "controls, meters and phone connections are locked.",
@@ -4947,6 +5392,7 @@ class MainWindow:
 
         for combo, setting in (
             (self.mixer_nic_combo, "mixer_bind_ip"),
+            (self.mixer2_nic_combo, "mixer2_bind_ip"),
             (self.remote_nic_combo, "remote_bind_ip"),
         ):
             current = combo.get()
@@ -4986,11 +5432,64 @@ class MainWindow:
         return label.split(" ", 1)[0]
 
     def open_settings_window(self):
-        self._open_page(
-            "Settings", frame=self.settings_page,
-            sections=[(name, self._show_settings_section)
-                      for name in self.settings_sections]
-        )
+        sections = []
+
+        for heading, names in self.settings_groups:
+            if heading is not None:
+                sections.append((heading, None))
+            sections.extend((name, self._show_settings_section)
+                            for name in names)
+
+        self._open_page("Settings", frame=self.settings_page,
+                        sections=sections,
+                        section_status=self._settings_section_status)
+
+    def _settings_section_status(self, name):
+        """The badge beside a Connections or Add-ins section - see
+        _show_page_sections."""
+        if name == "DiGiCo":
+            return self._digico_link_state()
+        if name == "BitFocus":
+            return self._companion_link_state()
+        return None
+
+    def _digico_link_state(self):
+        """"ok" while connected to the console, "fail" while a dropped or
+        failed connection is being retried. None otherwise: disconnected
+        on purpose, or still connecting."""
+        if self._status_phase == "ready":
+            # With two connections, one not answering is a failure to
+            # see to even while the other keeps the session up.
+            worker = self.worker
+            if worker is not None and any(
+                    state != "active" and state != "standby"
+                    for _name, state in worker.link_status()):
+                return "fail"
+            return "ok"
+        if self._status_phase == "reconnecting":
+            return "fail"
+        if self._status_phase == "idle" and self._failure_reason \
+                and not self._user_disconnected:
+            return "fail"
+        return None
+
+    def _companion_link_state(self):
+        """"ok" while Companion is talking to the bridge, "fail" if the
+        bridge could not start or Companion has gone quiet. None while it
+        is off, or on but not yet heard from."""
+        if not (self.settings.get("companion") or {}).get("enabled"):
+            return None
+        if self._companion_error:
+            return "fail"
+
+        bridge = self.companion_bridge
+        if bridge is None:
+            return None
+
+        heard = bridge.seconds_since_heard()
+        if heard is None:
+            return None
+        return "ok" if heard <= COMPANION_TIMEOUT_SECONDS else "fail"
 
     def _show_settings_section(self, name):
         if name == "General":
@@ -5043,6 +5542,14 @@ class MainWindow:
             # Empty means "any adapter" - see MainWindow._refresh_nic_choices.
             "mixer_bind_ip": "",
             "remote_bind_ip": "",
+            # A second connection to the console - see MixerLink - and
+            # how the two share the traffic (LINK_MODES).
+            "mixer2_enabled": False,
+            "mixer2_ip": "",
+            "send_port2": "",
+            "recv_port2": "",
+            "mixer2_bind_ip": "",
+            "link_mode": LINK_FAILOVER,
             "hidden_auxes": [],
             "backup_dir": None,
             "digico_capture": False,
@@ -5062,6 +5569,11 @@ class MainWindow:
             # Bitfocus Companion bridge - see services/companion_bridge.py
             # for the keys, which normalize_settings fills in.
             "companion": normalize_settings(None),
+            # The SOS button's choices - see services/sos_options.py.
+            "sos": sos_options.default_config(),
+            # The name the desktop chats under, per snapshot - see
+            # services/chat_log.py's normalize_tech_names.
+            "tech_name": normalize_tech_names(None),
         }
 
         try:
@@ -5070,6 +5582,8 @@ class MainWindow:
         except (OSError, json.JSONDecodeError):
             pass
 
+        defaults["sos"] = sos_options.normalize(defaults.get("sos"))
+        defaults["tech_name"] = normalize_tech_names(defaults.get("tech_name"))
         return defaults
 
     def save_settings(self):
@@ -5158,8 +5672,87 @@ class MainWindow:
                 or self._reconnect_job is not None
                 or self._status_phase in self.BUSY_PHASES)
 
+    LINK_MODE_HINTS = {
+        LINK_FAILOVER: "Connection 1 carries everything; Connection 2 takes "
+                       "over while 1 is not answering.",
+        LINK_BALANCED: "Both carry traffic, shared out by control. If one "
+                       "stops answering, the other carries it all.",
+    }
+
+    def _selected_link_mode(self):
+        label = self.link_mode_combo.get()
+        return next((mode for mode, name in LINK_MODES.items()
+                     if name == label), LINK_FAILOVER)
+
+    def _on_mixer2_toggled(self):
+        on = bool(self.mixer2_var.get())
+
+        self.settings["mixer2_enabled"] = on
+        self.save_settings()
+        # First: a disabled entry ignores the insert below.
+        self._update_mixer2_widgets()
+
+        # A second device on the same console is usually at the same
+        # address - only its ports differ - so start it there.
+        if on and not self.ip2_entry.get().strip():
+            self.ip2_entry.insert(0, self.ip_entry.get().strip())
+
+    def _on_link_mode_chosen(self):
+        self.settings["link_mode"] = self._selected_link_mode()
+        self.save_settings()
+        self._update_mixer2_widgets()
+
+    def _update_mixer2_widgets(self):
+        """Connection 2's fields and the Communication choice only mean
+        anything while Connection 2 is switched on."""
+        on = bool(self.mixer2_var.get())
+
+        for widget in (self.ip2_entry, self.send_port2_entry,
+                       self.recv_port2_entry):
+            widget.state(["!disabled"] if on else ["disabled"])
+
+        for combo in (self.mixer2_nic_combo, self.link_mode_combo):
+            combo.state(["!disabled", "readonly"] if on
+                        else ["disabled"])
+
+        self.link_mode_hint.configure(
+            text=self.LINK_MODE_HINTS[self._selected_link_mode()] if on
+            else "Switch Connection 2 on to share or back up Connection 1."
+        )
+
+    def _refresh_link_status(self):
+        """The DiGiCo tab's line saying what each connection is doing,
+        while there is more than one."""
+        worker = self.worker
+        text = ""
+
+        if worker is not None and worker.is_alive() and len(worker.links) > 1:
+            text = "   ".join(f"{name}: {state}"
+                               for name, state in worker.link_status())
+
+        if text != self._link_status_shown:
+            self._link_status_shown = text
+            self.link_status_label.configure(text=text)
+
+    def _on_digico_switch(self):
+        """The DiGiCo tab's switch: connect with the settings beneath it,
+        or disconnect - as the sidebar's button does."""
+        if self.digico_switch_var.get():
+            if not self._session_active():
+                self.connect()
+        elif self._session_active():
+            self.disconnect()
+
+        # connect() can refuse (a bad address or port) without changing
+        # phase, which would leave the switch on with nothing running.
+        self._update_connect_button()
+
     def _update_connect_button(self):
         active = self._session_active()
+
+        switch = getattr(self, "digico_switch_var", None)
+        if switch is not None and switch.get() != active:
+            switch.set(active)
         # Accent only while it offers to connect - the one action the
         # sidebar is there to invite. Disconnect shouldn't shout.
         self.connect_btn.config(
@@ -5220,6 +5813,10 @@ class MainWindow:
             self.indicator.itemconfig(self.light, state="normal", fill=color)
 
     def _tick_status(self):
+        self._poll_section_status()
+        if getattr(self, "link_status_label", None) is not None:
+            self._refresh_link_status()
+
         if self._status_phase in self.BUSY_PHASES:
             self._spinner_angle = \
                 (self._spinner_angle + self.SPINNER_STEP_DEGREES) % 360
@@ -5300,12 +5897,42 @@ class MainWindow:
         mixer_bind_ip = self._selected_nic_ip(self.mixer_nic_combo)
         remote_bind_ip = self._selected_nic_ip(self.remote_nic_combo)
 
+        mixer2_enabled = bool(self.mixer2_var.get())
+        mixer2_ip = self.ip2_entry.get().strip()
+        send_port2 = self.send_port2_entry.get().strip()
+        recv_port2 = self.recv_port2_entry.get().strip()
+        mixer2_bind_ip = self._selected_nic_ip(self.mixer2_nic_combo)
+        link_mode = self._selected_link_mode()
+
+        if mixer2_enabled:
+            problem = None
+
+            if not self._is_valid_ip(mixer2_ip):
+                problem = "Invalid Connection 2 IP"
+            elif not self._is_valid_port(send_port2):
+                problem = "Invalid Connection 2 send port"
+            elif not self._is_valid_port(recv_port2):
+                problem = "Invalid Connection 2 receive port"
+            elif int(recv_port2) == int(recv_port) and not (
+                    mixer_bind_ip and mixer2_bind_ip
+                    and mixer_bind_ip != mixer2_bind_ip):
+                # Both would listen on the same port of the same adapter.
+                problem = "Connection 2 needs its own Rec Port"
+
+            if problem:
+                log("error", problem)
+                self.status_label.config(text=problem)
+                return
+
         # Checked before anything is started: binding to an address the
         # machine no longer has fails deep inside the worker thread as a
         # bare OS error, which says nothing about which dropdown caused it.
         available = {ip for _, ip in list_ipv4_interfaces()}
 
-        for address, name in ((mixer_bind_ip, "Mixer"), (remote_bind_ip, "Server")):
+        for address, name in ((mixer_bind_ip, "Mixer"),
+                              (mixer2_bind_ip if mixer2_enabled else "",
+                               "Connection 2"),
+                              (remote_bind_ip, "Server")):
             if address and address not in available:
                 log("error", f"{name} adapter {address} is not available")
                 self.status_label.config(text=f"{name} adapter unavailable")
@@ -5318,6 +5945,12 @@ class MainWindow:
             "remote_port": remote_port,
             "mixer_bind_ip": mixer_bind_ip,
             "remote_bind_ip": remote_bind_ip,
+            "mixer2_enabled": mixer2_enabled,
+            "mixer2_ip": mixer2_ip,
+            "send_port2": send_port2,
+            "recv_port2": recv_port2,
+            "mixer2_bind_ip": mixer2_bind_ip,
+            "link_mode": link_mode,
         })
         self.save_settings()
 
@@ -5340,7 +5973,11 @@ class MainWindow:
             int(recv_port),
             self.command_queue,
             self.message_queue,
-            bind_ip=mixer_bind_ip
+            bind_ip=mixer_bind_ip,
+            second_link=(
+                mixer2_ip, int(send_port2), int(recv_port2), mixer2_bind_ip
+            ) if mixer2_enabled else None,
+            link_mode=link_mode,
         )
 
         if self.settings.get("digico_capture"):
@@ -5362,6 +5999,10 @@ class MainWindow:
             # From the server's thread; shown from process_messages.
             on_sos=lambda sos: self.message_queue.put(("sos", sos)),
             chat_log=self.chat_log,
+            # .get: reload_settings empties the dict for a moment.
+            get_sos_config=lambda: self.settings.get("sos")
+            or sos_options.default_config(),
+            get_tech_name=self.tech_name,
         )
 
         if self.settings.get("digico_capture") and \
@@ -5485,14 +6126,25 @@ class MainWindow:
 
         self.chat_window = ChatWindow(
             self.root, self.chat_log, on_send=self.send_tech_chat,
-            on_closed=closed,
+            on_closed=closed, get_name=self.tech_name,
         )
         self._refresh_chat()
+
+    def tech_name(self):
+        """The name the desktop chats under on the live snapshot. Read
+        from the phone server's thread too, hence .get: reload_settings
+        empties the dict for a moment."""
+        worker = self.worker
+        snapshot = worker.snapshot_name if worker is not None else None
+        return tech_name_for(
+            self.settings.get("tech_name") or normalize_tech_names(None),
+            snapshot
+        )
 
     def send_tech_chat(self, text):
         """The operator's message: kept, and sent to every phone if the
         server is up."""
-        message = self.chat_log.add(KIND_TECH, text)
+        message = self.chat_log.add(KIND_TECH, text, name=self.tech_name())
 
         if self.remote_server is not None:
             self.remote_server.send_tech_chat(message)
@@ -5698,11 +6350,25 @@ class MainWindow:
         self.remote_port_entry.delete(0, tk.END)
         self.remote_port_entry.insert(0, self.settings["remote_port"])
 
+        for entry, key in ((self.ip2_entry, "mixer2_ip"),
+                           (self.send_port2_entry, "send_port2"),
+                           (self.recv_port2_entry, "recv_port2")):
+            entry.state(["!disabled"])
+            entry.delete(0, tk.END)
+            entry.insert(0, self.settings.get(key, ""))
+        self.mixer2_var.set(bool(self.settings.get("mixer2_enabled")))
+        self.link_mode_combo.set(
+            LINK_MODES.get(self.settings.get("link_mode"),
+                           LINK_MODES[LINK_FAILOVER])
+        )
+
         # Cleared first so the restored settings win over whatever the
         # dropdowns happen to be showing.
         self.mixer_nic_combo.set("")
+        self.mixer2_nic_combo.set("")
         self.remote_nic_combo.set("")
         self._refresh_nic_choices()
+        self._update_mixer2_widgets()
 
         # The Aux tab picks up the restored hidden_auxes via the rebuild
         # this performs.
@@ -5727,6 +6393,10 @@ class MainWindow:
 
         self.companion_panel.reload()
         self._apply_companion(restart=True)
+
+        self.sos_section.refresh()
+        self.chat_name_section.refresh()
+        self._refresh_chat_name()
 
     def _apply_companion(self, restart=False):
         """Start, reconfigure or stop the Companion bridge to match
@@ -6026,6 +6696,7 @@ class MainWindow:
             elif msg_type == "snapshot":
                 number, name = value
                 self._set_snapshot_text(f"Snapshot: {name or f'#{number}'}")
+                self._refresh_chat_name()
 
             elif msg_type == "message":
                 log("debug", value)

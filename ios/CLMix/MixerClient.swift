@@ -45,6 +45,10 @@ protocol MixerClientDelegate: AnyObject {
     func mixerDidReceiveSync(_ syncing: Bool)
     /// The server passed this phone's SOS on to the sound engineer.
     func mixerDidSendSos()
+    /// The SOS card's choices - at login, then whenever they change (a
+    /// snapshot with its own list, or an edit on the desktop). Nil from a
+    /// desktop too old to send any, which keeps the built-in three.
+    func mixerDidReceiveSosOptions(_ options: [SosOption]?)
     /// The SOS did not go - `message` is the server's reason.
     func mixerDidFailSos(message: String)
     /// The shared chat so far, oldest first.
@@ -112,8 +116,8 @@ protocol MixerBackend: AnyObject {
     func setPersonalName(channel: Int, name: String)
     func requestCustomBanks()
     func saveCustomBanks(_ banks: [CustomBank])
-    /// An SOS to the sound engineer; `reason` is one of the server's
-    /// SOS_REASONS keys. See SosButton.
+    /// An SOS to the sound engineer; `reason` is the id of one of the
+    /// options the server sent. See SosButton.
     func sendSos(reason: String)
     /// The shared chat - answered with the history. See ChatView.
     func requestChatHistory()
@@ -690,6 +694,10 @@ final class MixerClient: NSObject, MixerBackend {
                         ? AccountProfile(json: json) : nil
                     delegate?.mixerDidReceiveProfile(profile)
                     if profile != nil { requestProfile() }
+                    delegate?.mixerDidReceiveSosOptions(
+                        (json["sos_options"] as? [[String: Any]])?
+                            .compactMap(SosOption.init(json:))
+                    )
                 }
                 delegate?.mixerDidReceiveLoginResult(
                     ok: ok, message: json["message"] as? String, token: token
@@ -861,6 +869,10 @@ final class MixerClient: NSObject, MixerBackend {
 
             case "sos_sent":
                 delegate?.mixerDidSendSos()
+
+            case "sos_options":
+                let entries = json["options"] as? [[String: Any]] ?? []
+                delegate?.mixerDidReceiveSosOptions(entries.compactMap(SosOption.init(json:)))
 
             case "chat_history":
                 let entries = json["messages"] as? [[String: Any]] ?? []

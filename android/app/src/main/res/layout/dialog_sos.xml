@@ -21,20 +21,31 @@
         android:textSize="20sp"
         android:textStyle="bold" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/sos_dead_battery"
-        style="@style/SosOption"
-        android:text="DEAD BATTERY" />
+    <!-- One item_sos_option per message the server offers - filled in
+         by Sos.showOptions. Weighted so a list too long for the screen
+         (landscape, or a long custom list) shrinks and scrolls rather
+         than pushing CANCEL off the bottom. -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/sos_aux_not_working"
-        style="@style/SosOption"
-        android:text="AUX NOT WORKING" />
+        <LinearLayout
+            android:id="@+id/sos_options"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/sos_need_assistance"
-        style="@style/SosOption"
-        android:text="NEED ASSISTANCE" />
+    <TextView
+        android:id="@+id/sos_none"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:gravity="center"
+        android:text="No SOS messages are set up on the computer."
+        android:textColor="@color/on_surface"
+        android:visibility="gone" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/sos_cancel"

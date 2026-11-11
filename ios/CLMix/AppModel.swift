@@ -33,6 +33,9 @@ final class AppModel: NSObject, ObservableObject {
     /// The SOS options card is up over the mixer screen - SosButton opens
     /// it, SosOptions draws it.
     @Published var sosOptionsShown = false
+    /// What the SOS card offers - the server's list, see
+    /// mixerDidReceiveSosOptions.
+    @Published var sosOptions: [SosOption] = SosOption.builtIn
     /// The shared chat, oldest first - see ChatView. Kept while the chat
     /// is closed so it opens with what was said meanwhile.
     @Published var chatMessages: [ChatMessage] = []
@@ -1026,8 +1029,14 @@ extension AppModel: MixerClientDelegate {
         // Chat closed: the sound engineer's words still reach the
         // performer.
         if message.isTech && !chatOpen {
-            flashNotice("Sound Tech: \(message.text)")
+            // Under the name the desktop chats as, which it can change.
+            let name = message.name.isEmpty ? "Sound Tech" : message.name
+            flashNotice("\(name): \(message.text)")
         }
+    }
+
+    func mixerDidReceiveSosOptions(_ options: [SosOption]?) {
+        sosOptions = options ?? SosOption.builtIn
     }
 
     func mixerDidSendSos() {

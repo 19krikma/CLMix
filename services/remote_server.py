@@ -11,6 +11,7 @@ from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from services.chat_log import KIND_SOS, KIND_USER, TECH_NAME, clean_text
+from services import sos_options
 from services.log_store import log
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
@@ -167,14 +168,6 @@ PROFILE_ACTIONS = frozenset({
 # Most accounts a phone may ask pictures of at once.
 MAX_PICTURE_REQUEST = 64
 
-# What a phone's SOS button can ask for, by the "reason" it sends, mapped
-# to what the sound engineer reads in the desktop's SOS window.
-SOS_REASONS = {
-    "dead_battery": "DEAD BATTERY",
-    "aux_not_working": "AUX NOT WORKING",
-    "need_assistance": "NEED ASSISTANCE",
-}
-
 # Advertised over mDNS/DNS-SD so phone apps can find this server on the
 # local network instead of the user typing in an IP - Android's NsdManager
 # and iOS's NWBrowser both browse for this exact service type.
@@ -243,7 +236,8 @@ class RemoteServer:
 
     def __init__(self, get_worker, command_queue, port, user_store,
                  preset_store, get_hidden_auxes=None, bind_ip=None,
-                 on_sos=None, chat_log=None):
+                 on_sos=None, chat_log=None, get_sos_config=None,
+                 get_tech_name=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
@@ -254,6 +248,15 @@ class RemoteServer:
         # Called on the event loop's thread with one dict per SOS a phone
         # sends (see _handle_sos); the desktop hands it to its own thread.
         self.on_sos = on_sos
+
+        # The SOS messages phones are offered - a normalized config as
+        # services/sos_options.py describes it. A getter, since the
+        # desktop's Settings can change it while phones are connected.
+        self.get_sos_config = get_sos_config or sos_options.default_config
+
+        # The name the desktop chats under right now - it can differ per
+        # snapshot (see services/chat_log.py's tech_name_for).
+        self.get_tech_name = get_tech_name or (lambda: TECH_NAME)
 
         # The shared chat (see services/chat_log.py), or None for a server
         # without one, which then refuses the chat actions.
@@ -1038,6 +1041,9 @@ class RemoteServer:
             "username": username,
             "display_name": self.user_store.display_name(username),
             "profile": True,
+            # The SOS button's choices for the live snapshot; updates
+            # follow as "sos_options" - see _push_sos_options.
+            "sos_options": self._sos_options_for(state),
         })
 
     async def _handle_token_login(self, websocket, state, token):
@@ -1098,6 +1104,9 @@ class RemoteServer:
             "username": username,
             "display_name": self.user_store.display_name(username),
             "profile": True,
+            # The SOS button's choices for the live snapshot; updates
+            # follow as "sos_options" - see _push_sos_options.
+            "sos_options": self._sos_options_for(state),
         })
 
     def _prune_expired_sessions(self):
@@ -1220,6 +1229,27 @@ class RemoteServer:
         key = f"/Aux_Outputs/{aux_index}/Buss_Trim/name"
         return worker.cache[key][0] if key in worker.cache else f"Aux {aux_index}"
 
+    def _sos_options_for(self, state):
+        """The SOS options this phone should be showing, noted on its
+        state as the last sent so _push_sos_options only sends changes."""
+        worker = self.get_worker()
+        snapshot = worker.snapshot_name if worker is not None else None
+        options = sos_options.options_for(self.get_sos_config(), snapshot)
+        state["sos_options"] = options
+        return options
+
+    async def _push_sos_options(self, websocket, state):
+        """Sends the SOS options again when they have changed since this
+        phone was last told - a recall onto a snapshot with its own list,
+        or an edit in the desktop's Settings."""
+        before = state.get("sos_options")
+        options = self._sos_options_for(state)
+
+        if options != before:
+            await self._send(websocket, {
+                "type": "sos_options", "options": options,
+            })
+
     async def _push_loop(self, websocket, state):
         while True:
             await asyncio.sleep(PUSH_INTERVAL_SECONDS)
@@ -1241,6 +1271,12 @@ class RemoteServer:
 
             worker = self.get_worker()
             entry = state.get("permission")
+
+            if entry is not None:
+                try:
+                    await self._push_sos_options(websocket, state)
+                except websockets.ConnectionClosed:
+                    return
 
             if not worker or not worker.is_alive() or entry is None:
                 continue
@@ -1980,9 +2016,10 @@ class RemoteServer:
         desktop, which pops up an SOS window saying what is needed and who
         is asking. Any logged-in account may send one - no permission gates
         it. The phone is told it arrived, so it can say so."""
-        reason = SOS_REASONS.get(msg.get("reason"))
+        option = sos_options.find_option(self.get_sos_config(),
+                                         msg.get("reason"))
 
-        if reason is None:
+        if option is None:
             await self._send(
                 websocket, {"type": "error", "message": "Unknown SOS reason"}
             )
@@ -2000,6 +2037,7 @@ class RemoteServer:
         else:
             where = f"Aux {state['aux']}"
 
+        reason = option["text"]
         address = getattr(websocket, "remote_address", None)
         sos = {
             "user": user,
@@ -2197,7 +2235,8 @@ class RemoteServer:
             ]
 
             if aux == tech_aux:
-                entries.insert(0, {"user": "", "name": TECH_NAME, "tech": True})
+                entries.insert(0, {"user": "", "name": self.get_tech_name(),
+                                   "tech": True})
 
             auxes.append({"index": aux, "users": entries})
 

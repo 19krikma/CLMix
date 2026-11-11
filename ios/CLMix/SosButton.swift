@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The SOS button on the AUX mixer screen, beside the menu button - in the
-/// top bar, and in the landscape sidebar. It offers DEAD BATTERY, AUX NOT
-/// WORKING, NEED ASSISTANCE or CANCEL; the first three go to the server,
+/// top bar, and in the landscape sidebar. It offers the messages the
+/// server sent (model.sosOptions) or CANCEL; a message goes to the server,
 /// which pops an SOS window up on the sound engineer's desktop saying what
 /// is needed and who asked. Mirrors Android's Sos.kt.
 struct SosButton: View {
@@ -36,13 +36,6 @@ struct SosButton: View {
 struct SosOptions: View {
     @EnvironmentObject private var model: AppModel
 
-    // Wire values, as services/remote_server.py's SOS_REASONS knows them.
-    private static let reasons = [
-        ("dead_battery", "DEAD BATTERY"),
-        ("aux_not_working", "AUX NOT WORKING"),
-        ("need_assistance", "NEED ASSISTANCE"),
-    ]
-
     var body: some View {
         ZStack {
             if model.sosOptionsShown {
@@ -68,11 +61,19 @@ struct SosOptions: View {
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 10)
 
-            ForEach(Self.reasons, id: \.0) { item in
-                option(item.1, fill: SosButton.red, text: .white) {
-                    model.sosOptionsShown = false
-                    model.sendSos(reason: item.0)
-                }
+            if model.sosOptions.isEmpty {
+                Text("No SOS messages are set up on the computer.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color.clmixOnSurface)
+                    .multilineTextAlignment(.center)
+                    .padding(.bottom, 10)
+            }
+
+            // Scrolls only when the list is too long for the screen -
+            // landscape, or a long custom list.
+            ViewThatFits(in: .vertical) {
+                optionList
+                ScrollView { optionList }
             }
 
             option("CANCEL", fill: .clmixMuteInactive, text: .clmixOnMuteInactive) {
@@ -87,6 +88,17 @@ struct SosOptions: View {
         .background(Color.clmixSurface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 24)
+    }
+
+    private var optionList: some View {
+        VStack(spacing: 10) {
+            ForEach(model.sosOptions) { item in
+                option(item.text, fill: item.fill, text: item.textColor) {
+                    model.sosOptionsShown = false
+                    model.sendSos(reason: item.id)
+                }
+            }
+        }
     }
 
     private func option(_ title: String, fill: Color, text: Color,

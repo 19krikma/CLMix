@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// `stereo` says whether the bus has a pan axis at all. A mono aux sums
 /// its sends to one leg, so send_pan does nothing on it - the console
@@ -593,4 +594,51 @@ struct BankLayer: Equatable, Identifiable {
     let number: Int
     let banks: [LayoutBank]
     var id: Int { number }
+}
+
+/// One choice on the SOS card - see SosOptions. Sent by the server in
+/// login_result and "sos_options"; set up in the desktop's Settings >
+/// General, and able to differ per snapshot (services/sos_options.py).
+struct SosOption: Identifiable, Equatable {
+    /// What the server knows it by - sent back as the SOS's "reason".
+    let id: String
+    let text: String
+    let red: Double
+    let green: Double
+    let blue: Double
+
+    init(id: String, text: String, hex: String) {
+        self.id = id
+        self.text = text
+        let value = UInt32(hex.dropFirst(), radix: 16) ?? 0xC62828
+        red = Double((value >> 16) & 0xFF) / 255
+        green = Double((value >> 8) & 0xFF) / 255
+        blue = Double(value & 0xFF) / 255
+    }
+
+    init?(json: [String: Any]) {
+        guard let id = json["id"] as? String, !id.isEmpty,
+              let text = json["text"] as? String, !text.isEmpty else { return nil }
+        let hex = json["color"] as? String ?? ""
+        let valid = hex.count == 7 && hex.hasPrefix("#")
+            && UInt32(hex.dropFirst(), radix: 16) != nil
+        self.init(id: id, text: text, hex: valid ? hex : "#C62828")
+    }
+
+    var fill: Color { Color(red: red, green: green, blue: blue) }
+
+    /// White or black, whichever reads on the fill - the same rule as the
+    /// desktop's preview (ui/sos_section.py).
+    var textColor: Color {
+        let luminance = (0.299 * red + 0.587 * green + 0.114 * blue) * 255
+        return luminance > 150 ? .black : .white
+    }
+
+    /// What a desktop from before the list could be edited offers, by
+    /// the ids it knows.
+    static let builtIn = [
+        SosOption(id: "dead_battery", text: "DEAD BATTERY", hex: "#C62828"),
+        SosOption(id: "aux_not_working", text: "AUX NOT WORKING", hex: "#C62828"),
+        SosOption(id: "need_assistance", text: "NEED ASSISTANCE", hex: "#C62828"),
+    ]
 }

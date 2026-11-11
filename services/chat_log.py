@@ -8,8 +8,12 @@ KIND_USER = "user"
 KIND_TECH = "tech"
 KIND_SOS = "sos"
 
-# The name the desktop's own messages go out under.
+# The name the desktop's own messages go out under, unless Settings >
+# General gives it another - see tech_name_for.
 TECH_NAME = "Sound Tech"
+
+# Longest name the desktop can chat under.
+MAX_TECH_NAME = 32
 
 # Longest message accepted, in characters - a chat line, not a document.
 MAX_TEXT = 500
@@ -39,13 +43,16 @@ class ChatLog:
 
     def add(self, kind, text, user=None, name=None):
         """Stores one message and returns it. `text` must already be
-        cleaned - see clean_text."""
+        cleaned - see clean_text. A desktop message without a name goes
+        out as TECH_NAME."""
         with self._lock:
+            if kind == KIND_TECH:
+                name = name or TECH_NAME
             message = {
                 "id": self._next_id,
                 "kind": kind,
                 "user": user,
-                "name": TECH_NAME if kind == KIND_TECH else (name or user or ""),
+                "name": name or user or "",
                 "text": text,
                 "time": time.time(),
             }
@@ -85,3 +92,37 @@ def clean_text(text):
         return None
 
     return text[:MAX_TEXT]
+
+
+def clean_tech_name(name):
+    """A chat name as it is stored, or None if there is nothing left."""
+    if not isinstance(name, str):
+        return None
+    name = " ".join(name.split())[:MAX_TECH_NAME]
+    return name or None
+
+
+def normalize_tech_names(raw):
+    """The desktop's chat names as settings keep them,
+
+        {"default": "Sound Tech", "snapshots": {"Sunday AM": "Pastor's Tech"}}
+
+    made safe to use: a missing or blank default is TECH_NAME, and blank
+    per-snapshot names are dropped."""
+    raw = raw if isinstance(raw, dict) else {}
+    snapshots = raw.get("snapshots")
+    return {
+        "default": clean_tech_name(raw.get("default")) or TECH_NAME,
+        "snapshots": {
+            snapshot: clean_tech_name(name)
+            for snapshot, name in (snapshots.items()
+                                   if isinstance(snapshots, dict) else ())
+            if isinstance(snapshot, str) and snapshot
+            and clean_tech_name(name)
+        },
+    }
+
+
+def tech_name_for(config, snapshot):
+    """The name the desktop chats under while snapshot is live."""
+    return config["snapshots"].get(snapshot) or config["default"]

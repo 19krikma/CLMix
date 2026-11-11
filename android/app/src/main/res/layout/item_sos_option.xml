@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One SOS choice in dialog_sos, its text and colour set by
+     Sos.showOptions from what the server sent. -->
+<com.google.android.material.button.MaterialButton xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/SosOption"
+    android:textAllCaps="false" />

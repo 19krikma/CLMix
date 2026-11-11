@@ -43,7 +43,7 @@ class StartupSection:
         # back, so redrawing state never looks like an operator flipping it.
         self._syncing = False
 
-        self.frame = ttk.Frame(parent, padding=(15, 8, 15, 15))
+        self.frame = ttk.Frame(parent, padding=15)
         self.frame.pack(fill="x")
 
         ttk.Label(
