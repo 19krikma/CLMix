@@ -61,6 +61,11 @@ class ChannelInputBottomSheet(
 ) {
     val channel: Int = initial.channel
 
+    // What this strip has on the console (StripKind): an input has the
+    // lot; an output bus has only a trim and polarity, on its Buss_Trim;
+    // a DCA or multi has nothing here but its name.
+    private val kind: StripKind = initial.kind
+
     private val dialog = BottomSheetDialog(context)
     private val binding = BottomSheetChannelInputBinding.inflate(dialog.layoutInflater)
     private val main: ChannelInputColumnBinding = binding.mainColumn
@@ -100,7 +105,7 @@ class ChannelInputBottomSheet(
     // Whether there is a main input at all: the console reports its gain
     // only when there is one, the same rule the server applies to alt
     // (_alt_available in remote_server.py).
-    private var mainAvailable = initial.gain != null
+    private var mainAvailable = initial.gain != null || !initial.kind.hasInputStage
 
     // One per gain/trim box: commits it if it is mid-edit. Run when the
     // sheet closes, since a dismissed dialog does not reliably move focus.
@@ -128,8 +133,9 @@ class ChannelInputBottomSheet(
             }
         }
 
-        binding.inputChannelNumber.text = "Channel $channel"
+        binding.inputChannelNumber.text = initial.title
         setUpNameBox()
+        applyKind()
 
         main.sourceButton.text = "Main"
         alt.sourceButton.text = "ALT"
@@ -176,6 +182,28 @@ class ChannelInputBottomSheet(
         applyPhantom(alt.phantomButton, altPhantom.shown)
         applyPhase()
         applySource()
+    }
+
+    /**
+     * Drops whatever this strip does not have. A bus keeps its Main
+     * column for the trim dial alone - there is no head amp, 48V or ALT
+     * to show beside it - and a DCA keeps only the name.
+     */
+    private fun applyKind() {
+        if (kind.hasInputStage) return
+
+        binding.altColumn.root.visibility = android.view.View.GONE
+        main.sourceButton.visibility = android.view.View.GONE
+        main.phantomButton.visibility = android.view.View.GONE
+        (main.gainDial.parent as? android.view.View)?.visibility = android.view.View.GONE
+
+        if (!kind.hasTrim) {
+            binding.phaseButton.visibility = android.view.View.GONE
+            (binding.inputMeter.parent as? android.view.View)?.visibility =
+                android.view.View.GONE
+        }
+
+        if (!kind.hasMeter) binding.inputMeter.visibility = android.view.View.GONE
     }
 
     private fun setUpDial(
@@ -380,7 +408,7 @@ class ChannelInputBottomSheet(
 
         if (altIn.reconcile(state.altIn, TOGGLE_CONFIRM_MS)) applySource()
 
-        val mainNow = state.gain != null
+        val mainNow = state.gain != null || !kind.hasInputStage
         if (state.altAvailable != altAvailable || mainNow != mainAvailable) {
             altAvailable = state.altAvailable
             mainAvailable = mainNow

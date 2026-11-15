@@ -22,7 +22,15 @@ enum EqResponse {
     static let lowBand = EqRange.bandCount
 
     /// Low to high, the order the screen lays the bands out in.
-    static let bandsLowToHigh = Array((1...EqRange.bandCount).reversed())
+    static let bandsLowToHigh = bandsLowToHigh(EqRange.bandCount)
+
+    /// The same for an EQ of `count` bands: an output bus keeps 1 at the
+    /// top and 4 at the bottom and puts 5...8 between 3 and 2, highest
+    /// first - the way a reset bus seeds them. Mirrors Android.
+    static func bandsLowToHigh(_ count: Int) -> [Int] {
+        if count <= EqRange.bandCount { return Array((1...max(count, 1)).reversed()) }
+        return [4, 3] + Array((EqRange.bandCount + 1...count).reversed()) + [2, 1]
+    }
 
     static func label(_ band: Int) -> String {
         switch band {

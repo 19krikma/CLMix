@@ -22,6 +22,9 @@ import kotlin.math.pow
 
 private const val EXTRA_CHANNEL = "channel"
 private const val EXTRA_NAME = "name"
+private const val EXTRA_TITLE = "title"
+private const val EXTRA_BANDS = "bands"
+private const val EXTRA_FILTERS = "filters"
 private const val STATE_SELECTED = "selected"
 
 /**
@@ -64,10 +67,20 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
     private var flushScheduled = false
     private val flushRunnable = Runnable { flushWrites() }
 
-    private val targets: List<EqTarget> =
-        listOf<EqTarget>(EqTarget.LoFilter) +
-            EqResponse.bandsLowToHigh.map { EqTarget.Band(it) } +
-            EqTarget.HiFilter
+    // The strip's EQ shape, from the strip that opened this: four bands
+    // and two filters on an input, eight bands and none on an output bus.
+    private var bandCount = EQ_BAND_COUNT
+    private var hasFilters = true
+
+    private val targets: List<EqTarget> by lazy {
+        val bands = EqResponse.bandsLowToHigh(bandCount).map { EqTarget.Band(it) }
+
+        if (hasFilters) {
+            listOf<EqTarget>(EqTarget.LoFilter) + bands + EqTarget.HiFilter
+        } else {
+            bands
+        }
+    }
 
     private val chips = mutableMapOf<EqTarget, MaterialButton>()
 
@@ -78,13 +91,20 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
         enterFullScreen()
 
         channel = intent.getIntExtra(EXTRA_CHANNEL, 0)
-        eq = ChannelEq(channel)
+        bandCount = intent.getIntExtra(EXTRA_BANDS, EQ_BAND_COUNT)
+            .coerceIn(1, EQ_BUS_BAND_COUNT)
+        hasFilters = intent.getBooleanExtra(EXTRA_FILTERS, true)
+        eq = ChannelEq(
+            channel,
+            bands = (1..bandCount).map { EqBand(it) },
+            hasFilters = hasFilters
+        )
 
-        savedInstanceState?.getString(STATE_SELECTED)?.let { decodeTarget(it) }?.let {
-            selected = it
-        }
+        savedInstanceState?.getString(STATE_SELECTED)?.let { decodeTarget(it) }
+            ?.takeIf { it in targets }
+            ?.let { selected = it }
 
-        binding.channelNumber.text = channel.toString()
+        binding.channelNumber.text = intent.getStringExtra(EXTRA_TITLE) ?: channel.toString()
         binding.channelName.text = intent.getStringExtra(EXTRA_NAME) ?: "Ch $channel"
 
         binding.backButton.setOnClickListener { finish() }
@@ -325,7 +345,10 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
         eq = ChannelEq(
             channel = channel,
             eqIn = if (isHeld(KEY_EQ_IN, now)) eq.eqIn else incoming.eqIn,
-            bands = bands,
+            // Never fewer than the strip has: a frame from an older
+            // server carries four bands, and the rest keep what they had.
+            bands = bands + eq.bands.drop(bands.size),
+            hasFilters = hasFilters,
             loFilter = EqFilter(
                 isIn = if (isHeld(KEY_LO_IN, now)) eq.loFilter.isIn else incoming.loFilter.isIn,
                 freq = if (isHeld(KEY_LO_FREQ, now)) eq.loFilter.freq else incoming.loFilter.freq
@@ -480,6 +503,9 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
                 Intent(context, EqActivity::class.java)
                     .putExtra(EXTRA_CHANNEL, channel.channel)
                     .putExtra(EXTRA_NAME, channel.name)
+                    .putExtra(EXTRA_TITLE, channel.numberLabel)
+                    .putExtra(EXTRA_BANDS, channel.eqBands)
+                    .putExtra(EXTRA_FILTERS, channel.eqFilters)
             )
         }
 
@@ -501,7 +527,7 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
             text == "lo" -> EqTarget.LoFilter
             text == "hi" -> EqTarget.HiFilter
             text.startsWith("band:") -> text.removePrefix("band:").toIntOrNull()
-                ?.takeIf { it in 1..EQ_BAND_COUNT }
+                ?.takeIf { it in 1..EQ_BUS_BAND_COUNT }
                 ?.let { EqTarget.Band(it) }
             else -> null
         }

@@ -511,7 +511,15 @@ final class AppModel: NSObject, ObservableObject {
         guard isMixerMode else { return }
         eqHeldUntil = [:]
         pendingEqWrites = [:]
-        eq = ChannelEq(channel: channel)
+        // The strip's EQ shape: eight bands and no filters on an output
+        // bus, four and both filters on an input.
+        let strip = channels.first { $0.channel == channel }
+        let bandCount = min(max(strip?.eqBands ?? EqRange.bandCount, 1), EqRange.busBandCount)
+        eq = ChannelEq(
+            channel: channel,
+            bands: (1...bandCount).map { EqBand(band: $0) },
+            hasFilters: strip?.eqFilters ?? true
+        )
         eqChannel = channel
         backend.selectEq(channel)
     }
@@ -1510,6 +1518,12 @@ extension AppModel: MixerClientDelegate {
 
         var merged = incoming
         merged.eqIn = held(EqKey.eqIn) ? local.eqIn : incoming.eqIn
+        // Never fewer bands than the strip has - an older server's frame
+        // carries four - nor filters it does not have.
+        if merged.bands.count < local.bands.count {
+            merged.bands += local.bands.dropFirst(merged.bands.count)
+        }
+        merged.hasFilters = local.hasFilters
 
         for index in merged.bands.indices {
             let n = merged.bands[index].band

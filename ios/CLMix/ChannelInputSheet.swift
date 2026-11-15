@@ -115,7 +115,7 @@ struct ChannelInputSheet: View {
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, 18)
 
-                Text("Channel \(channel.channel)")
+                Text(channel.title)
                     .font(.system(size: 13))
                     .foregroundStyle(Color.clmixOnSurfaceVariant)
                     .frame(maxWidth: .infinity)
@@ -129,18 +129,28 @@ struct ChannelInputSheet: View {
                 // the foot of the dials, so it reads the signal those
                 // dials are setting without rising past the polarity
                 // button. Mirrors Android's input_meter.
-                HStack(alignment: .top, spacing: 14) {
-                    HStack(alignment: .top, spacing: 16) {
-                        mainColumn
-                        altColumn
-                    }
+                //
+                // Only an input has the two slots. An output bus has just
+                // its trim (Buss_Trim), and a DCA or multi has nothing
+                // here but its name - see StripKind.
+                if channel.kind.hasTrim {
+                    HStack(alignment: .top, spacing: 14) {
+                        if channel.kind.hasInputStage {
+                            HStack(alignment: .top, spacing: 16) {
+                                mainColumn
+                                altColumn
+                            }
+                        } else {
+                            busTrimColumn
+                        }
 
-                    ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
-                        .frame(width: 10)
-                        .frame(maxHeight: .infinity)
-                        .allowsHitTesting(false)
+                        ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                            .frame(width: 10)
+                            .frame(maxHeight: .infinity)
+                            .allowsHitTesting(false)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 24)
             .padding(.top, 10)
@@ -201,8 +211,27 @@ struct ChannelInputSheet: View {
                     }
                 }
 
-            phaseButton
+            if channel.kind.hasTrim {
+                phaseButton
+            }
         }
+    }
+
+    /// An output bus's trim on its own - no head amp, 48V or ALT.
+    private var busTrimColumn: some View {
+        dialRow(
+            label: "Trim",
+            value: trimShown,
+            range: trimRange,
+            enabled: true,
+            onChanged: { value, force in
+                trimShown = value
+                throttle(value, force, touched: &trimTouchedAt, sent: &trimSentAt) {
+                    onTrimChanged(channel.channel, $0)
+                }
+            }
+        )
+        .frame(maxWidth: .infinity)
     }
 
     /// Polarity - the button fills with the app's accent when inverted

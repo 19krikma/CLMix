@@ -95,7 +95,7 @@ struct DynamicsView: View {
             }
             .accessibilityLabel("Back to the mixer")
 
-            Text("\(dyn.channel)")
+            Text(model.channels.first { $0.channel == dyn.channel }?.numberLabel ?? "\(dyn.channel)")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.clmixOnSurfaceVariant)
 

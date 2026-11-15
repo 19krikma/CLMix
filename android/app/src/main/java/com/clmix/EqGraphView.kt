@@ -218,9 +218,19 @@ class EqGraphView @JvmOverloads constructor(
         }
     }
 
-    private fun allTargets(): List<EqTarget> =
-        listOf(EqTarget.LoFilter, EqTarget.HiFilter) +
-            EqResponse.bandsLowToHigh.map { EqTarget.Band(it) }
+    // A bus's EQ has no filters, so there is nothing of theirs to draw
+    // or grab - see ChannelEq.hasFilters.
+    private fun allTargets(): List<EqTarget> {
+        val eq = eq
+        val filters = if (eq == null || eq.hasFilters) {
+            listOf(EqTarget.LoFilter, EqTarget.HiFilter)
+        } else {
+            emptyList()
+        }
+
+        return filters +
+            EqResponse.bandsLowToHigh(eq?.bandCount ?: EQ_BAND_COUNT).map { EqTarget.Band(it) }
+    }
 
     // MARK: - Drawing
 
@@ -462,6 +472,11 @@ fun eqTargetColor(context: Context, target: EqTarget): Int = ContextCompat.getCo
             4 -> R.color.eq_band_lf
             3 -> R.color.eq_band_lmf
             2 -> R.color.eq_band_hmf
+            // An output bus's extra mids (EQ_BUS_BAND_COUNT).
+            5 -> R.color.eq_band_5
+            6 -> R.color.eq_band_6
+            7 -> R.color.eq_band_7
+            8 -> R.color.eq_band_8
             else -> R.color.eq_band_hf
         }
         EqTarget.LoFilter, EqTarget.HiFilter -> R.color.eq_filter

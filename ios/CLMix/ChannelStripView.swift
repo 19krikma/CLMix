@@ -104,6 +104,9 @@ struct ChannelStripView: View, Equatable {
             // opens it full size. Between the name and the fader, so the
             // fader gives up the height rather than the buttons along the
             // bottom moving.
+            // A DCA or multi has no EQ or dynamics (StripKind): the
+            // buttons are hidden but keep their space, so faders in a
+            // mixed bank stay lined up.
             if let onOpenEq {
                 Button { onOpenEq(channel) } label: {
                     EqThumbView(eq: channel.eq)
@@ -113,6 +116,8 @@ struct ChannelStripView: View, Equatable {
                 .buttonStyle(.plain)
                 .accessibilityLabel("EQ")
                 .padding(.bottom, 6)
+                .opacity(channel.kind.hasProcessing ? 1 : 0)
+                .disabled(!channel.kind.hasProcessing)
             }
 
             // The channel's dynamics in miniature: the compressor's curve
@@ -128,6 +133,8 @@ struct ChannelStripView: View, Equatable {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Compressor")
                 .padding(.bottom, 4)
+                .opacity(channel.kind.hasProcessing ? 1 : 0)
+                .disabled(!channel.kind.hasProcessing)
 
                 Button { onOpenDynamics(channel, false) } label: {
                     DynThumbView(comp: false, section: channel.dynamics?.gate)
@@ -137,6 +144,8 @@ struct ChannelStripView: View, Equatable {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Gate")
                 .padding(.bottom, 6)
+                .opacity(channel.kind.hasProcessing ? 1 : 0)
+                .disabled(!channel.kind.hasProcessing)
             }
 
             faderRow
@@ -251,7 +260,7 @@ struct ChannelStripView: View, Equatable {
         HStack(alignment: .top, spacing: 3) {
             VStack(spacing: 0) {
                 if showChannelNumber {
-                    Text("\(channel.channel)")
+                    Text(channel.numberLabel)
                         .font(.system(size: 11))
                         .foregroundStyle(Color.clmixOnSurfaceVariant)
                         .lineLimit(1)
@@ -279,6 +288,7 @@ struct ChannelStripView: View, Equatable {
                     .frame(maxHeight: .infinity)
                     .padding(.top, 4)
                     .allowsHitTesting(false)
+                    .opacity(channel.kind.hasMeter ? 1 : 0)
             }
         }
         .fixedSize(horizontal: false, vertical: true)

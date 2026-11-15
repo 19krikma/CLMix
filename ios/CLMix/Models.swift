@@ -34,6 +34,46 @@ enum HeadAmpRange {
     static let trim = -40.0...40.0
 }
 
+/// What sort of strip a Full Mixer Control fader is - an input channel,
+/// an output-bus master (aux, group, matrix), or a DCA / multi, each with
+/// a different set of controls on the console. See services/strips.py.
+/// Mirrors Android's StripKind.
+enum StripKind: String, Hashable {
+    case input, aux, group, matrix, dca, multi
+
+    static func of(_ wire: String?) -> StripKind { wire.flatMap(StripKind.init(rawValue:)) ?? .input }
+
+    var prefix: String {
+        switch self {
+        case .input: return ""
+        case .aux: return "AUX"
+        case .group: return "GRP"
+        case .matrix: return "MTX"
+        case .dca: return "DCA"
+        case .multi: return "MLT"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .input: return "Channel"
+        case .aux: return "Aux"
+        case .group: return "Group"
+        case .matrix: return "Matrix"
+        case .dca: return "DCA"
+        case .multi: return "Multi"
+        }
+    }
+
+    /// EQ and dynamics - a DCA and a multi have neither.
+    var hasProcessing: Bool { self != .dca && self != .multi }
+    /// Head amp, 48V and an alt input: inputs only.
+    var hasInputStage: Bool { self == .input }
+    /// Trim and polarity (Buss_Trim on a bus).
+    var hasTrim: Bool { hasProcessing }
+    var hasMeter: Bool { hasProcessing }
+}
+
 struct ChannelState: Identifiable, Hashable {
     let channel: Int
     let name: String
@@ -107,7 +147,23 @@ struct ChannelState: Identifiable, Hashable {
     // the settings that shape its static curve. Mixer mode only.
     var dynamics: ChannelDynamics? = nil
 
+    // What the strip is and the console's own number for it within that
+    // kind (3 for the DCA whose strip id is 4003); and its EQ's shape -
+    // four bands and filters on an input, eight and none on a bus.
+    var kind: StripKind = .input
+    var number: Int? = nil
+    var eqBands: Int = EqRange.bandCount
+    var eqFilters: Bool = true
+
     var phaseInverted: Bool { phase != PhaseState.normal }
+
+    /// "12" for an input, "DCA 3" for anything else.
+    var numberLabel: String {
+        kind == .input ? "\(number ?? channel)" : "\(kind.prefix) \(number ?? channel)"
+    }
+
+    /// "Channel 12", "DCA 3".
+    var title: String { "\(kind.title) \(number ?? channel)" }
 
     var id: Int { channel }
 }
@@ -183,6 +239,8 @@ struct BankChannel: Identifiable, Equatable {
 /// them. Mirrors Android's EQ_* constants.
 enum EqRange {
     static let bandCount = 4
+    /// An output bus's EQ: eight bands, no filters.
+    static let busBandCount = 8
     static let freq = 20.0...20000.0
     static let gain = -18.0...18.0
     static let q = 0.1...20.0
@@ -218,6 +276,10 @@ struct ChannelEq: Hashable {
     var bands: [EqBand] = (1...EqRange.bandCount).map { EqBand(band: $0) }
     var loFilter = EqFilter()
     var hiFilter = EqFilter()
+    /// False on an output bus, which has no high- or low-pass filter.
+    var hasFilters = true
+
+    var bandCount: Int { bands.count }
 }
 
 /// One EQ write, as the set_eq action carries it. `lo` picks the

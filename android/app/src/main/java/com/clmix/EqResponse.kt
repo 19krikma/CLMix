@@ -29,7 +29,22 @@ object EqResponse {
     const val LOW_BAND = EQ_BAND_COUNT
 
     /** Low to high, the order the screen lays the bands out in. */
-    val bandsLowToHigh: List<Int> = (EQ_BAND_COUNT downTo 1).toList()
+    val bandsLowToHigh: List<Int> = bandsLowToHigh(EQ_BAND_COUNT)
+
+    /**
+     * The same for an EQ of [count] bands. An output bus's eight keep the
+     * input's four in their roles - 1 the top, 4 the bottom - and put 5..8
+     * between 3 and 2, highest first: that is how a freshly reset bus
+     * seeds them (8 kHz, 4 kHz, 100 Hz, 50 Hz, then 2 kHz down to 250 Hz;
+     * PROTOCOL.md, "Aux_Outputs"). The graph still places every band by
+     * its own frequency - this is only the order of the buttons.
+     */
+    fun bandsLowToHigh(count: Int): List<Int> =
+        if (count <= EQ_BAND_COUNT) {
+            (count downTo 1).toList()
+        } else {
+            listOf(4, 3) + (count downTo EQ_BAND_COUNT + 1) + listOf(2, 1)
+        }
 
     fun label(band: Int): String = when (band) {
         4 -> "LF"

@@ -3,6 +3,26 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.21.0
+
+Needs desktop 1.29.0 or later. With an older desktop, banks show input
+channels only, as before.
+
+- **DCAs, masters and aux masters on Mixer Control.** Banks holding DCAs,
+  group masters, aux masters, matrix outputs or multis now show those
+  strips, with a working fader and mute. Each is labelled by type above
+  its name, for example "DCA 3" or "AUX 5".
+- **EQ and dynamics on output masters.** Aux, group and matrix masters
+  have the EQ, COMP and GATE buttons. Their EQ has eight bands and no
+  high- or low-pass filter, the same as on the mixer.
+- **Only the controls each strip has.** Tapping a master's name opens its
+  name, trim and polarity, with no gain, 48V or ALT. A DCA has only its
+  name, and no EQ or dynamics buttons.
+- **Fixed:** turning the phone sideways on an aux mix no longer closes
+  the app and sends you back to the login screen.
+- **Chat from Mixer Control.** The side menu on Mixer Control now has a
+  Chat button, as the aux screens do.
+
 ## 2.20.0
 
 Bank layers and the snapshot name on Mixer Control need desktop 1.27.0

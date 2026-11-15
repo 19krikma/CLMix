@@ -13,6 +13,11 @@ enum EqTarget: Hashable {
         case .band(4): return .clmixEqBandLF
         case .band(3): return .clmixEqBandLMF
         case .band(2): return .clmixEqBandHMF
+        // An output bus's extra mids.
+        case .band(5): return Color(red: 0xE0 / 255, green: 0x55 / 255, blue: 0x9A / 255)
+        case .band(6): return Color(red: 0x14 / 255, green: 0xA3 / 255, blue: 0xB8 / 255)
+        case .band(7): return Color(red: 0x8D / 255, green: 0xB6 / 255, blue: 0x00 / 255)
+        case .band(8): return Color(red: 0xE5 / 255, green: 0x48 / 255, blue: 0x4D / 255)
         case .band: return .clmixEqBandHF
         case .loFilter, .hiFilter: return .clmixEqFilter
         }
@@ -39,8 +44,14 @@ enum EqTarget: Hashable {
     }
 
     /// Low to high, the order the chips run in.
-    static let all: [EqTarget] =
-        [.loFilter] + EqResponse.bandsLowToHigh.map { .band($0) } + [.hiFilter]
+    static let all: [EqTarget] = targets(for: ChannelEq(channel: 0))
+
+    /// The chips and handles one strip's EQ has: no filters on a bus,
+    /// and as many bands as it carries.
+    static func targets(for eq: ChannelEq) -> [EqTarget] {
+        let bands = EqResponse.bandsLowToHigh(eq.bandCount).map { EqTarget.band($0) }
+        return eq.hasFilters ? [.loFilter] + bands + [.hiFilter] : bands
+    }
 }
 
 /// One input channel's EQ, full screen and turned on its side.
@@ -109,7 +120,7 @@ struct EqView: View {
             }
             .accessibilityLabel("Back to the mixer")
 
-            Text("\(eq.channel)")
+            Text(model.channels.first { $0.channel == eq.channel }?.numberLabel ?? "\(eq.channel)")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.clmixOnSurfaceVariant)
 
@@ -155,7 +166,7 @@ struct EqView: View {
     private var controlPanel: some View {
         VStack(spacing: 8) {
             HStack(spacing: 4) {
-                ForEach(EqTarget.all, id: \.self) { target in
+                ForEach(EqTarget.targets(for: eq), id: \.self) { target in
                     chip(target.chipLabel, lit: target == selected, color: target.color) {
                         selected = target
                     }
@@ -411,7 +422,7 @@ struct EqGraphView: View {
             ZStack(alignment: .topLeading) {
                 Canvas { context, _ in draw(in: &context, plot: plot) }
 
-                ForEach(EqTarget.all, id: \.self) { target in
+                ForEach(EqTarget.targets(for: eq), id: \.self) { target in
                     if let point = handle(target, plot: plot) {
                         handleView(target).position(point)
                     }
@@ -644,7 +655,7 @@ struct EqGraphView: View {
     private func nearest(to location: CGPoint, plot: CGRect) -> EqTarget? {
         var best: EqTarget?
         var bestDistance = Self.touchRadius
-        let order = [selected] + EqTarget.all.filter { $0 != selected }
+        let order = [selected] + EqTarget.targets(for: eq).filter { $0 != selected }
 
         for target in order {
             guard let point = handle(target, plot: plot) else { continue }

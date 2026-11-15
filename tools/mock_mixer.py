@@ -212,6 +212,20 @@ CLAMPED_SUFFIXES = {
     "/Channel_Input/phase": (0.0, 3.0),
 }
 
+# A bank of everything but inputs, the way a real desk's "DCA / FX" or
+# masters bank looks (PROTOCOL.md, "Layout"): DCAs, the group masters, a
+# couple of aux masters, matrix outputs and a multi.
+MIXED_BANKS = {
+    "DCA/MST": [
+        ("Control_Groups", 1), ("Control_Groups", 2),
+        ("Control_Groups", 3), ("Control_Groups", 4),
+        ("Group_Outputs", 1), ("Group_Outputs", 2),
+        ("Aux_Outputs", 1), ("Aux_Outputs", 2),
+        ("Matrix_Outputs", 1), ("Matrix_Outputs", 2),
+        ("Multis", 1),
+    ],
+}
+
 LAYOUT_KEY_ARGS = 4
 LAYOUT_SIDES = ("L", "R")
 LAYOUT_FADERS = 12
@@ -391,7 +405,11 @@ def build_layout(banks):
 
         for fader in range(LAYOUT_FADERS):
             if fader < len(channels):
-                slots += ["Input_Channels", channels[fader]]
+                strip = channels[fader]
+                # A bare number is an input channel; anything else on a
+                # fader is given as its (category, index) pair.
+                slots += list(strip) if isinstance(strip, tuple) \
+                    else ["Input_Channels", strip]
             else:
                 slots += ["", 0]
 
@@ -522,7 +540,7 @@ class MockMixer:
         # The fader layout, one entry per bank per side, in the console's
         # own arg order: [name, side, layer, bank] then (category, index)
         # per fader - see PROTOCOL.md, "Layout".
-        self.layout = build_layout(BANKS)
+        self.layout = build_layout({**BANKS, **MIXED_BANKS})
 
         # Whether writing a bank back is honoured. Nothing has ever been
         # observed writing /Layout/Layout/Banks on a real desk, so this

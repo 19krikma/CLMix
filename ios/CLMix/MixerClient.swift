@@ -339,7 +339,9 @@ final class MixerClient: NSObject, MixerBackend {
                 LayoutBank(
                     id: bank["id"] as? String ?? "",
                     name: bank["name"] as? String ?? "",
-                    inputs: bank["inputs"] as? Int ?? 0
+                    // "strips" counts DCAs and buses too - everything this
+                    // build can show. An older server sends only "inputs".
+                    inputs: bank["strips"] as? Int ?? bank["inputs"] as? Int ?? 0
                 )
             }
             return BankLayer(number: layer["layer"] as? Int ?? index + 1, banks: banks)
@@ -363,7 +365,8 @@ final class MixerClient: NSObject, MixerBackend {
     /// panner and mute instead of an aux's sends. selectAux() switches it
     /// back. Refused unless the account holds the permission.
     func selectMixerControl() {
-        send(["action": "select_mixer"])
+        // "strips": this build can draw DCAs and output buses as well.
+        send(["action": "select_mixer", "strips": true])
     }
 
     func selectBank(_ bank: String?) {
@@ -794,13 +797,20 @@ final class MixerClient: NSObject, MixerBackend {
                         altAvailable: entry["alt_available"] as? Bool ?? false,
                         eqIn: entry["eq_in"] as? Bool,
                         eq: (entry["eq_summary"] as? [Any]).flatMap {
-                            Self.parseEqSummary(channel: channel, $0)
+                            Self.parseEqSummary(
+                                channel: channel, $0,
+                                hasFilters: entry["eq_filters"] as? Bool ?? true
+                            )
                         },
                         compIn: entry["comp_in"] as? Bool,
                         gateIn: entry["gate_in"] as? Bool,
                         dynamics: (entry["dyn_summary"] as? [Any]).flatMap {
                             Self.parseDynSummary(channel: channel, $0)
-                        }
+                        },
+                        kind: StripKind.of(entry["kind"] as? String),
+                        number: entry["number"] as? Int,
+                        eqBands: entry["eq_bands"] as? Int ?? EqRange.bandCount,
+                        eqFilters: entry["eq_filters"] as? Bool ?? true
                     )
                 }
                 delegate?.mixerDidReceiveLevels(aux: aux, channels: channels)
@@ -918,14 +928,16 @@ extension MixerClient {
     /// A strip's EQ from the positional row RemoteServer._eq_summary
     /// sends: [eq_in, lo_in, lo_freq, hi_in, hi_freq, then on, freq, gain,
     /// q, curve per band]. Nil for a row too short to be one.
-    static func parseEqSummary(channel: Int, _ row: [Any]) -> ChannelEq? {
+    static func parseEqSummary(channel: Int, _ row: [Any], hasFilters: Bool = true) -> ChannelEq? {
         let head = 5, perBand = 5
         guard row.count >= head + EqRange.bandCount * perBand else { return nil }
 
         func flag(_ i: Int) -> Bool? { (row[i] as? Int).map { $0 != 0 } }
         func number(_ i: Int) -> Double? { row[i] as? Double }
 
-        let bands = (1...EqRange.bandCount).map { band -> EqBand in
+        // As many bands as the row carries - eight on an output bus.
+        let count = min((row.count - head) / perBand, EqRange.busBandCount)
+        let bands = (1...count).map { band -> EqBand in
             let at = head + (band - 1) * perBand
             return EqBand(
                 band: band, on: flag(at), freq: number(at + 1),
@@ -938,7 +950,8 @@ extension MixerClient {
             eqIn: flag(0),
             bands: bands,
             loFilter: EqFilter(isIn: flag(1), freq: number(2)),
-            hiFilter: EqFilter(isIn: flag(3), freq: number(4))
+            hiFilter: EqFilter(isIn: flag(3), freq: number(4)),
+            hasFilters: hasFilters
         )
     }
 
@@ -998,7 +1011,9 @@ extension MixerClient {
             if let band = entry["band"] as? Int { byNumber[band] = entry }
         }
 
-        let bands = (1...EqRange.bandCount).map { number -> EqBand in
+        // Every band the strip has; four from a server too old to say.
+        let count = min(max(json["band_count"] as? Int ?? EqRange.bandCount, 1), EqRange.busBandCount)
+        let bands = (1...count).map { number -> EqBand in
             guard let entry = byNumber[number] else { return EqBand(band: number) }
             return EqBand(
                 band: number,
@@ -1020,7 +1035,8 @@ extension MixerClient {
             eqIn: json["eq_in"] as? Bool,
             bands: bands,
             loFilter: filter("lo_filter"),
-            hiFilter: filter("hi_filter")
+            hiFilter: filter("hi_filter"),
+            hasFilters: json["filters"] as? Bool ?? true
         )
     }
 }

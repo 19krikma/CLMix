@@ -169,6 +169,13 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             override fun handleOnBackPressed() = logout()
         })
 
+        binding.chatButton.setOnClickListener {
+            binding.drawerLayout.closeMenuDrawer()
+            dismissPanSheet()
+            dismissInputSheet()
+            startActivity(Intent(this, ChatActivity::class.java))
+        }
+
         binding.logoutButton.setOnClickListener { logout() }
 
         profileHeader = ProfileHeader(binding.profileHeader) {

@@ -388,10 +388,14 @@ object MixerClient {
                 layer.optInt("layer", i + 1),
                 (0 until banks.length()).mapNotNull { j ->
                     val bank = banks.optJSONObject(j) ?: return@mapNotNull null
+                    // "strips" counts DCAs and output buses as well as
+                    // inputs - everything this phone can show, since it
+                    // asks for them in selectMixerControl. An older
+                    // server sends only "inputs".
                     LayoutBank(
                         bank.optString("id"),
                         bank.optString("name"),
-                        bank.optInt("inputs")
+                        bank.optInt("strips", bank.optInt("inputs"))
                     )
                 }
             )
@@ -416,7 +420,12 @@ object MixerClient {
     // level/pan/mute actions below ride the console's own channel fader,
     // panner and mute instead of an aux's sends. selectAux() switches it
     // back. Refused unless the account holds the permission.
-    fun selectMixerControl() = send(JSONObject().put("action", "select_mixer"))
+    //
+    // "strips" tells the server this build can draw DCAs and output-bus
+    // masters too (see StripKind), so a bank holding them is sent in full
+    // rather than cut down to its input channels.
+    fun selectMixerControl() =
+        send(JSONObject().put("action", "select_mixer").put("strips", true))
 
     fun selectBank(bank: String?) {
         val msg = JSONObject().put("action", "select_bank")
@@ -851,13 +860,20 @@ object MixerClient {
                         altAvailable = o.optBoolean("alt_available", false),
                         eqIn = o.optBoolOrNull("eq_in"),
                         eq = o.optJSONArray("eq_summary")?.let {
-                            parseEqSummary(o.getInt("channel"), it)
+                            parseEqSummary(
+                                o.getInt("channel"), it,
+                                o.optBoolean("eq_filters", true)
+                            )
                         },
                         compIn = o.optBoolOrNull("comp_in"),
                         gateIn = o.optBoolOrNull("gate_in"),
                         dynamics = o.optJSONArray("dyn_summary")?.let {
                             parseDynSummary(o.getInt("channel"), it)
                         },
+                        kind = StripKind.of(o.optString("kind").takeIf { o.has("kind") }),
+                        number = o.optInt("number", o.getInt("channel")),
+                        eqBands = o.optInt("eq_bands", EQ_BAND_COUNT),
+                        eqFilters = o.optBoolean("eq_filters", true),
                         // phase_state is the console's value, 0..3. An
                         // older server sends only the "phase" bool, which
                         // cannot tell 3 from 1 - falling back to it loses
@@ -1002,9 +1018,11 @@ object MixerClient {
         val byNumber = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
             .associateBy { it.optInt("band") }
 
-        // Always all four, in console order, whatever arrived - a band the
-        // server left out reads the same as one it has no values for.
-        val bands = (1..EQ_BAND_COUNT).map { band ->
+        // Every band the strip has, in console order, whatever arrived - a
+        // band the server left out reads the same as one it has no values
+        // for. Four from a server too old to say how many.
+        val count = json.optInt("band_count", EQ_BAND_COUNT).coerceIn(1, EQ_BUS_BAND_COUNT)
+        val bands = (1..count).map { band ->
             val o = byNumber[band] ?: return@map EqBand(band)
             EqBand(
                 band = band,
@@ -1026,7 +1044,8 @@ object MixerClient {
             eqIn = json.optBoolOrNull("eq_in"),
             bands = bands,
             loFilter = filter("lo_filter"),
-            hiFilter = filter("hi_filter")
+            hiFilter = filter("hi_filter"),
+            hasFilters = json.optBoolean("filters", true)
         )
     }
 
@@ -1035,12 +1054,19 @@ object MixerClient {
      * [eq_in, lo_in, lo_freq, hi_in, hi_freq, then on, freq, gain, q,
      * curve per band]. Null for a row too short to be one.
      */
-    private fun parseEqSummary(channel: Int, row: JSONArray): ChannelEq? {
+    private fun parseEqSummary(
+        channel: Int,
+        row: JSONArray,
+        hasFilters: Boolean = true
+    ): ChannelEq? {
         if (row.length() < EQ_SUMMARY_HEAD + EQ_BAND_COUNT * EQ_SUMMARY_BAND) return null
 
         fun flag(i: Int): Boolean? = if (row.isNull(i)) null else row.optInt(i) != 0
 
-        val bands = (1..EQ_BAND_COUNT).map { band ->
+        // As many bands as the row carries - eight on an output bus.
+        val count = ((row.length() - EQ_SUMMARY_HEAD) / EQ_SUMMARY_BAND)
+            .coerceAtMost(EQ_BUS_BAND_COUNT)
+        val bands = (1..count).map { band ->
             val at = EQ_SUMMARY_HEAD + (band - 1) * EQ_SUMMARY_BAND
             EqBand(
                 band = band,
@@ -1057,7 +1083,8 @@ object MixerClient {
             eqIn = flag(0),
             bands = bands,
             loFilter = EqFilter(flag(1), row.optDoubleOrNull(2)),
-            hiFilter = EqFilter(flag(3), row.optDoubleOrNull(4))
+            hiFilter = EqFilter(flag(3), row.optDoubleOrNull(4)),
+            hasFilters = hasFilters
         )
     }
 

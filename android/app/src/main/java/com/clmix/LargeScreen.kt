@@ -96,8 +96,15 @@ fun moveBanksIntoTopBar(
  * rotation drawn without their tracks.
  */
 fun setSideMenuDocked(drawer: DrawerLayout, menu: View, content: View, docked: Boolean) {
-    val menuParams = menu.layoutParams as DrawerLayout.LayoutParams
-    val contentParams = content.layoutParams as DrawerLayout.LayoutParams
+    // Only a menu that is actually in the drawer can be docked or
+    // undocked. On a phone turned sideways the aux screen lifts its menu
+    // out into the landscape side panel (MixerActivity.hostMenu), where
+    // its params are the panel's - casting those crashed the app on every
+    // turn into landscape, which restarted it on the login screen.
+    if (menu.parent !== drawer) return
+
+    val menuParams = menu.layoutParams as? DrawerLayout.LayoutParams ?: return
+    val contentParams = content.layoutParams as? DrawerLayout.LayoutParams ?: return
     val wanted = if (docked) Gravity.NO_GRAVITY else GravityCompat.START
 
     if (menuParams.gravity == wanted) return

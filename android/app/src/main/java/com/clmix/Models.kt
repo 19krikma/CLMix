@@ -33,6 +33,49 @@ data class BankChannel(
     val name: String
 ) : Serializable
 
+/**
+ * What sort of strip a Full Mixer Control fader is. A surface bank can
+ * carry DCAs and output-bus masters as well as input channels, and each
+ * kind has a different set of controls on the console (see
+ * services/strips.py and docs/mixer_protocol/PROTOCOL.md):
+ *
+ *   INPUT    everything - head amp, 48V, alt input, trim, polarity,
+ *            pan, EQ with filters, dynamics
+ *   AUX, GROUP, MATRIX   the output buses: trim and polarity (on their
+ *            Buss_Trim), an eight-band EQ with no filters, dynamics; no
+ *            head amp and no pan
+ *   DCA, MULTI   a name, a fader and a mute - nothing else
+ *
+ * [prefix] is what goes in front of the console's own number on the
+ * strip, so a DCA reads "DCA 3" rather than passing for input 4003.
+ */
+enum class StripKind(val wire: String, val prefix: String, val title: String) {
+    INPUT("input", "", "Channel"),
+    AUX("aux", "AUX", "Aux"),
+    GROUP("group", "GRP", "Group"),
+    MATRIX("matrix", "MTX", "Matrix"),
+    DCA("dca", "DCA", "DCA"),
+    MULTI("multi", "MLT", "Multi");
+
+    /** Has an EQ and dynamics - so the strip shows its EQ, COMP and
+     *  GATE buttons. */
+    val hasProcessing: Boolean get() = this != DCA && this != MULTI
+
+    /** Has a head amp, 48V and an alternate input. */
+    val hasInputStage: Boolean get() = this == INPUT
+
+    /** Has a trim and polarity - Channel_Input's on an input, Buss_Trim's
+     *  on a bus. */
+    val hasTrim: Boolean get() = hasProcessing
+
+    val hasMeter: Boolean get() = hasProcessing
+
+    companion object {
+        /** An older server sends no kind at all, and only ever inputs. */
+        fun of(wire: String?): StripKind = values().firstOrNull { it.wire == wire } ?: INPUT
+    }
+}
+
 data class ChannelState(
     val channel: Int,
     val name: String,
@@ -103,9 +146,29 @@ data class ChannelState(
 
     // What the COMP and GATE thumbnails draw: each section's in/out and
     // the settings that shape its static curve. Mixer mode only.
-    val dynamics: ChannelDynamics? = null
+    val dynamics: ChannelDynamics? = null,
+
+    // What this strip is (see StripKind) and the console's own number for
+    // it within that kind - the same as [channel] for an input, 3 for the
+    // DCA whose strip id is 4003. Mixer mode only; an aux screen only
+    // ever carries inputs.
+    val kind: StripKind = StripKind.INPUT,
+    val number: Int = channel,
+
+    // The shape of this strip's EQ: four bands and the two filters on an
+    // input, eight bands and no filters on an output bus.
+    val eqBands: Int = EQ_BAND_COUNT,
+    val eqFilters: Boolean = true
 ) {
     val phaseInverted: Boolean get() = phase != PHASE_NORMAL
+
+    /** What the strip shows above its name: "12" for an input, "DCA 3"
+     *  for anything else. */
+    val numberLabel: String
+        get() = if (kind == StripKind.INPUT) number.toString() else "${kind.prefix} $number"
+
+    /** The sheet's and the EQ screen's heading: "Channel 12", "DCA 3". */
+    val title: String get() = "${kind.title} $number"
 }
 
 // Polarity states. Only the two named ones are ever written by this app;
@@ -138,20 +201,32 @@ data class EqFilter(
     val freq: Double? = null
 )
 
-/** Everything the EQ screen shows for one input channel. */
+/**
+ * Everything the EQ screen shows for one strip. bands always holds every
+ * band the strip has, in console order (bands[n - 1] is band n): four on
+ * an input, eight on an output bus. An output bus has no high- or
+ * low-pass filter at all, which hasFilters says - its two filters stay
+ * empty and are never drawn or offered.
+ */
 data class ChannelEq(
     val channel: Int,
     val eqIn: Boolean? = null,
     val bands: List<EqBand> = (1..EQ_BAND_COUNT).map { EqBand(it) },
     val loFilter: EqFilter = EqFilter(),
-    val hiFilter: EqFilter = EqFilter()
-)
+    val hiFilter: EqFilter = EqFilter(),
+    val hasFilters: Boolean = true
+) {
+    val bandCount: Int get() = bands.size
+}
 
 // The channel EQ's shape and ranges, as the console's own parameter table
 // states them (docs/mixer_protocol/PROTOCOL.md). Frequencies are Hz on the
 // wire even where the desk's dial reads kHz. The server clamps every write
 // to these too; they are here so the controls cannot sweep past them.
 const val EQ_BAND_COUNT = 4
+
+// An output bus's EQ: twice the bands, none of the filters.
+const val EQ_BUS_BAND_COUNT = 8
 val EQ_FREQ_RANGE = 20.0..20000.0
 val EQ_GAIN_RANGE = -18.0..18.0
 val EQ_Q_RANGE = 0.1..20.0
@@ -437,9 +512,10 @@ data class Preset(
 /**
  * One bank of the console's surface layout, as Mixer Control lists it.
  * [id] is what select_bank sends - its place on the surface, since two
- * layers can hold banks of the same name. [inputs] is how many input
- * channels it holds: none for a bank of DCAs or outputs, which is listed
- * but has no strips to show.
+ * layers can hold banks of the same name. [inputs] is how many strips it
+ * holds that this phone can show - DCAs and output buses included, from a
+ * server that sends them (see StripKind); only input channels from an
+ * older one, where a DCA bank is listed but has nothing to show.
  */
 data class LayoutBank(val id: String, val name: String, val inputs: Int)
 

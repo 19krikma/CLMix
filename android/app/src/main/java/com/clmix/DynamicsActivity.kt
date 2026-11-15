@@ -23,6 +23,7 @@ import kotlin.math.pow
 private const val EXTRA_CHANNEL = "channel"
 private const val EXTRA_NAME = "name"
 private const val EXTRA_COMP = "comp"
+private const val EXTRA_TITLE = "title"
 private const val STATE_PAGE = "page"
 
 /**
@@ -88,7 +89,7 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
         compSelected = intent.getBooleanExtra(EXTRA_COMP, true)
         page = savedInstanceState?.getInt(STATE_PAGE) ?: 0
 
-        binding.channelNumber.text = channel.toString()
+        binding.channelNumber.text = intent.getStringExtra(EXTRA_TITLE) ?: channel.toString()
         binding.channelName.text = intent.getStringExtra(EXTRA_NAME) ?: "Ch $channel"
 
         binding.backButton.setOnClickListener { finish() }
@@ -429,6 +430,7 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
                 Intent(context, DynamicsActivity::class.java)
                     .putExtra(EXTRA_CHANNEL, channel.channel)
                     .putExtra(EXTRA_NAME, channel.name)
+                    .putExtra(EXTRA_TITLE, channel.numberLabel)
                     .putExtra(EXTRA_COMP, comp)
             )
         }

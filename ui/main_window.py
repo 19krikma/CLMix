@@ -35,6 +35,9 @@ from services.log_store import capture, log, log_store
 from services.network_info import list_ipv4_interfaces, source_ip_for
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
+from services.strips import (
+    is_input, path as strip_path, resolve as resolve_strip, strip_id,
+)
 from services import sos_options
 
 # Before anything parses a datagram: the console does not always send
@@ -131,6 +134,16 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/EQ/[^/]+$"),
     re.compile(r"^/Input_Channels/\d+/Filters/[^/]+$"),
     re.compile(r"^/Input_Channels/\d+/Dynamics/(?!GR_meter)[^/]+$"),
+
+    # The other strips a surface bank can carry, for Full Mixer Control
+    # (services/strips.py): the output buses' fader, mute, Buss_Trim and
+    # processing, and the DCAs' and multis' name, fader and mute.
+    re.compile(r"^/Console/Group_Outputs/modes$"),
+    re.compile(r"^/(Aux|Group|Matrix)_Outputs/\d+/(fader|mute)$"),
+    re.compile(r"^/(Aux|Group|Matrix)_Outputs/\d+/Buss_Trim/(name|trim|phase)$"),
+    re.compile(r"^/(Aux|Group|Matrix)_Outputs/\d+/EQ/[^/]+$"),
+    re.compile(r"^/(Aux|Group|Matrix)_Outputs/\d+/Dynamics/(?!GR_meter)[^/]+$"),
+    re.compile(r"^/(Control_Groups|Multis)/\d+/(name|fader|mute)$"),
 ]
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
@@ -1203,6 +1216,11 @@ class MixerWorker(threading.Thread):
 
         name = args[0]
         channels = []
+        # Every strip on the bank, DCAs and outputs too, as strip ids
+        # (services/strips.py) - for Mixer Control, which can ride them.
+        # The aux screens only ever see the inputs above: a send has no
+        # meaning for a DCA or a bus.
+        strips = []
 
         for i in range(4, len(args) - 1, 2):
             kind = args[i]
@@ -1211,12 +1229,16 @@ class MixerWorker(threading.Thread):
             if kind == "Input_Channels":
                 channels.append(int(index))
 
+            strip = strip_id(kind, index)
+            if strip is not None:
+                strips.append(strip)
+
         if channels:
             self.banks[name] = channels
 
-        self._store_layout_bank(args, channels)
+        self._store_layout_bank(args, channels, strips)
 
-    def _store_layout_bank(self, args, channels):
+    def _store_layout_bank(self, args, channels, strips=()):
         """File one reply into bank_layout, by layer and position.
 
         The console answers once per side, and the L and R halves of a
@@ -1238,17 +1260,23 @@ class MixerWorker(threading.Thread):
 
         if entry is None or entry["name"] != args[0]:
             entry = {"name": args[0], "layer": layer, "position": position,
-                     "sides": {}, "channels": []}
+                     "sides": {}, "strip_sides": {},
+                     "channels": [], "strips": []}
             self.bank_layout[key] = entry
 
         entry["sides"][str(args[1])] = list(channels)
+        entry.setdefault("strip_sides", {})[str(args[1])] = list(strips)
 
-        merged = []
-        for side in sorted(entry["sides"]):
-            for channel in entry["sides"][side]:
-                if channel not in merged:
-                    merged.append(channel)
-        entry["channels"] = merged
+        def merge(sides):
+            merged = []
+            for side in sorted(sides):
+                for item in sides[side]:
+                    if item not in merged:
+                        merged.append(item)
+            return merged
+
+        entry["channels"] = merge(entry["sides"])
+        entry["strips"] = merge(entry["strip_sides"])
 
     def request_resync(self):
         """Pull the console's layout, names and snapshot again without
@@ -1446,9 +1474,46 @@ class MixerWorker(threading.Thread):
         return int(modes[index - 1]) == self.MODE_STEREO
 
     def channel_legs(self, channel):
-        """The meter legs to subscribe and draw for channel."""
-        return self.METER_LEGS_STEREO if self.channel_is_stereo(channel) \
+        """The meter legs to subscribe and draw for channel - an input
+        channel number or any other strip id (services/strips.py). None
+        at all for a strip with no meter, such as a DCA."""
+        if is_input(channel):
+            return self.METER_LEGS_STEREO if self.channel_is_stereo(channel) \
+                else self.METER_LEGS_MONO
+
+        resolved = resolve_strip(channel)
+        if resolved is None or not resolved[0].metered:
+            return ()
+
+        return self.METER_LEGS_STEREO if self.strip_is_stereo(channel) \
             else self.METER_LEGS_MONO
+
+    def strip_is_stereo(self, strip):
+        """Whether a strip has a second leg. Inputs and auxes read their
+        1/2 modes lists; a group output's list runs 1..6 (see
+        MODE_STEREO above), so anything wider than mono there counts.
+        A matrix output has no modes list anyone has found, and reads as
+        mono."""
+        if is_input(strip):
+            return self.channel_is_stereo(strip)
+
+        resolved = resolve_strip(strip)
+        if resolved is None:
+            return False
+
+        kind, index = resolved
+
+        if kind.category == "Aux_Outputs":
+            return self.aux_is_stereo(index)
+
+        if kind.category == "Group_Outputs":
+            modes = self.cache.get(kind.modes, [])
+            try:
+                return 1 <= index <= len(modes) and int(modes[index - 1]) > 1
+            except (TypeError, ValueError):
+                return False
+
+        return False
 
     def subscribe_meters(self, channels, source="desktop"):
         """Register one surface's channels and re-bind the console's slots.
@@ -1553,7 +1618,14 @@ class MixerWorker(threading.Thread):
 
     @staticmethod
     def channel_meter_address(channel, leg):
-        return f"/Input_Channels/{channel}/Channel_Input/post_meter/{leg}"
+        if is_input(channel):
+            return f"/Input_Channels/{channel}/Channel_Input/post_meter/{leg}"
+
+        # An output bus has no Channel_Input. Its fader_meter is the one
+        # meter every bus kind carries with the same left/right leaves
+        # (ipad_q2_params.csv), and post-fader is what a master strip on
+        # a surface shows.
+        return f"{strip_path(channel)}/fader_meter/{leg}"
 
     # What CLMix may still send in DiGiCo App mode, besides the heartbeat
     # (which _check_heartbeat sends directly, not through the queue).

@@ -50,4 +50,9 @@
     <color name="eq_band_hmf">#21A870</color>
     <color name="eq_band_hf">#3B82F6</color>
     <color name="eq_filter">#9B6CF0</color>
+    <!-- Bands 5..8, which only an output bus's EQ has. -->
+    <color name="eq_band_5">#E0559A</color>
+    <color name="eq_band_6">#14A3B8</color>
+    <color name="eq_band_7">#8DB600</color>
+    <color name="eq_band_8">#E5484D</color>
 </resources>

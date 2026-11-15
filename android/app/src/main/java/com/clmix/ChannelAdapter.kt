@@ -430,11 +430,17 @@ class ChannelAdapter(
         holder.binding.channelName.text = channel.name
         displayedName[channel.channel] = channel.name
 
-        holder.binding.nameMeter.visibility = if (meterBesideName) View.VISIBLE else View.GONE
+        // A DCA has no signal of its own to meter - kept in place, empty,
+        // so its name lines up with the strips beside it.
+        holder.binding.nameMeter.visibility = when {
+            !meterBesideName -> View.GONE
+            channel.kind.hasMeter -> View.VISIBLE
+            else -> View.INVISIBLE
+        }
         holder.binding.channelMeter.visibility = if (meterBesideName) View.GONE else View.VISIBLE
         meterOf(holder).setStereo(channel.stereo)
 
-        holder.binding.channelNumber.text = channel.channel.toString()
+        holder.binding.channelNumber.text = channel.numberLabel
         holder.binding.channelNumber.visibility =
             if (showChannelNumber) View.VISIBLE else View.GONE
 
@@ -501,12 +507,25 @@ class ChannelAdapter(
         displayedMuted[channel.channel] = muted
         applyMuteAppearance(holder, muted)
 
-        holder.binding.eqButton.visibility =
-            if (onEqClicked != null) View.VISIBLE else View.GONE
+        // A DCA or a multi has no EQ or dynamics on the console at all
+        // (StripKind.hasProcessing), so the buttons go. INVISIBLE rather
+        // than GONE: a bank mixing DCAs with channels keeps every fader
+        // the same height, lined up across the row.
+        val processing = channel.kind.hasProcessing
+
+        holder.binding.eqButton.visibility = when {
+            onEqClicked == null -> View.GONE
+            processing -> View.VISIBLE
+            else -> View.INVISIBLE
+        }
         displayedEq[channel.channel] = channel.eq
         holder.binding.eqButton.eq = channel.eq
 
-        val dynVisibility = if (onDynamicsClicked != null) View.VISIBLE else View.GONE
+        val dynVisibility = when {
+            onDynamicsClicked == null -> View.GONE
+            processing -> View.VISIBLE
+            else -> View.INVISIBLE
+        }
         holder.binding.compButton.visibility = dynVisibility
         holder.binding.gateButton.visibility = dynVisibility
         displayedDyn[channel.channel] = channel.dynamics

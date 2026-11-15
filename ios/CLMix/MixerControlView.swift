@@ -18,6 +18,7 @@ struct MixerControlView: View {
 
     @State private var banksExpanded = false
     @State private var showMenu = false
+    @State private var showChat = false
     @State private var showProfile = false
     // Which channel's input stage is open, by number rather than by
     // value: the sheet has to read the live channel off the model on
@@ -75,6 +76,7 @@ struct MixerControlView: View {
         .navigationBarHidden(true)
         .sheet(isPresented: $showMenu) { menuSheet }
         .sheet(isPresented: $showProfile) { ProfileView() }
+        .sheet(isPresented: $showChat) { ChatView() }
         .sheet(item: $openInput) { open in inputSheet(for: open.id) }
         // The EQ is its own full-screen, landscape view rather than a
         // sheet: a frequency graph needs the width. AppModel turns the
@@ -308,6 +310,23 @@ struct MixerControlView: View {
             }
 
             Spacer()
+
+            // The chat every phone shares with the sound engineer, as on
+            // the aux screen's menu - see ChatView.
+            Button {
+                showMenu = false
+                openInput = nil
+                showChat = true
+            } label: {
+                Text("Chat")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .foregroundStyle(Color.clmixOnMuteInactive)
+            .background(Color.clmixMuteInactive)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
 
             // Log Out ends the session outright. On its own at the bottom,
             // well away from Channels and AUX at the top, which only move
