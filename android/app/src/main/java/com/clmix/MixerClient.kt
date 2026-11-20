@@ -312,6 +312,7 @@ object MixerClient {
         mixerControlAllowed = false
         personalizationAllowed = false
         liveSnapshot = null
+        onMain { SosAlerts.reset() }
         gainRange = HEAD_AMP_GAIN_RANGE
         trimRange = HEAD_AMP_TRIM_RANGE
         appContext?.let(MixerConnectionService::stop)
@@ -489,6 +490,42 @@ object MixerClient {
     )
 
     /** Switches the channel between its main (false) and alt (true) input. */
+    /** Channel delay time in ms - the server puts it on the wire in seconds. */
+    fun setDelay(channel: Int, delayMs: Double) = send(
+        JSONObject()
+            .put("action", "set_delay")
+            .put("channel", channel)
+            .put("delay_ms", delayMs)
+    )
+
+    /**
+     * One setting of an insert point: slot "A" or "B"; param "in",
+     * "phantom" or "pad" with a Boolean, or "gain" with dB.
+     */
+    fun setInsert(channel: Int, slot: String, param: String, value: Any) = send(
+        JSONObject()
+            .put("action", "set_insert")
+            .put("channel", channel)
+            .put("slot", slot)
+            .put("param", param)
+            .put("value", value)
+    )
+
+    fun setDelayOn(channel: Int, on: Boolean) = send(
+        JSONObject()
+            .put("action", "set_delay_on")
+            .put("channel", channel)
+            .put("delay_on", on)
+    )
+
+    /** Fine delay in samples, -127..127. */
+    fun setFineDelay(channel: Int, samples: Int) = send(
+        JSONObject()
+            .put("action", "set_fine_delay")
+            .put("channel", channel)
+            .put("fine_delay", samples)
+    )
+
     fun setAltIn(channel: Int, altIn: Boolean) = send(
         JSONObject()
             .put("action", "set_alt_in")
@@ -634,6 +671,11 @@ object MixerClient {
         JSONObject().put("action", "sos").put("reason", reason)
     )
 
+    /** A sound tech clearing an SOS - for every phone and the desktop. */
+    fun clearSos(id: Int) = send(
+        JSONObject().put("action", "sos_clear").put("id", id)
+    )
+
     /** This account's own profile - answered with "profile". */
     fun requestProfile() = send(JSONObject().put("action", "get_profile"))
 
@@ -657,6 +699,11 @@ object MixerClient {
         currentPassword?.let { msg.put("current_password", it) }
         send(msg)
     }
+
+    /** A Leader's badge colour, "#RRGGBB" - answered like any profile edit. */
+    fun setLeaderColor(color: String) = send(
+        JSONObject().put("action", "update_profile").put("leader_color", color)
+    )
 
     /** Chat senders' pictures - each answered with a "picture". */
     fun requestPictures(users: List<String>) = send(
@@ -789,10 +836,13 @@ object MixerClient {
                 personalizationAllowed = ok && json.optBoolean("personalization", false)
                 readHeadAmpRanges(json.optJSONObject("head_amp"))
                 val sosOptions = json.optJSONArray("sos_options")
+                // Open SOS calls, for an account that clears them - see SosAlerts.
+                val sosAlerts = json.optJSONArray("sos_alerts")
                 onMain {
                     if (ok) {
                         Profile.onLogin(json)
                         Sos.onOptions(sosOptions)
+                        SosAlerts.onLogin(sosAlerts)
                     }
                     listener?.onLoginResult(ok, message, token)
                 }
@@ -810,7 +860,10 @@ object MixerClient {
                         o.optBoolean("stereo", true)
                     )
                 }
-                onMain { listener?.onAuxes(list) }
+                onMain {
+                    listener?.onAuxes(list)
+                    ServerSync.onAuxes()
+                }
             }
 
             "aux_users" -> onMain { AuxUsers.onMessage(json) }
@@ -844,6 +897,13 @@ object MixerClient {
                         stereo = o.optBoolean("stereo", false),
                         gain = if (o.isNull("gain")) null else o.optDouble("gain"),
                         trim = if (o.isNull("trim")) null else o.optDouble("trim"),
+                        delayMs = if (o.isNull("delay_ms")) null else o.optDouble("delay_ms").takeIf { !it.isNaN() },
+                        delayOn = o.optBoolOrNull("delay_on"),
+                        insertA = o.optJSONObject("insert_a")?.let(::parseInsert),
+                        kind = o.optString("kind").takeIf { !o.isNull("kind") && it.isNotEmpty() },
+                        label = o.optString("label").takeIf { !o.isNull("label") && it.isNotEmpty() },
+                        insertB = o.optJSONObject("insert_b")?.let(::parseInsert),
+                        fineDelay = if (o.isNull("fine_delay")) null else o.optDouble("fine_delay").takeIf { !it.isNaN() },
                         phantom = o.optBoolean("phantom", false),
                         altGain = if (o.isNull("alt_gain")) null else o.optDouble("alt_gain"),
                         altPhantom = o.optBoolean("alt_phantom", false),
@@ -872,7 +932,10 @@ object MixerClient {
                         }
                     )
                 }
-                onMain { listener?.onLevels(aux, list) }
+                onMain {
+                    listener?.onLevels(aux, list)
+                    if (aux == MIXER_AUX) ServerSync.onMixerLevels()
+                }
             }
 
             "meters" -> {
@@ -962,6 +1025,10 @@ object MixerClient {
             // Not through the screen listener either: the SOS button is
             // on every screen, not one.
             "sos_sent" -> onMain { Sos.onSent() }
+
+            // An SOS for a sound tech to clear, and one cleared - see SosAlerts.
+            "sos_alert" -> onMain { SosAlerts.onAlert(json) }
+            "sos_cleared" -> onMain { SosAlerts.onCleared(json) }
 
             // The SOS choices changed: a snapshot with its own list was
             // recalled, or the sound engineer edited them.
@@ -1152,6 +1219,13 @@ private fun JSONObject.optDoubleOrNull(key: String): Double? =
 
 private fun JSONObject.optBoolOrNull(key: String): Boolean? =
     if (isNull(key)) null else optBoolean(key)
+
+private fun parseInsert(o: JSONObject) = InsertState(
+    inOn = o.optBoolOrNull("in"),
+    phantom = o.optBoolOrNull("phantom"),
+    gain = if (o.isNull("gain")) null else o.optDouble("gain").takeIf { !it.isNaN() },
+    pad = o.optBoolOrNull("pad"),
+)
 
 // Head-amp dial ranges, in dB, used until a server states its own (see
 // MixerClient.gainRange). One range per parameter: the desk stores gain

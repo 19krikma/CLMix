@@ -153,6 +153,7 @@ class ChatActivity : AppCompatActivity(), MixerClientListener {
             val avatarEnd: ShapeableImageView = view.findViewById(R.id.avatar_end)
             val bubble: LinearLayout = view.findViewById(R.id.bubble)
             val name: TextView = view.findViewById(R.id.name)
+            val leaderBadge: TextView = view.findViewById(R.id.leader_badge)
             val time: TextView = view.findViewById(R.id.time)
             val text: TextView = view.findViewById(R.id.text)
         }
@@ -206,6 +207,8 @@ class ChatActivity : AppCompatActivity(), MixerClientListener {
             holder.name.maxWidth = maxWidth
 
             holder.name.text = message.name
+            holder.leaderBadge.isVisible = message.leader
+            if (message.leader) LeaderBadge.style(holder.leaderBadge, message.leaderColor)
             holder.time.text = timeFormat.format(Date((message.time * 1000).toLong()))
             holder.text.text = message.text
             holder.name.setTextColor(inkColor)

@@ -52,6 +52,9 @@ class ChannelInputBottomSheet(
     private val trimRange: ClosedFloatingPointRange<Double>,
     private val onGainChanged: (Int, Double) -> Unit,
     private val onTrimChanged: (Int, Double) -> Unit,
+    private val onDelayChanged: (Int, Double) -> Unit,
+    private val onDelayOnChanged: (Int, Boolean) -> Unit,
+    private val onFineDelayChanged: (Int, Int) -> Unit,
     private val onPhantomChanged: (Int, Boolean) -> Unit,
     private val onAltGainChanged: (Int, Double) -> Unit,
     private val onAltPhantomChanged: (Int, Boolean) -> Unit,
@@ -71,6 +74,11 @@ class ChannelInputBottomSheet(
     private val gainWrites = Throttle { onGainChanged(channel, it) }
     private val altGainWrites = Throttle { onAltGainChanged(channel, it) }
     private val trimWrites = Throttle { onTrimChanged(channel, it) }
+    private val delayWrites = Throttle { onDelayChanged(channel, it) }
+    private val fineDelayWrites = Throttle { onFineDelayChanged(channel, Math.round(it).toInt()) }
+
+    // Delay in or out; null until the console has said, drawn as out.
+    private val delayOn = Optimistic(initial.delayOn ?: false)
 
     // The toggles - flipped on tap ahead of the console's echo, see
     // Optimistic.
@@ -105,6 +113,9 @@ class ChannelInputBottomSheet(
     // One per gain/trim box: commits it if it is mid-edit. Run when the
     // sheet closes, since a dismissed dialog does not reliably move focus.
     private val valueBoxes = mutableListOf<() -> Unit>()
+
+    // Each dial's readout format, for the helpers that rewrite its box.
+    private val formats = mutableMapOf<DialView, (Double) -> String>()
 
     init {
         dialog.setContentView(binding.root)
@@ -176,6 +187,33 @@ class ChannelInputBottomSheet(
         applyPhantom(alt.phantomButton, altPhantom.shown)
         applyPhase()
         applySource()
+
+        // The channel delay, under the input stage. Time turns slowly -
+        // a full sweep is 1.3 s, and the useful part is a few ms - and
+        // fine trim snaps to whole samples.
+        binding.delayDial.rate = DELAY_DIAL_RATE
+        setUpDial(binding.delayDial, binding.delayValue, DELAY_MS_RANGE,
+            initial.delayMs, delayWrites, format = ::formatMs)
+        setUpDial(binding.fineDelayDial, binding.fineDelayValue, FINE_DELAY_RANGE,
+            initial.fineDelay, fineDelayWrites, format = ::formatSamples)
+
+        binding.delayButton.setOnClickListener {
+            delayOn.set(!delayOn.shown)
+            applyDelayOn()
+            onDelayOnChanged(channel, delayOn.shown)
+        }
+        applyDelayOn()
+    }
+
+    /** In: the accent fill, as the live Main/ALT button. Out: grey. */
+    private fun applyDelayOn() {
+        val on = delayOn.shown
+        tint(
+            binding.delayButton,
+            if (on) R.color.primary else R.color.mute_inactive,
+            if (on) R.color.on_primary else R.color.on_mute_inactive
+        )
+        binding.delayButton.text = if (on) "Delay On" else "Delay Off"
     }
 
     private fun setUpDial(
@@ -184,7 +222,8 @@ class ChannelInputBottomSheet(
         range: ClosedFloatingPointRange<Double>,
         initial: Double?,
         writes: Throttle,
-        mirror: ChannelInputColumnBinding? = null
+        mirror: ChannelInputColumnBinding? = null,
+        format: (Double) -> String = ::formatDb
     ) {
         dial.min = range.start
         dial.max = range.endInclusive
@@ -193,10 +232,11 @@ class ChannelInputBottomSheet(
         // the readout shows its floor rather than a number the console
         // never sent as if it had.
         dial.value = initial ?: range.start
-        readout.setText(formatDb(dial.value))
+        readout.setText(format(dial.value))
+        formats[dial] = format
 
         dial.onValueChanged = { value ->
-            readout.setText(formatDb(value))
+            readout.setText(format(value))
             mirrorTrim(mirror, value)
             writes.turned(value, force = false)
         }
@@ -207,6 +247,8 @@ class ChannelInputBottomSheet(
 
         setUpValueBox(dial, readout, writes, mirror)
     }
+
+    private fun formatFor(dial: DialView) = formats[dial] ?: ::formatDb
 
     /**
      * Typing a value in: selected on tap (selectAllOnFocus) so typing
@@ -252,17 +294,21 @@ class ChannelInputBottomSheet(
         writes: Throttle,
         mirror: ChannelInputColumnBinding?
     ) {
-        val typed = box.text.toString().trim().replace(',', '.').toDoubleOrNull()
+        // Units in the box ("ms", "smp") are left out of the number.
+        val typed = box.text.toString().replace(',', '.')
+            .filter { it.isDigit() || it == '.' || it == '-' || it == '+' }
+            .toDoubleOrNull()
+        val format = formatFor(dial)
 
         // Not a number (or left empty) - put back what the dial is on.
         if (typed == null || !dial.isEnabled) {
-            box.setText(formatDb(dial.value))
+            box.setText(format(dial.value))
             return
         }
 
         dial.hasValue = true
         dial.value = typed.coerceIn(dial.min, dial.max)
-        box.setText(formatDb(dial.value))
+        box.setText(format(dial.value))
         mirrorTrim(mirror, dial.value)
         writes.turned(dial.value, force = true)
     }
@@ -367,6 +413,10 @@ class ChannelInputBottomSheet(
         foldDial(alt.gainDial, alt.gainValue, state.altGain, altGainWrites)
         foldDial(main.trimDial, main.trimValue, state.trim, trimWrites)
         foldDial(alt.trimDial, alt.trimValue, state.trim, trimWrites)
+        foldDial(binding.delayDial, binding.delayValue, state.delayMs, delayWrites)
+        foldDial(binding.fineDelayDial, binding.fineDelayValue, state.fineDelay, fineDelayWrites)
+
+        state.delayOn?.let { if (delayOn.reconcile(it, TOGGLE_CONFIRM_MS)) applyDelayOn() }
 
         if (phantom.reconcile(state.phantom, TOGGLE_CONFIRM_MS)) {
             applyPhantom(main.phantomButton, phantom.shown)
@@ -402,7 +452,7 @@ class ChannelInputBottomSheet(
 
             // Mid-edit, the box holds what is being typed - the dial
             // follows the console, the box catches up on commit.
-            if (!readout.hasFocus()) readout.setText(formatDb(dial.value))
+            if (!readout.hasFocus()) readout.setText(formatFor(dial)(dial.value))
         }
     }
 
@@ -537,7 +587,7 @@ class ChannelInputBottomSheet(
      * are ignored for SETTLE_MS after a turn, the same bargain the channel
      * strips strike for their faders.
      */
-    private class Throttle(private val send: (Double) -> Unit) {
+    class Throttle(private val send: (Double) -> Unit) {
         private var touchedAt = 0L
         private var sentAt = 0L
 
@@ -559,7 +609,7 @@ class ChannelInputBottomSheet(
      * until they agree or the confirm window passes, so a frame already in
      * flight cannot flip it back; after that the console's state wins.
      */
-    private class Optimistic<T>(var shown: T) {
+    class Optimistic<T>(var shown: T) {
         private var expected: T? = null
         private var sentAt = 0L
 
@@ -613,6 +663,21 @@ class ChannelInputBottomSheet(
 
         // 75% slower than DialView's default speed.
         private const val GAIN_DIAL_RATE = 0.25
+
+        // The delay's range, as the server clamps it: 0..1300 ms (the
+        // wire's 0..1.3 s), and -127..+127 samples of fine trim.
+        private val DELAY_MS_RANGE = 0.0..1300.0
+        private val FINE_DELAY_RANGE = -127.0..127.0
+
+        // A full sweep is 1.3 s, so the time dial turns slower still.
+        private const val DELAY_DIAL_RATE = 0.15
+
+        fun formatMs(value: Double) = "%.2f ms".format(value)
+
+        fun formatSamples(value: Double): String {
+            val samples = Math.round(value)
+            return if (samples > 0) "+$samples smp" else "$samples smp"
+        }
 
         fun formatDb(value: Double): String {
             val rounded = Math.round(value * 10.0) / 10.0

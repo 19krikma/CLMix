@@ -121,7 +121,23 @@ object DemoMixer {
         DemoLayoutBank(1, 0, "Rhythm", listOf(1, 2, 3, 10, 11)),
         DemoLayoutBank(1, 1, "Vox + Keys", listOf(17, 18, 19, 14, 16)),
         DemoLayoutBank(1, 2, "Playback", listOf(15, 20)),
-        DemoLayoutBank(1, 3, "DCA", emptyList())
+        DemoLayoutBank(1, 3, "DCA", listOf(20001, 10001, 10002, 10003, 10004))
+    )
+
+    /** The demo desk's non-input strips, by the id the real server gives
+     *  them (RemoteServer.STRIP_KINDS: DCA 3 is 10003, group 1 is 20001):
+     *  kind, label, name and fader level. Only the fader is driven. */
+    private class DemoOtherStrip(
+        val kind: String, val label: String, val name: String, var level: Double,
+        var muted: Boolean = false,
+    )
+
+    private val otherStrips = mutableMapOf(
+        20001 to DemoOtherStrip("Group_Outputs", "GRP 1", "MASTER", 0.0),
+        10001 to DemoOtherStrip("Control_Groups", "DCA 1", "DRUMS", -3.0),
+        10002 to DemoOtherStrip("Control_Groups", "DCA 2", "BAND", -5.0),
+        10003 to DemoOtherStrip("Control_Groups", "DCA 3", "VOX", 0.0),
+        10004 to DemoOtherStrip("Control_Groups", "DCA 4", "FX", -10.0),
     )
 
     /** What each wedge's owner most wants to hear, seeded loudest in
@@ -144,6 +160,15 @@ object DemoMixer {
         var gain: Double?,
         var trim: Double?,
         var phantom: Boolean,
+        // Channel delay: ms, in or out, and fine trim in samples.
+        var delayMs: Double = 0.0,
+        var delayOn: Boolean = false,
+        var fineDelay: Double = 0.0,
+        // The insert points, "A" and "B": in, 48V, gain, pad.
+        val inserts: MutableMap<String, InsertState> = mutableMapOf(
+            "A" to InsertState(false, false, 0.0, false),
+            "B" to InsertState(false, false, 0.0, false),
+        ),
         // The console's own enum, 0..3 - see ChannelState.phase.
         var phase: Int,
         // The alternate input slot. Null gain means no alt route patched.
@@ -553,6 +578,7 @@ object DemoMixer {
                 val level = message.optDouble("level")
                 if (mixerMode) {
                     console[channel]?.level = level
+                    otherStrips[channel]?.level = level.coerceIn(-150.0, 10.0)
                 } else {
                     currentMix()?.get(channel)?.level = level
                 }
@@ -575,6 +601,7 @@ object DemoMixer {
                 val muted = message.optBoolean("muted")
                 if (mixerMode) {
                     console[channel]?.muted = muted
+                    otherStrips[channel]?.muted = muted
                 } else {
                     currentMix()?.get(channel)?.muted = muted
                 }
@@ -601,6 +628,35 @@ object DemoMixer {
 
             "set_trim" -> if (mixerMode) {
                 console[message.optInt("channel")]?.trim = message.optDouble("trim")
+            }
+
+            "set_delay" -> if (mixerMode) {
+                console[message.optInt("channel")]?.delayMs =
+                    message.optDouble("delay_ms").coerceIn(0.0, 1300.0)
+            }
+
+            "set_insert" -> if (mixerMode) {
+                val strip = console[message.optInt("channel")]
+                val slot = message.optString("slot")
+                val current = strip?.inserts?.get(slot)
+                if (strip != null && current != null) {
+                    strip.inserts[slot] = when (message.optString("param")) {
+                        "in" -> current.copy(inOn = message.optBoolean("value"))
+                        "phantom" -> current.copy(phantom = message.optBoolean("value"))
+                        "pad" -> current.copy(pad = message.optBoolean("value"))
+                        "gain" -> current.copy(gain = message.optDouble("value").coerceIn(-20.0, 60.0))
+                        else -> current
+                    }
+                }
+            }
+
+            "set_delay_on" -> if (mixerMode) {
+                console[message.optInt("channel")]?.delayOn = message.optBoolean("delay_on")
+            }
+
+            "set_fine_delay" -> if (mixerMode) {
+                console[message.optInt("channel")]?.fineDelay =
+                    message.optDouble("fine_delay").coerceIn(-127.0, 127.0)
             }
 
             "set_phantom" -> if (mixerMode) {
@@ -1166,10 +1222,33 @@ object DemoMixer {
         return catalog.filter { it.bank == bank }
     }
 
+    private fun demoInsertJson(insert: InsertState?): JSONObject = JSONObject()
+        .put("in", insert?.inOn ?: false)
+        .put("phantom", insert?.phantom ?: false)
+        .put("gain", insert?.gain ?: 0.0)
+        .put("pad", insert?.pad ?: false)
+
     private fun pushLevels() {
         val channels = JSONArray()
 
         if (mixerMode) {
+            // The bank's DCA and master strips, fader and name only - see
+            // otherStrips. Ahead of its inputs, as the DCA bank is laid out.
+            surface.firstOrNull { it.id == selectedBank }?.channels?.forEach { id ->
+                val other = otherStrips[id] ?: return@forEach
+                channels.put(
+                    JSONObject()
+                        .put("channel", id)
+                        .put("name", other.name)
+                        .put("level", other.level)
+                        .put("pan", JSONObject.NULL)
+                        .put("muted", other.muted)
+                        .put("stereo", false)
+                        .put("kind", other.kind)
+                        .put("label", other.label)
+                )
+            }
+
             // The same row shape, read off the channel itself: the
             // console's own fader, panner and mute, plus the input stage
             // behind them. Carries the sentinel aux the real server
@@ -1186,6 +1265,11 @@ object DemoMixer {
                         .put("stereo", entry.stereo)
                         .put("gain", strip.gain ?: JSONObject.NULL)
                         .put("trim", strip.trim ?: JSONObject.NULL)
+                        .put("delay_ms", strip.delayMs)
+                        .put("delay_on", strip.delayOn)
+                        .put("fine_delay", strip.fineDelay)
+                        .put("insert_a", demoInsertJson(strip.inserts["A"]))
+                        .put("insert_b", demoInsertJson(strip.inserts["B"]))
                         .put("phantom", strip.phantom)
                         .put("phase_state", strip.phase)
                         .put("alt_gain", strip.altGain ?: JSONObject.NULL)

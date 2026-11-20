@@ -72,6 +72,13 @@ class ChatWindow:
                 spacing1=2, spacing3=2,
             )
         self.text.tag_configure("name", font=(family, 10, "bold"))
+
+        # The Leader pill (see _leader_badge): the phones draw it at 11
+        # against a 13 name, so the same ratio here against a 10 one.
+        self.badge_font = tkfont.Font(family=family, size=8, weight="bold")
+        self.badge_pad_x = 7
+        self.badge_pad_y = 1
+        self.pill_images = {}
         self.text.tag_configure("meta", foreground=META_FG, font=(family, 9))
         self.text.tag_configure("gap", font=(family, 4))
 
@@ -143,9 +150,82 @@ class ChatWindow:
         at = time.strftime("%H:%M", time.localtime(message["time"]))
 
         self.text.insert("end", message["name"] or "?", (tag, "name"))
+
+        if message.get("leader"):
+            # Spaced and placed as on the phones: name, badge, time.
+            self.text.insert("end", " ", (tag,))
+            self.text.window_create("end", window=self._leader_badge(message),
+                                    align="center")
+            self.text.tag_add(tag, "end-2c")
         self.text.insert("end", f"   {at}\n", (tag, "meta"))
         self.text.insert("end", message["text"] + "\n", (tag,))
         self.text.insert("end", "\n", ("gap",))
+
+    def _leader_badge(self, message):
+        """The "★ Leader" pill, drawn to match the phones' (LeaderBadge on
+        Android and iOS): the leader's colour with fully round ends, bold
+        text in dark ink on light colours and white on dark ones.
+
+        A Text tag can only paint a square block behind text, so the pill
+        is an image - anti-aliased by hand, since Tk's canvas draws
+        jagged curves and Pillow isn't a dependency - with the label's
+        own text laid over it. Sized from the font, so it keeps the
+        phones' proportions: about 85% of the name's size, with a little
+        more room either side than above and below.
+        """
+        color = message.get("leader_color") or "#D4AF37"
+        try:
+            rgb = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+        except (ValueError, TypeError):
+            color, rgb = "#D4AF37", (0xD4, 0xAF, 0x37)
+        luma = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+        ink = "#1A1A1A" if luma > 150 else "#FFFFFF"
+
+        text = "\u2605 Leader"
+        width = self.badge_font.measure(text) + 2 * self.badge_pad_x
+        height = self.badge_font.metrics("linespace") + 2 * self.badge_pad_y
+
+        return tk.Label(
+            self.text, text=text, image=self._pill_image(rgb, width, height),
+            compound="center", fg=ink, bg=BUBBLE_BG, font=self.badge_font,
+            bd=0, padx=0, pady=0, highlightthickness=0, cursor="arrow",
+        )
+
+    def _pill_image(self, rgb, width, height):
+        """A capsule in rgb on the bubble's background, kept per size and
+        colour - Tk drops an image nothing holds a reference to."""
+        key = (rgb, width, height)
+        image = self.pill_images.get(key)
+
+        if image is not None:
+            return image
+
+        bg = tuple(int(BUBBLE_BG[i:i + 2], 16) for i in (1, 3, 5))
+        radius = height / 2
+        samples = (0.125, 0.375, 0.625, 0.875)
+        rows = []
+
+        for y in range(height):
+            row = []
+            for x in range(width):
+                # How much of this pixel the capsule covers, 4x4 sampled.
+                covered = 0
+                for sy in samples:
+                    py = y + sy
+                    for sx in samples:
+                        px = x + sx
+                        cx = min(max(px, radius), width - radius)
+                        if (px - cx) ** 2 + (py - radius) ** 2 <= radius * radius:
+                            covered += 1
+                a = covered / 16
+                row.append("#%02x%02x%02x" % tuple(
+                    round(f * a + b * (1 - a)) for f, b in zip(rgb, bg)))
+            rows.append("{" + " ".join(row) + "}")
+
+        image = tk.PhotoImage(master=self.text, width=width, height=height)
+        image.put(" ".join(rows))
+        self.pill_images[key] = image
+        return image
 
     def show(self):
         self.window.deiconify()

@@ -21,12 +21,18 @@ final class AppModel: NSObject, ObservableObject {
 
             // However the session ended - logout, a dropped socket, a
             // rejection - a sync it was waiting on is moot.
-            if screen == .connect { endSync() }
+            if screen == .connect {
+                endSync()
+                sosAlerts = []
+            }
         }
     }
     /// The desktop is resyncing with the console - see mixerDidReceiveSync.
     /// CLMixApp puts the "Server Syncing" cover up while it is set.
     @Published var serverSyncing = false
+    /// The resync is over and the screen is pulling its new info - the
+    /// cover stays up, saying so, until it arrives.
+    @Published var syncLoading = false
     /// What became of the last SOS, shown briefly by SosButton; nil when
     /// there is nothing to say.
     @Published var sosNotice: String?
@@ -36,6 +42,9 @@ final class AppModel: NSObject, ObservableObject {
     /// What the SOS card offers - the server's list, see
     /// mixerDidReceiveSosOptions.
     @Published var sosOptions: [SosOption] = SosOption.builtIn
+    /// Open SOS calls, oldest first, for this phone to clear - only ever
+    /// filled for an account holding Mixer Control. See SosAlertCover.
+    @Published var sosAlerts: [SosAlert] = []
     /// The shared chat, oldest first - see ChatView. Kept while the chat
     /// is closed so it opens with what was said meanwhile.
     @Published var chatMessages: [ChatMessage] = []
@@ -57,6 +66,11 @@ final class AppModel: NSObject, ObservableObject {
     private var sosNoticeTask: Task<Void, Never>?
     private var syncShownAt = Date.distantPast
     private var syncEndTask: Task<Void, Never>?
+    /// Brings the cover down if the new info never arrives.
+    private var syncGiveUpTask: Task<Void, Never>?
+    /// If the new info never arrives (an older desktop, a dropped
+    /// frame), the cover comes down after this anyway.
+    private static let syncLoadTimeout: TimeInterval = 8
     @Published var statusMessage = ""
     // True while statusMessage describes a failure rather than progress -
     // ConnectView reads it to color the message red instead of secondary.
@@ -672,6 +686,22 @@ final class AppModel: NSObject, ObservableObject {
         backend.setTrim(channel: channel, trim: trim)
     }
 
+    func setDelay(channel: Int, delayMs: Double) {
+        backend.setDelay(channel: channel, delayMs: delayMs)
+    }
+
+    func setDelayOn(channel: Int, on: Bool) {
+        backend.setDelayOn(channel: channel, on: on)
+    }
+
+    func setInsert(channel: Int, slot: String, param: String, value: Any) {
+        backend.setInsert(channel: channel, slot: slot, param: param, value: value)
+    }
+
+    func setFineDelay(channel: Int, samples: Int) {
+        backend.setFineDelay(channel: channel, samples: samples)
+    }
+
     func setPhantom(channel: Int, phantom: Bool) {
         backend.setPhantom(channel: channel, phantom: phantom)
     }
@@ -857,6 +887,11 @@ final class AppModel: NSObject, ObservableObject {
                               newPassword: newPassword, currentPassword: currentPassword)
     }
 
+    func setLeaderColor(_ hex: String, completion: @escaping (Bool, String?) -> Void) {
+        pendingProfileCompletion = completion
+        backend.setLeaderColor(hex)
+    }
+
     func setProfilePicture(_ base64: String?, completion: @escaping (Bool, String?) -> Void) {
         pendingProfileCompletion = completion
         backend.setProfilePicture(base64)
@@ -1039,6 +1074,33 @@ extension AppModel: MixerClientDelegate {
         sosOptions = options ?? SosOption.builtIn
     }
 
+    func mixerDidReceiveSosAlerts(_ alerts: [SosAlert]) {
+        sosAlerts = alerts
+    }
+
+    func mixerDidReceiveSosAlert(_ alert: SosAlert) {
+        // Asking again updates the one already open, in its place.
+        if let index = sosAlerts.firstIndex(where: { $0.id == alert.id }) {
+            sosAlerts[index] = alert
+        } else {
+            sosAlerts.append(alert)
+        }
+    }
+
+    func mixerDidClearSos(id: Int, by: String) {
+        // Gone already if this phone cleared it; otherwise say who did.
+        guard let index = sosAlerts.firstIndex(where: { $0.id == id }) else { return }
+        sosAlerts.remove(at: index)
+        flashNotice("SOS cleared by \(by.isEmpty ? "another sound tech" : by)")
+    }
+
+    /// Clear on the SOS cover: gone here at once, and from every other
+    /// sound tech's phone and the desktop through the server.
+    func clearSos(_ alert: SosAlert) {
+        sosAlerts.removeAll { $0.id == alert.id }
+        backend.clearSos(id: alert.id)
+    }
+
     func mixerDidSendSos() {
         guard sosPending else { return }
         finishSos("SOS sent - the sound engineer has been notified")
@@ -1081,6 +1143,15 @@ extension AppModel: MixerClientDelegate {
         if syncing {
             syncEndTask?.cancel()
             syncEndTask = nil
+            syncGiveUpTask?.cancel()
+            syncGiveUpTask = nil
+            syncLoading = false
+
+            // Where it lands depends on where it was: Mixer Control stays
+            // on Mixer Control - the console's own channels are still its
+            // own after a resync - while an aux mixer goes back to the
+            // aux list, since that aux may have been renamed or hidden.
+            let stayOnMixerControl = screen == .mixerControl
 
             if !serverSyncing {
                 serverSyncing = true
@@ -1097,11 +1168,11 @@ extension AppModel: MixerClientDelegate {
             awaitingAuxes = false
             slidingToAux = false
             MeterCenter.shared.clear()
-            screen = mixerControlAllowed ? .mixerControl : .auxList
+            screen = stayOnMixerControl ? .mixerControl : .auxList
             return
         }
 
-        guard serverSyncing, syncEndTask == nil else { return }
+        guard serverSyncing, !syncLoading, syncEndTask == nil else { return }
 
         let wait = max(0, Self.minSyncShown - Date().timeIntervalSince(syncShownAt))
         syncEndTask = Task { [weak self] in
@@ -1109,7 +1180,16 @@ extension AppModel: MixerClientDelegate {
             guard let self, !Task.isCancelled else { return }
 
             self.syncEndTask = nil
-            self.serverSyncing = false
+
+            // The cover stays up until the screen has its new info -
+            // see syncDataArrived - so nothing is touched while it still
+            // shows the old layout.
+            self.syncLoading = true
+            self.syncGiveUpTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(Self.syncLoadTimeout * 1_000_000_000))
+                guard let self, !Task.isCancelled else { return }
+                self.endSync()
+            }
 
             if self.screen == .auxList {
                 self.backend.requestAuxes()
@@ -1122,9 +1202,18 @@ extension AppModel: MixerClientDelegate {
         }
     }
 
+    /// The screen's new info is here: the cover can come down.
+    private func syncDataArrived(for arrived: AppScreen) {
+        guard syncLoading, screen == arrived else { return }
+        endSync()
+    }
+
     private func endSync() {
         syncEndTask?.cancel()
         syncEndTask = nil
+        syncGiveUpTask?.cancel()
+        syncGiveUpTask = nil
+        syncLoading = false
         serverSyncing = false
     }
 
@@ -1293,6 +1382,7 @@ extension AppModel: MixerClientDelegate {
 
     func mixerDidReceiveAuxes(_ auxes: [AuxBus]) {
         self.auxes = auxes
+        syncDataArrived(for: .auxList)
 
         // The list is kept whenever it arrives, since the mixer screen's
         // aux sheet reads it - but only a screen that asked for it is
@@ -1397,6 +1487,7 @@ extension AppModel: MixerClientDelegate {
             // socket switched modes, which would otherwise paint send
             // levels onto these console faders for one frame.
             guard aux == MixerClient.mixerAux else { return }
+            syncDataArrived(for: .mixerControl)
         case .mixer(let currentAux):
             guard currentAux.index == aux else { return }
         default:

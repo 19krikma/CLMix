@@ -398,6 +398,21 @@ def build_layout(banks):
         for side in LAYOUT_SIDES:
             layout.append([bank_name, side, layer, position] + slots)
 
+    # A bank of the desk's other strips, as a real surface has: the
+    # groups (the first is the master) and the DCAs - so Full Mixer
+    # Control's faders for them have something to drive.
+    layer, position = divmod(len(banks), LAYOUT_BANKS_PER_LAYER)
+    masters = [("Group_Outputs", n) for n in range(1, MOCK_BUS_COUNTS["Group_Outputs"] + 1)]
+    masters += [("Control_Groups", n) for n in range(1, MOCK_BUS_COUNTS["Control_Groups"] + 1)]
+    slots = []
+    for fader in range(LAYOUT_FADERS):
+        if fader < len(masters):
+            slots += list(masters[fader])
+        else:
+            slots += ["", 0]
+    for side in LAYOUT_SIDES:
+        layout.append(["Masters", side, layer, position] + slots)
+
     return layout
 
 

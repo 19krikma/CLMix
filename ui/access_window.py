@@ -77,7 +77,7 @@ class AccessPanel:
         self.filter_combo.bind("<<ComboboxSelected>>", self.on_filter_changed)
 
         columns = ("username", "name", "snapshot", "aux", "presets", "mute", "mixer",
-                   "personalization")
+                   "personalization", "leader")
         self.tree = ttk.Treeview(
             self.container, columns=columns, show="headings", height=10
         )
@@ -89,6 +89,7 @@ class AccessPanel:
         self.tree.heading("mute", text="Mute Access")
         self.tree.heading("mixer", text="Mixer Control")
         self.tree.heading("personalization", text="Personalization")
+        self.tree.heading("leader", text="Leader")
         self.tree.column("username", width=120)
         self.tree.column("name", width=140)
         self.tree.column("snapshot", width=130)
@@ -97,6 +98,7 @@ class AccessPanel:
         self.tree.column("mute", width=80, anchor="center")
         self.tree.column("mixer", width=90, anchor="center")
         self.tree.column("personalization", width=100, anchor="center")
+        self.tree.column("leader", width=120)
         self.tree.pack(fill="both", expand=True, padx=10, pady=10)
         self.tree.bind("<Double-1>", lambda event: self.edit_user())
 
@@ -156,6 +158,8 @@ class AccessPanel:
                     "Yes" if record.get("mute", True) else "No",
                     "Yes" if record.get("mixer_control", False) else "No",
                     "Yes" if record.get("personalization", False) else "No",
+                    f"\u2605 {record['leader_snapshot']}"
+                    if record.get("leader") and record.get("leader_snapshot") else "",
                 )
             )
 
@@ -346,8 +350,43 @@ class UserEditDialog:
             frame, variable=self.personalization_var
         ).grid(row=9, column=1, sticky="w", padx=5, pady=(0, 5))
 
+        # Leader of one snapshot: on top of their own auxes, this account
+        # gets every aux the other accounts on that snapshot have been
+        # given, and its chat messages carry a "★ Leader" badge - both
+        # only while that snapshot is live. The badge's colour is the
+        # leader's to pick from their phone's profile screen.
+        ttk.Label(frame, text="Leader \u2605").grid(row=10, column=0, sticky="w")
+        leader_row = ttk.Frame(frame)
+        leader_row.grid(row=10, column=1, sticky="w", padx=5, pady=(0, 5))
+
+        self.leader_var = tk.BooleanVar(
+            value=bool(record.get("leader")) if record else False
+        )
+        ttk.Checkbutton(
+            leader_row, variable=self.leader_var, command=self.on_leader_toggled
+        ).pack(side="left")
+
+        leader_options = [name for name in snapshot_options if name != ALL_SNAPSHOTS]
+        current_led = record.get("leader_snapshot", "") if record else ""
+        if current_led and current_led not in leader_options:
+            # Led snapshot not reported by the console right now (or no
+            # console at all) - still offered, so an edit can't lose it.
+            leader_options.insert(0, current_led)
+
+        self.leader_combo = ttk.Combobox(
+            leader_row, width=18, values=leader_options, state="readonly"
+        )
+        self.leader_combo.pack(side="left", padx=(4, 0))
+        self.leader_combo.set(current_led)
+
+        ttk.Label(
+            frame, font=("TkDefaultFont", 8),
+            text="Leader sees every aux the other accounts on that snapshot have.",
+        ).grid(row=11, column=1, sticky="w", padx=5)
+        self.on_leader_toggled()
+
         ttk.Label(frame, text="Aux Access").grid(
-            row=10, column=0, sticky="nw", pady=(10, 0)
+            row=12, column=0, sticky="nw", pady=(10, 0)
         )
 
         current_aux = record["aux"] if record else ALL_AUX
@@ -355,7 +394,7 @@ class UserEditDialog:
         selected_names = set() if all_selected else set(current_aux or [])
 
         aux_frame = ttk.Frame(frame)
-        aux_frame.grid(row=10, column=1, sticky="w", padx=5, pady=(10, 5))
+        aux_frame.grid(row=12, column=1, sticky="w", padx=5, pady=(10, 5))
 
         self.all_aux_var = tk.BooleanVar(value=all_selected)
         ttk.Checkbutton(
@@ -384,12 +423,23 @@ class UserEditDialog:
             self.aux_checkbuttons[name] = checkbutton
 
         btn_bar = ttk.Frame(frame)
-        btn_bar.grid(row=11, column=0, columnspan=2, pady=(15, 0))
+        btn_bar.grid(row=13, column=0, columnspan=2, pady=(15, 0))
 
         ttk.Button(btn_bar, text="Save", command=self.save).pack(side="left", padx=5)
         ttk.Button(
             btn_bar, text="Cancel", command=self.window.destroy
         ).pack(side="left")
+
+    def on_leader_toggled(self):
+        on = self.leader_var.get()
+        self.leader_combo.config(state="readonly" if on else "disabled")
+
+        # A new leader is most likely leading the show they are scoped
+        # to, so start there.
+        if on and not self.leader_combo.get():
+            snapshot = self.snapshot_combo.get().strip()
+            if snapshot and snapshot != ALL_SNAPSHOTS:
+                self.leader_combo.set(snapshot)
 
     def on_all_aux_toggled(self):
         state = "disabled" if self.all_aux_var.get() else "normal"
@@ -428,6 +478,25 @@ class UserEditDialog:
                 )
                 return
 
+        leader = self.leader_var.get()
+        leader_snapshot = self.leader_combo.get().strip() if leader else ""
+
+        if leader and not leader_snapshot:
+            messagebox.showerror(
+                "Leader", "Pick the snapshot this account leads.", parent=self.window
+            )
+            return
+
+        if leader and snapshot not in (ALL_SNAPSHOTS, leader_snapshot):
+            messagebox.showerror(
+                "Leader",
+                f"This account can only log in on '{snapshot}', so it can't "
+                f"lead '{leader_snapshot}'. Lead '{snapshot}' or widen its "
+                "Snapshot Access.",
+                parent=self.window
+            )
+            return
+
         if self.username and not self.user_store.get(self.username):
             messagebox.showerror(
                 "Account changed",
@@ -443,7 +512,8 @@ class UserEditDialog:
             mixer_control=self.mixer_var.get(),
             personalization=self.personalization_var.get(),
             first_name=self.first_name_entry.get(),
-            last_name=self.last_name_entry.get()
+            last_name=self.last_name_entry.get(),
+            leader=leader, leader_snapshot=leader_snapshot,
         )
 
         if self.on_saved:

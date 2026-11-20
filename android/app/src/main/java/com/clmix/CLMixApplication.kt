@@ -11,6 +11,7 @@ class CLMixApplication : Application() {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         MixerClient.init(this)
         registerActivityLifecycleCallbacks(ServerSync)
+        registerActivityLifecycleCallbacks(SosAlerts)
         Sos.init(this)
         Chat.init(this)
     }

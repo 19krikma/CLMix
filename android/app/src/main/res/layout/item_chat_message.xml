@@ -44,6 +44,20 @@
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
+                <!-- "★ Leader", for the live snapshot's Leader - see
+                     LeaderBadge. -->
+                <TextView
+                    android:id="@+id/leader_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="6dp"
+                    android:paddingHorizontal="7dp"
+                    android:paddingVertical="1dp"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
                 <TextView
                     android:id="@+id/time"
                     android:layout_width="wrap_content"

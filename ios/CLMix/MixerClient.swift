@@ -49,6 +49,11 @@ protocol MixerClientDelegate: AnyObject {
     /// snapshot with its own list, or an edit on the desktop). Nil from a
     /// desktop too old to send any, which keeps the built-in three.
     func mixerDidReceiveSosOptions(_ options: [SosOption]?)
+    /// Open SOS calls for a sound tech to clear: all of them at login,
+    /// then each new one, then each cleared - see SosAlertCover.
+    func mixerDidReceiveSosAlerts(_ alerts: [SosAlert])
+    func mixerDidReceiveSosAlert(_ alert: SosAlert)
+    func mixerDidClearSos(id: Int, by: String)
     /// The SOS did not go - `message` is the server's reason.
     func mixerDidFailSos(message: String)
     /// The shared chat so far, oldest first.
@@ -107,6 +112,14 @@ protocol MixerBackend: AnyObject {
     func setDynamics(channel: Int, _ write: DynWrite)
     func setGain(channel: Int, gain: Double)
     func setTrim(channel: Int, trim: Double)
+    /// Channel delay in ms - the server puts it on the wire in seconds.
+    func setDelay(channel: Int, delayMs: Double)
+    func setDelayOn(channel: Int, on: Bool)
+    /// One setting of an insert point: slot "A" or "B"; param "in",
+    /// "phantom" or "pad" with a Bool, or "gain" with dB.
+    func setInsert(channel: Int, slot: String, param: String, value: Any)
+    /// Fine delay in samples, -127...127.
+    func setFineDelay(channel: Int, samples: Int)
     func setPhantom(channel: Int, phantom: Bool)
     func setAltGain(channel: Int, gain: Double)
     func setAltPhantom(channel: Int, phantom: Bool)
@@ -119,6 +132,8 @@ protocol MixerBackend: AnyObject {
     /// An SOS to the sound engineer; `reason` is the id of one of the
     /// options the server sent. See SosButton.
     func sendSos(reason: String)
+    /// A sound tech clearing an SOS - for every phone and the desktop.
+    func clearSos(id: Int)
     /// The shared chat - answered with the history. See ChatView.
     func requestChatHistory()
     /// A message to everyone; it comes back like anyone's.
@@ -131,6 +146,8 @@ protocol MixerBackend: AnyObject {
                        newPassword: String?, currentPassword: String?)
     /// A base64 JPEG for this account's picture, or nil to remove it.
     func setProfilePicture(_ base64: String?)
+    /// A Leader's badge colour, "#RRGGBB" - answered like any profile edit.
+    func setLeaderColor(_ hex: String)
     /// Chat senders' pictures - each answered with a "picture".
     func requestPictures(users: [String])
     func requestPresets()
@@ -464,6 +481,23 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "set_trim", "channel": channel, "trim": trim])
     }
 
+    func setDelay(channel: Int, delayMs: Double) {
+        send(["action": "set_delay", "channel": channel, "delay_ms": delayMs])
+    }
+
+    func setDelayOn(channel: Int, on: Bool) {
+        send(["action": "set_delay_on", "channel": channel, "delay_on": on])
+    }
+
+    func setInsert(channel: Int, slot: String, param: String, value: Any) {
+        send(["action": "set_insert", "channel": channel, "slot": slot,
+              "param": param, "value": value])
+    }
+
+    func setFineDelay(channel: Int, samples: Int) {
+        send(["action": "set_fine_delay", "channel": channel, "fine_delay": samples])
+    }
+
     func setPhantom(channel: Int, phantom: Bool) {
         send(["action": "set_phantom", "channel": channel, "phantom": phantom])
     }
@@ -532,6 +566,10 @@ final class MixerClient: NSObject, MixerBackend {
         send(["action": "sos", "reason": reason])
     }
 
+    func clearSos(id: Int) {
+        send(["action": "sos_clear", "id": id])
+    }
+
     func requestChatHistory() {
         send(["action": "chat_history"])
     }
@@ -557,6 +595,10 @@ final class MixerClient: NSObject, MixerBackend {
 
     func requestPictures(users: [String]) {
         send(["action": "get_pictures", "users": users])
+    }
+
+    func setLeaderColor(_ hex: String) {
+        send(["action": "update_profile", "leader_color": hex])
     }
 
     func setProfilePicture(_ base64: String?) {
@@ -698,6 +740,10 @@ final class MixerClient: NSObject, MixerBackend {
                         (json["sos_options"] as? [[String: Any]])?
                             .compactMap(SosOption.init(json:))
                     )
+                    delegate?.mixerDidReceiveSosAlerts(
+                        (json["sos_alerts"] as? [[String: Any]] ?? [])
+                            .compactMap(SosAlert.init(json:))
+                    )
                 }
                 delegate?.mixerDidReceiveLoginResult(
                     ok: ok, message: json["message"] as? String, token: token
@@ -779,6 +825,13 @@ final class MixerClient: NSObject, MixerBackend {
                         stereo: entry["stereo"] as? Bool ?? false,
                         gain: entry["gain"] as? Double,
                         trim: entry["trim"] as? Double,
+                        delayMs: entry["delay_ms"] as? Double,
+                        delayOn: entry["delay_on"] as? Bool,
+                        fineDelay: entry["fine_delay"] as? Double,
+                        insertA: (entry["insert_a"] as? [String: Any]).map(InsertState.init(json:)),
+                        insertB: (entry["insert_b"] as? [String: Any]).map(InsertState.init(json:)),
+                        kind: (entry["kind"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                        label: (entry["label"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                         phantom: entry["phantom"] as? Bool ?? false,
                         // phase_state is the console's value, 0...3. An
                         // older server sends only the "phase" bool, which
@@ -869,6 +922,17 @@ final class MixerClient: NSObject, MixerBackend {
 
             case "sos_sent":
                 delegate?.mixerDidSendSos()
+
+            case "sos_alert":
+                if let entry = json["alert"] as? [String: Any],
+                   let alert = SosAlert(json: entry) {
+                    delegate?.mixerDidReceiveSosAlert(alert)
+                }
+
+            case "sos_cleared":
+                if let id = json["id"] as? Int {
+                    delegate?.mixerDidClearSos(id: id, by: json["by"] as? String ?? "")
+                }
 
             case "sos_options":
                 let entries = json["options"] as? [[String: Any]] ?? []

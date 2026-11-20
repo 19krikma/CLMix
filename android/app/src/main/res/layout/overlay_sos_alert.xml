@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An SOS a performer sent, on a sound tech's phone - see SosAlerts.
+     Laid over the screen's own content, like the Server Syncing card, and
+     taking every touch: it stays until a sound tech clears it, here or
+     anywhere else. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#B3000000"
+    android:clickable="true"
+    android:elevation="40dp"
+    android:focusable="true">
+
+    <LinearLayout
+        android:id="@+id/sos_card"
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingHorizontal="24dp"
+        android:paddingTop="22dp"
+        android:paddingBottom="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SOS"
+            android:textColor="@android:color/white"
+            android:textSize="40sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/sos_reason"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:textColor="@android:color/white"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            tools:text="DEAD BATTERY" />
+
+        <TextView
+            android:id="@+id/sos_from"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:textColor="@android:color/white"
+            android:textSize="15sp"
+            tools:text="from Alex Rivera" />
+
+        <TextView
+            android:id="@+id/sos_details"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:alpha="0.85"
+            android:gravity="center"
+            android:textColor="@android:color/white"
+            android:textSize="13sp"
+            tools:text="Wedge 1 · at 19:42" />
+
+        <TextView
+            android:id="@+id/sos_more"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:alpha="0.85"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:text="+1 more SOS waiting" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/sos_clear_button"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="18dp"
+            android:text="Clear"
+            android:textColor="#C62828"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:backgroundTint="@android:color/white"
+            app:cornerRadius="12dp" />
+
+    </LinearLayout>
+
+</FrameLayout>

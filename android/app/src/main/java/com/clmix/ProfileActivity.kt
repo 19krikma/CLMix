@@ -130,6 +130,7 @@ class ProfileActivity : AppCompatActivity(), MixerClientListener {
         shown = profile
 
         binding.picture.showProfilePicture(profile.picture)
+        showLeader(profile)
         binding.removePictureButton.isVisible = profile.picture != null
 
         // Text fields are refilled only when what the server holds
@@ -144,6 +145,48 @@ class ProfileActivity : AppCompatActivity(), MixerClientListener {
             binding.usernameInput.setText(profile.username)
         }
         onEdited()
+    }
+
+    /** The Leader section: the badge, what it leads, and a swatch per
+     *  colour with the chosen one ringed. */
+    private fun showLeader(profile: AccountProfile) {
+        binding.leaderSection.isVisible = profile.leader
+        if (!profile.leader) return
+
+        val chosen = LeaderBadge.parse(profile.leaderColor)
+        LeaderBadge.style(binding.leaderBadgePreview, chosen)
+        binding.leaderSnapshotLabel.text = "of ${profile.leaderSnapshot}"
+
+        val density = resources.displayMetrics.density
+        val size = (36 * density).toInt()
+        val row = binding.leaderColors
+        row.removeAllViews()
+
+        LeaderBadge.PALETTE.forEach { hex ->
+            val color = LeaderBadge.parse(hex)
+            val selected = color == chosen
+            val swatch = android.view.View(this).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(size, size).apply {
+                    marginEnd = (10 * density).toInt()
+                }
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(color)
+                    if (selected) {
+                        setStroke((3 * density).toInt(),
+                            ContextCompat.getColor(context, R.color.on_surface))
+                    }
+                }
+                contentDescription = if (selected) "Badge colour $hex, chosen" else "Badge colour $hex"
+                setOnClickListener {
+                    if (!selected) {
+                        setStatus("Saving…", error = false)
+                        MixerClient.setLeaderColor(hex)
+                    }
+                }
+            }
+            row.addView(swatch)
+        }
     }
 
     private fun text(input: com.google.android.material.textfield.TextInputEditText) =

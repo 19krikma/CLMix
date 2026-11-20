@@ -107,6 +107,9 @@ struct ChatView: View {
                 HStack(spacing: 8) {
                     Text(message.name)
                         .font(.system(size: 13, weight: .bold))
+                    if message.leader {
+                        LeaderBadge(hex: message.leaderColor)
+                    }
                     Text(message.time, style: .time)
                         .font(.system(size: 12))
                         .opacity(0.7)

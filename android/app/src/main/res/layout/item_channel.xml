@@ -116,6 +116,54 @@
         android:visibility="gone"
         tools:visibility="visible" />
 
+    <!-- The channel's insert points A and B (DiGiCo's Send A / Send B),
+         stacked A over B, each lit while that insert is in. Either opens the Inserts sheet.
+         Full Mixer Control only, like the EQ and dynamics above - and,
+         like them, taking its height from the fader row. -->
+    <LinearLayout
+        android:id="@+id/insert_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="6dp"
+        android:orientation="vertical"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/insert_a_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="26dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp"
+            android:text="INS A"
+            android:textSize="11sp"
+            app:cornerRadius="6dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/insert_b_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="26dp"
+            android:layout_marginTop="4dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp"
+            android:text="INS B"
+            android:textSize="11sp"
+            app:cornerRadius="6dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
+
+    </LinearLayout>
+
     <LinearLayout
         android:id="@+id/fader_row"
         android:layout_width="match_parent"
@@ -123,6 +171,18 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:clipChildren="false">
+
+        <!-- On a short screen (a phone on its side) ChannelAdapter moves
+             the EQ, dynamics and insert buttons in here, beside the fader
+             rather than above it, so the fader keeps its full length.
+             Empty and gone otherwise - see ChannelAdapter.sideControls. -->
+        <LinearLayout
+            android:id="@+id/side_column"
+            android:layout_width="52dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="4dp"
+            android:orientation="vertical"
+            android:visibility="gone" />
 
         <!-- Wider than the space it occupies: the negative end margin
              lets the tick lines run on past the ruler's own column and

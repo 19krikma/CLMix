@@ -33,6 +33,18 @@ data class BankChannel(
     val name: String
 ) : Serializable
 
+/**
+ * One of a channel's two insert points (DiGiCo's Send A / Send B): whether
+ * it is in, and the return's own head amp - 48V, gain in dB and pad. Each
+ * is null until the console has answered for it.
+ */
+data class InsertState(
+    val inOn: Boolean? = null,
+    val phantom: Boolean? = null,
+    val gain: Double? = null,
+    val pad: Boolean? = null,
+) : Serializable
+
 data class ChannelState(
     val channel: Int,
     val name: String,
@@ -54,6 +66,19 @@ data class ChannelState(
     // the console has answered for this channel.
     val gain: Double? = null,
     val trim: Double? = null,
+
+    // The channel delay behind the trim: its time in ms (the server
+    // converts from the wire's seconds), whether it is switched in, and
+    // the fine trim in samples. Null until the console answers, or from
+    // a server too old to send them.
+    val delayMs: Double? = null,
+    val delayOn: Boolean? = null,
+    val fineDelay: Double? = null,
+
+    // The insert points A and B - see InsertState. Null from a server
+    // too old to send them.
+    val insertA: InsertState? = null,
+    val insertB: InsertState? = null,
 
     // 48V on the channel's main input. False rather than null when the
     // console has not answered yet: phantom off is the safe reading, and
@@ -103,9 +128,19 @@ data class ChannelState(
 
     // What the COMP and GATE thumbnails draw: each section's in/out and
     // the settings that shape its static curve. Mixer mode only.
-    val dynamics: ChannelDynamics? = null
+    val dynamics: ChannelDynamics? = null,
+
+    // Not an input channel: a DCA, group (the master among them), aux,
+    // matrix or multi on a Mixer Control bank. "kind" is the console's
+    // category for it and "label" what the strip shows above its name,
+    // e.g. "DCA 3". Its fader and mute are driven so far. Null for an input.
+    val kind: String? = null,
+    val label: String? = null,
 ) {
     val phaseInverted: Boolean get() = phase != PHASE_NORMAL
+
+    /** An input channel, with everything Mixer Control has for one. */
+    val isInput: Boolean get() = kind == null || kind == "Input_Channels"
 }
 
 // Polarity states. Only the two named ones are ever written by this app;

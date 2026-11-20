@@ -131,6 +131,46 @@ struct ProfileView: View {
                     .listRowBackground(Color.clear)
                 }
 
+                if let profile, profile.leader {
+                    Section {
+                        HStack(spacing: 10) {
+                            LeaderBadge(hex: profile.leaderColor, fontSize: 13)
+                            Text("of \(profile.leaderSnapshot)")
+                                .foregroundStyle(Color.clmixOnSurface)
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(LeaderBadge.palette, id: \.self) { hex in
+                                    let chosen = hex.caseInsensitiveCompare(profile.leaderColor) == .orderedSame
+                                    Button {
+                                        guard !chosen else { return }
+                                        show("Saving…", error: false)
+                                        model.setLeaderColor(hex) { ok, message in
+                                            show(ok ? "Badge colour saved"
+                                                 : (message ?? "Couldn't save the colour"),
+                                                 error: !ok)
+                                        }
+                                    } label: {
+                                        Circle()
+                                            .fill(LeaderBadge.color(hex))
+                                            .frame(width: 36, height: 36)
+                                            .overlay(Circle().stroke(Color.clmixOnSurface,
+                                                                     lineWidth: chosen ? 3 : 0))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(chosen ? "Badge colour \(hex), chosen"
+                                                        : "Badge colour \(hex)")
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    } header: {
+                        Text("Leader")
+                    } footer: {
+                        Text("Badge colour - shown next to your name in chat.")
+                    }
+                }
+
                 Section("Name") {
                     TextField("First name", text: $firstName)
                         .textContentType(.givenName)

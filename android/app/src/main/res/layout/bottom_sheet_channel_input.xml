@@ -128,4 +128,140 @@
 
     </LinearLayout>
 
+    <!-- A fine rule between the input stage and the delay behind it,
+         inset so it stops short of both edges. -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="20dp"
+        android:layout_marginBottom="16dp"
+        android:background="@color/divider" />
+
+    <!-- The channel delay: one per channel, after the main/alt switch, so
+         it serves whichever input is live. The button switches it in and
+         out; the time (ms) and the fine trim (samples) each have a dial
+         and a box that can be typed into, as gain and trim do above. -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/delay_button"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="24dp"
+        android:text="Delay"
+        app:cornerRadius="10dp"
+        app:backgroundTint="@color/mute_inactive"
+        android:textColor="@color/on_mute_inactive" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="24dp"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.clmix.DialView
+                android:id="@+id/delay_dial"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
+                android:contentDescription="Delay dial - hold and drag" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/delay_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="3dp"
+                    android:gravity="center"
+                    android:text="Delay"
+                    android:textColor="@color/on_surface_variant"
+                    android:textSize="12sp" />
+
+                <EditText
+                    android:id="@+id/delay_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/value_box"
+                    android:gravity="center"
+                    android:imeOptions="actionDone"
+                    android:importantForAutofill="no"
+                    android:maxLines="1"
+                    android:paddingVertical="8dp"
+                    android:selectAllOnFocus="true"
+                    android:textColor="#F2F4F8"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    tools:text="8.00 ms" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.clmix.DialView
+                android:id="@+id/fine_delay_dial"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
+                android:contentDescription="Fine delay dial - hold and drag" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/fine_delay_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="3dp"
+                    android:gravity="center"
+                    android:text="Fine"
+                    android:textColor="@color/on_surface_variant"
+                    android:textSize="12sp" />
+
+                <EditText
+                    android:id="@+id/fine_delay_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/value_box"
+                    android:gravity="center"
+                    android:imeOptions="actionDone"
+                    android:importantForAutofill="no"
+                    android:maxLines="1"
+                    android:paddingVertical="8dp"
+                    android:selectAllOnFocus="true"
+                    android:textColor="#F2F4F8"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    tools:text="0 smp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
 </LinearLayout>

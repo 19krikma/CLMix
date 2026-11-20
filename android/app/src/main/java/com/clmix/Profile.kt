@@ -18,6 +18,10 @@ data class AccountProfile(
     /** "First Last" where either is set, the username otherwise. */
     val displayName: String,
     val picture: Bitmap?,
+    /** Leader of leaderSnapshot - see LeaderBadge. */
+    val leader: Boolean = false,
+    val leaderSnapshot: String = "",
+    val leaderColor: String = LeaderBadge.DEFAULT_HEX,
 )
 
 /**
@@ -84,6 +88,9 @@ object Profile {
             picture = decodePicture(json.optString("picture").takeIf {
                 !json.isNull("picture") && it.isNotEmpty()
             }),
+            leader = json.optBoolean("leader", false),
+            leaderSnapshot = json.optString("leader_snapshot"),
+            leaderColor = json.optString("leader_color").ifEmpty { LeaderBadge.DEFAULT_HEX },
         )
         notifyObservers()
     }

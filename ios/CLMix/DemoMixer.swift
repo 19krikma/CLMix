@@ -188,6 +188,15 @@ final class DemoMixer: MixerBackend {
         var gain: Double?
         var trim: Double?
         var phantom: Bool
+        // Channel delay: ms, in or out, and fine trim in samples.
+        var delayMs: Double = 0
+        var delayOn: Bool = false
+        var fineDelay: Double = 0
+        // The insert points, "A" and "B": in, 48V, gain, pad.
+        var inserts: [String: InsertState] = [
+            "A": InsertState(inOn: false, phantom: false, gain: 0, pad: false),
+            "B": InsertState(inOn: false, phantom: false, gain: 0, pad: false),
+        ]
         // The console's own enum, 0..3 - see ChannelState.phase.
         var phase: Int
         // The alternate input slot. Nil gain means no alt route patched.
@@ -510,6 +519,11 @@ final class DemoMixer: MixerBackend {
         answerProfileEdit()
     }
 
+    func setLeaderColor(_ hex: String) {
+        demoProfile.leaderColor = hex
+        answerProfileEdit()
+    }
+
     func setProfilePicture(_ base64: String?) {
         demoProfile.picture = base64.flatMap { Data(base64Encoded: $0) }
         answerProfileEdit()
@@ -647,6 +661,9 @@ final class DemoMixer: MixerBackend {
         Task { @MainActor in self.delegate?.mixerDidSendSos() }
     }
 
+    /// No sound techs here to share SOS calls with.
+    func clearSos(id: Int) {}
+
     // The demo's chat is this phone talking to itself: what it sends
     // comes back as its own, and the history starts empty.
     private var demoChat: [ChatMessage] = []
@@ -764,6 +781,33 @@ final class DemoMixer: MixerBackend {
     func setTrim(channel: Int, trim: Double) {
         guard mixerMode else { return }
         console[channel]?.trim = trim
+    }
+
+    func setDelay(channel: Int, delayMs: Double) {
+        guard mixerMode else { return }
+        console[channel]?.delayMs = min(1300, max(0, delayMs))
+    }
+
+    func setDelayOn(channel: Int, on: Bool) {
+        guard mixerMode else { return }
+        console[channel]?.delayOn = on
+    }
+
+    func setInsert(channel: Int, slot: String, param: String, value: Any) {
+        guard mixerMode, var insert = console[channel]?.inserts[slot] else { return }
+        switch param {
+        case "in": insert.inOn = value as? Bool
+        case "phantom": insert.phantom = value as? Bool
+        case "pad": insert.pad = value as? Bool
+        case "gain": insert.gain = (value as? Double).map { min(60, max(-20, $0)) }
+        default: return
+        }
+        console[channel]?.inserts[slot] = insert
+    }
+
+    func setFineDelay(channel: Int, samples: Int) {
+        guard mixerMode else { return }
+        console[channel]?.fineDelay = Double(min(127, max(-127, samples)))
     }
 
     func setPhantom(channel: Int, phantom: Bool) {
@@ -1031,6 +1075,11 @@ final class DemoMixer: MixerBackend {
                 stereo: entry.stereo,
                 gain: strip.gain,
                 trim: strip.trim,
+                delayMs: strip.delayMs,
+                delayOn: strip.delayOn,
+                fineDelay: strip.fineDelay,
+                insertA: strip.inserts["A"],
+                insertB: strip.inserts["B"],
                 phantom: strip.phantom,
                 phase: strip.phase,
                 altGain: strip.altGain,

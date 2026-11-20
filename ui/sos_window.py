@@ -24,8 +24,13 @@ class SosWindow:
     """
 
     def __init__(self, master, sos, on_closed):
+        # Told whether the sound tech here closed it ("Got it") - which
+        # clears the SOS on the phones too - or it went because someone
+        # cleared it from a phone.
         self.on_closed = on_closed
         self.count = 0
+        # The server's alert this window is showing - see RemoteServer._sos_alert.
+        self.alert_id = sos.get("id")
 
         self.window = tk.Toplevel(master)
         self.window.title("SOS")
@@ -64,6 +69,7 @@ class SosWindow:
         """Shows this SOS - the first, or a newer one from the same
         account - and brings the window to the front again."""
         self.count += 1
+        self.alert_id = sos.get("id", self.alert_id)
         self.reason_label.configure(text=sos["reason"])
 
         who = sos["name"]
@@ -91,6 +97,6 @@ class SosWindow:
         self.window.bell()
         self.window.after(BELL_GAP_MS, lambda: self._ring(times - 1))
 
-    def close(self):
+    def close(self, by_phone=False):
         self.window.destroy()
-        self.on_closed()
+        self.on_closed(by_phone)

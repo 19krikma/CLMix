@@ -6,16 +6,23 @@ import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
+import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
 import androidx.activity.OnBackPressedCallback
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
+import androidx.core.view.updatePadding
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -27,6 +34,14 @@ private const val STATE_BANK = "bank"
 // As MixerActivity: a panel animation short enough to read as a control
 // rather than a transition.
 private const val BANK_PANEL_ANIM_MS = 100L
+
+// As MixerActivity: how long the landscape panel takes to slide out.
+private const val PANEL_ANIM_MS = 180L
+
+// Screens shorter than this (dp) get the EQ, dynamics and insert buttons
+// beside each fader rather than above it - a phone on its side. A tablet
+// on its side is far taller and keeps the usual stack.
+private const val SIDE_CONTROLS_MAX_HEIGHT_DP = 500
 
 /**
  * Full Mixer Control: the console's own channel faders, pans and mutes.
@@ -62,6 +77,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     private var bankPanelAnimator: ValueAnimator? = null
     private var panSheet: PanBottomSheet? = null
     private var inputSheet: ChannelInputBottomSheet? = null
+    private var insertSheet: InsertBottomSheet? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,7 +100,8 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             },
             onChannelNumberClicked = { channel -> showChannelInputSheet(channel) },
             onEqClicked = { channel -> openEq(channel) },
-            onDynamicsClicked = { channel, comp -> openDynamics(channel, comp) }
+            onDynamicsClicked = { channel, comp -> openDynamics(channel, comp) },
+            onInsertClicked = { channel, slot -> showInsertSheet(channel, slot) }
         )
 
         // Both are the console's own controls, and Full Mixer Control is
@@ -94,6 +111,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         // strip drops the control for that channel on its own.
         adapter.muteSupported = true
         adapter.panSupported = true
+        applySideControls()
 
         // The console's own numbering, above each name - see
         // ChannelAdapter.showChannelNumber.
@@ -124,6 +142,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
         binding.bankPanel.onPick = { bank ->
             setBanksExpanded(false)
+            if (openPanel == Panel.BANK) closeLandscapePanel()
 
             if (bank.id != selectedBank) {
                 selectedBank = bank.id
@@ -148,13 +167,25 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
+        // The landscape sidebar - see applyOrientation.
+        binding.sidebarMenuButton.setOnClickListener { toggleLandscapePanel(Panel.MENU) }
+        binding.sidebarBankButton.setOnClickListener { toggleLandscapePanel(Panel.BANK) }
+        binding.sidebarSmoothButton.setOnClickListener {
+            smoothEnabled = !smoothEnabled
+            adapter.smoothEnabled = smoothEnabled
+            updateSmoothButtonAppearance()
+        }
+        binding.landscapeScrim.setOnClickListener { closeLandscapePanel() }
+        binding.root.addOnLayoutChangeListener(sidebarSideOnLayout)
+        applyOrientation()
+
 
         // AUX slides over to the aux list, to mix one send. It needs the
         // list first, so it asks for it and opens once it arrives (see
         // onAuxes). This screen stays underneath: Channels, or Back from
         // the list, slides back to it.
         bindModeButtons(binding.modeButtons, MixScreen.CHANNELS) {
-            binding.drawerLayout.closeMenuDrawer()
+            closeMenu()
             dismissPanSheet()
             dismissInputSheet()
             awaitingAuxes = true
@@ -171,8 +202,12 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
         binding.logoutButton.setOnClickListener { logout() }
 
+        // Chat, from the menu or - with the phone on its side - the sidebar.
+        binding.chatButton.setOnClickListener { openChat() }
+        binding.sidebarChatButton.setOnClickListener { openChat() }
+
         profileHeader = ProfileHeader(binding.profileHeader) {
-            binding.drawerLayout.closeMenuDrawer()
+            closeMenu()
             dismissPanSheet()
             dismissInputSheet()
             startActivity(Intent(this, ProfileActivity::class.java))
@@ -276,6 +311,9 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             trimRange = MixerClient.trimRange,
             onGainChanged = { ch, gain -> MixerClient.setGain(ch, gain) },
             onTrimChanged = { ch, trim -> MixerClient.setTrim(ch, trim) },
+            onDelayChanged = { ch, ms -> MixerClient.setDelay(ch, ms) },
+            onDelayOnChanged = { ch, on -> MixerClient.setDelayOn(ch, on) },
+            onFineDelayChanged = { ch, samples -> MixerClient.setFineDelay(ch, samples) },
             onPhantomChanged = { ch, on -> MixerClient.setPhantom(ch, on) },
             onAltGainChanged = { ch, gain -> MixerClient.setAltGain(ch, gain) },
             onAltPhantomChanged = { ch, on -> MixerClient.setAltPhantom(ch, on) },
@@ -310,6 +348,31 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     private fun dismissInputSheet() {
         inputSheet?.dismiss()
         inputSheet = null
+        insertSheet?.dismiss()
+        insertSheet = null
+    }
+
+    private fun openChat() {
+        closeMenu()
+        dismissPanSheet()
+        dismissInputSheet()
+        startActivity(Intent(this, ChatActivity::class.java))
+    }
+
+    private fun showInsertSheet(channel: ChannelState, slot: String) {
+        val sheet = InsertBottomSheet(
+            context = this,
+            initial = channel,
+            slot = slot,
+            onChanged = { ch, slot, param, value -> MixerClient.setInsert(ch, slot, param, value) }
+        )
+
+        sheet.setOnDismissListener {
+            if (insertSheet === sheet) insertSheet = null
+        }
+
+        insertSheet = sheet
+        sheet.show()
     }
 
     private fun updateSmoothButtonAppearance() {
@@ -320,11 +383,279 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             ContextCompat.getColor(this, backgroundRes)
         )
         binding.smoothButton.setTextColor(ContextCompat.getColor(this, textRes))
+
+        // The sidebar's Fine is the same control, so it wears the same look.
+        binding.sidebarSmoothButton.backgroundTintList = ColorStateList.valueOf(
+            ContextCompat.getColor(this, backgroundRes)
+        )
+        binding.sidebarSmoothButton.setTextColor(ContextCompat.getColor(this, textRes))
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         applyLargeScreen()
+        applySideControls()
+        applyOrientation()
+    }
+
+    // ---- Landscape sidebar: as MixerActivity's, with the menu and the
+    // ---- banks (no aux list or SOS here).
+
+    private enum class Panel { MENU, BANK }
+
+    private var openPanel: Panel? = null
+
+    // Which edge the sidebar is currently built for. Null until the
+    // first landscape layout.
+    private var appliedCameraOnRight: Boolean? = null
+
+    /** Every layout re-checks which edge the camera is on, which is what
+     *  catches a flip from one landscape to the other (see MixerActivity). */
+    private val sidebarSideOnLayout =
+        View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applySidebarSide() }
+
+    /** Whether this screen folds its bars into the landscape side strip:
+     *  a phone on its side. A tablet keeps its top bar. */
+    private fun usesSidebar(): Boolean =
+        resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            !isLargeScreen()
+
+    /**
+     * Landscape folds the top bar and the snapshot line away and moves
+     * what the bar held - menu, banks, Fine - into a strip down the edge
+     * the selfie camera is on, as on the aux screen. Portrait unchanged.
+     */
+    private fun applyOrientation() {
+        val landscape = usesSidebar()
+
+        // Closed before anything moves: a drawer cannot be taken out
+        // from under itself while it is open.
+        closeMenu()
+        closeLandscapePanel(animate = false)
+        hostMenu(inPanel = landscape)
+        hostBanks(inPanel = landscape)
+        binding.landscapeSidebar.isVisible = landscape
+
+        appliedCameraOnRight = null
+        if (landscape) {
+            applySidebarSide()
+        } else {
+            binding.mixerColumn.updatePadding(left = 0, right = 0)
+        }
+
+        // The strips get the whole height, which is the point of landscape.
+        binding.topBar.isVisible = !landscape
+        binding.snapshotBar.root.isVisible = !landscape
+    }
+
+    /** Puts the sidebar, the panel and the chevron on the camera's edge.
+     *  Driven off every layout - see MixerActivity.applySidebarSide for
+     *  why a rotation callback is not enough. */
+    private fun applySidebarSide() {
+        if (!usesSidebar()) return
+
+        val onRight = cameraOnRight()
+        if (appliedCameraOnRight == onRight) return
+        appliedCameraOnRight = onRight
+
+        closeLandscapePanel(animate = false)
+
+        val edge = if (onRight) Gravity.END else Gravity.START
+        val sidebar = resources.getDimensionPixelSize(R.dimen.landscape_sidebar_width)
+
+        binding.landscapeSidebar.updateLayoutParams<FrameLayout.LayoutParams> {
+            gravity = edge
+        }
+        // Inset by the sidebar so the panel comes out beside it rather
+        // than under it - the sidebar is what closes it again.
+        binding.landscapePanel.updateLayoutParams<FrameLayout.LayoutParams> {
+            gravity = edge
+            marginStart = if (onRight) 0 else sidebar
+            marginEnd = if (onRight) sidebar else 0
+        }
+
+        // The chevron points into the screen, the way the panel travels.
+        binding.sidebarBankArrow.scaleX = if (onRight) 1f else -1f
+
+        // The strips stop at the sidebar rather than running under it.
+        binding.mixerColumn.updatePadding(
+            left = if (onRight) 0 else sidebar,
+            right = if (onRight) sidebar else 0
+        )
+    }
+
+    private fun currentRotation(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        display?.rotation ?: Surface.ROTATION_0
+    } else {
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.rotation
+    }
+
+    private fun cameraOnRight(): Boolean {
+        val cutout = window.decorView.rootWindowInsets?.displayCutout
+
+        if (cutout != null) {
+            if (cutout.safeInsetRight > 0) return true
+            if (cutout.safeInsetLeft > 0) return false
+        }
+
+        return currentRotation() != Surface.ROTATION_90
+    }
+
+    /** Puts the menu away wherever it is: the drawer, or the panel. */
+    private fun closeMenu() {
+        binding.drawerLayout.closeMenuDrawer()
+        closeLandscapePanel()
+    }
+
+    /**
+     * Moves the drawer's content between the drawer and the sidebar's
+     * panel - see MixerActivity.hostMenu. A drawer slides out from the
+     * screen's own edge, over the sidebar that opened it.
+     */
+    private fun hostMenu(inPanel: Boolean) {
+        // Docked for good on a tablet.
+        if (isLargeScreen()) return
+
+        val menu = binding.menuContent
+        val host = binding.landscapePanelMenuHost
+
+        if (inPanel) {
+            if (menu.parent === host) return
+
+            binding.drawerLayout.removeView(menu)
+            host.addView(
+                menu,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            // DrawerLayout leaves a closed drawer INVISIBLE - see
+            // MixerActivity.hostMenu.
+            menu.isVisible = true
+            return
+        }
+
+        if (menu.parent === binding.drawerLayout) return
+
+        host.removeView(menu)
+        binding.drawerLayout.addView(
+            menu,
+            DrawerLayout.LayoutParams(
+                resources.getDimensionPixelSize(R.dimen.side_menu_width),
+                DrawerLayout.LayoutParams.MATCH_PARENT,
+                Gravity.START
+            )
+        )
+    }
+
+    // Whether the bank panel is in the landscape panel rather than
+    // floating over the strips.
+    private var banksInPanel = false
+
+    /**
+     * Moves the bank panel - every layer of the surface - between its
+     * spot floating over the strips and the sidebar's panel. One panel
+     * moved rather than two kept in step, as with the menu.
+     */
+    private fun hostBanks(inPanel: Boolean) {
+        // On a tablet it lives in the top bar instead.
+        if (isLargeScreen() || banksInPanel == inPanel) return
+
+        val panel = binding.bankPanel
+        bankPanelAnimator?.cancel()
+        bankPanelAnimator = null
+        (panel.parent as? ViewGroup)?.removeView(panel)
+
+        if (inPanel) {
+            binding.landscapePanelBankHost.addView(
+                panel,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            panel.visibility = View.VISIBLE
+        } else {
+            val frame = binding.channelRecycler.parent as ViewGroup
+            frame.addView(
+                panel,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP
+                )
+            )
+            panel.visibility = View.GONE
+        }
+
+        banksInPanel = inPanel
+    }
+
+    private fun toggleLandscapePanel(panel: Panel) {
+        if (openPanel == panel) {
+            closeLandscapePanel()
+            return
+        }
+
+        openPanel = panel
+        binding.landscapePanelTitle.text = if (panel == Panel.MENU) "MENU" else "BANK"
+        binding.landscapePanelMenuHost.isVisible = panel == Panel.MENU
+        binding.landscapePanelBankScroll.isVisible = panel == Panel.BANK
+
+        binding.landscapeScrim.isVisible = true
+        binding.landscapePanel.isVisible = true
+
+        // Off its own edge and back, so it comes out from under the sidebar.
+        binding.landscapePanel.translationX = hiddenPanelOffset()
+        binding.landscapePanel.animate()
+            .translationX(0f)
+            .setDuration(PANEL_ANIM_MS)
+            .start()
+    }
+
+    /** Far enough to clear its own width and the sidebar it is inset by. */
+    private fun hiddenPanelOffset(): Float {
+        val distance = resources.getDimensionPixelSize(R.dimen.landscape_panel_width) +
+            resources.getDimensionPixelSize(R.dimen.landscape_sidebar_width)
+
+        return if (cameraOnRight()) distance.toFloat() else -distance.toFloat()
+    }
+
+    private fun closeLandscapePanel(animate: Boolean = true) {
+        if (openPanel == null) {
+            binding.landscapePanel.isVisible = false
+            binding.landscapeScrim.isVisible = false
+            return
+        }
+
+        openPanel = null
+        binding.landscapeScrim.isVisible = false
+
+        val hidden = hiddenPanelOffset()
+
+        if (!animate) {
+            binding.landscapePanel.animate().cancel()
+            binding.landscapePanel.translationX = hidden
+            binding.landscapePanel.isVisible = false
+            return
+        }
+
+        binding.landscapePanel.animate()
+            .translationX(hidden)
+            .setDuration(PANEL_ANIM_MS)
+            .withEndAction { binding.landscapePanel.isVisible = false }
+            .start()
+    }
+
+    /**
+     * On a short screen - a phone turned on its side - the EQ, dynamics
+     * and insert buttons go beside each fader instead of above it, which
+     * would leave the fader no length at all. See ChannelAdapter.sideControls.
+     */
+    private fun applySideControls() {
+        adapter.sideControls = resources.configuration.screenHeightDp < SIDE_CONTROLS_MAX_HEIGHT_DP
     }
 
     /** As MixerActivity: a tablet keeps its banks out, in the top bar,
@@ -336,13 +667,17 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
         // As MixerActivity: docked on a tablet on its side.
         val docked = wantsDockedMenu()
-        setSideMenuDocked(binding.drawerLayout, binding.menuContent, binding.mixerColumn, docked)
+        setSideMenuDocked(binding.drawerLayout, binding.menuContent, binding.mixerFrame, docked)
         binding.menuButton.isVisible = !docked
     }
 
     /** Identical to MixerActivity's panel, minus the aux sheet it also
      *  closed - and, as there, always open on a tablet. */
     private fun setBanksExpanded(requested: Boolean) {
+        // In landscape the banks sit in the sidebar's panel, which opens
+        // and closes itself - see hostBanks.
+        if (banksInPanel) return
+
         val expanded = requested || isLargeScreen()
         val panel = binding.bankPanel
         val alreadyThere = (panel.visibility == View.VISIBLE) == expanded
@@ -499,6 +834,10 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         }
 
         inputSheet?.let { sheet ->
+            channels.firstOrNull { it.channel == sheet.channel }?.let(sheet::update)
+        }
+
+        insertSheet?.let { sheet ->
             channels.firstOrNull { it.channel == sheet.channel }?.let(sheet::update)
         }
     }

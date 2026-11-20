@@ -21,6 +21,10 @@ data class ChatMessage(
     val mine: Boolean,
     /** The sender's username; null for the sound engineer's. */
     val user: String? = null,
+    /** Sent by the Leader of the live snapshot - drawn with a badge. */
+    val leader: Boolean = false,
+    /** The badge's colour, as the leader chose it. */
+    val leaderColor: Int = LeaderBadge.DEFAULT_COLOR,
 ) {
     val isTech get() = kind == "tech"
     val isSos get() = kind == "sos"
@@ -133,5 +137,7 @@ object Chat {
         time = o.optDouble("time", 0.0),
         mine = o.optBoolean("mine", false),
         user = o.optString("user").takeIf { !o.isNull("user") && it.isNotEmpty() },
+        leader = o.optBoolean("leader", false),
+        leaderColor = LeaderBadge.parse(o.optString("leader_color")),
     )
 }

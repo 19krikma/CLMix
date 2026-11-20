@@ -50,6 +50,13 @@ struct CLMixApp: App {
                     ServerSyncingCover()
                 }
             }
+            // An SOS for this sound tech to clear, over everything - see
+            // SosAlertCover. Not on the login screen.
+            .overlay {
+                if let alert = model.sosAlerts.first, model.screen != .connect {
+                    SosAlertCover(alert: alert, waiting: model.sosAlerts.count - 1)
+                }
+            }
             .environmentObject(model)
             // CLMix is dark at all times, whatever the phone is set to -
             // UIUserInterfaceStyle in Info.plist says the same to the
@@ -61,25 +68,136 @@ struct CLMixApp: App {
     }
 }
 
-/// "Server Syncing" while the desktop resyncs with the console. Takes
-/// every touch, so nothing underneath can be picked until it is done -
-/// the server would refuse it anyway. Mirrors Android's ServerSync dialog.
+/// "Server Syncing" while the desktop resyncs with the console, and
+/// until the screen underneath has pulled its new info. Takes every
+/// touch, so nothing underneath can be picked until it is done - the
+/// server would refuse it anyway. Mirrors Android's ServerSync card.
 struct ServerSyncingCover: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var turning = false
+
+    private var detail: String {
+        if !model.syncLoading { return "Getting the latest from the console…" }
+        return model.screen == .mixerControl ? "Loading Mixer Control…" : "Loading AUX list…"
+    }
+
     var body: some View {
         ZStack {
-            Color.black.opacity(0.45)
+            Color.black.opacity(0.6)
                 .ignoresSafeArea()
 
-            HStack(spacing: 16) {
-                ProgressView()
-                    .controlSize(.large)
+            VStack(spacing: 0) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.clmixSurfaceVariant, lineWidth: 4)
+                    Circle()
+                        .trim(from: 0, to: 0.28)
+                        .stroke(Color.clmixPrimary,
+                                style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .rotationEffect(.degrees(turning ? 360 : 0))
+                        .animation(.linear(duration: 1).repeatForever(autoreverses: false),
+                                   value: turning)
+                    // Still, inside the ring: one motion reads as smooth,
+                    // two at different speeds as a stutter.
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Color.clmixPrimary)
+                }
+                .frame(width: 64, height: 64)
+
                 Text("Server Syncing")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Color.clmixOnSurface)
+                    .padding(.top, 20)
+
+                Text(detail)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.clmixOnSurfaceVariant)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 6)
             }
-            .padding(24)
+            .padding(.horizontal, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 24)
+            .frame(width: 280)
             .background(Color.clmixSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.clmixDivider, lineWidth: 1)
+            )
+        }
+        .onAppear { turning = true }
+        .transition(.opacity)
+    }
+}
+
+
+/// An SOS a performer sent, on a sound tech's phone: what they need, who
+/// and where from, and Clear. It stays, taking every touch, until it is
+/// cleared - here, on another sound tech's phone, or with "Got it" on the
+/// desktop. Several open at once are shown one at a time, oldest first.
+/// Mirrors Android's SosAlerts.
+struct SosAlertCover: View {
+    @EnvironmentObject private var model: AppModel
+    let alert: SosAlert
+    let waiting: Int
+
+    private static let red = Color(red: 0xC6 / 255, green: 0x28 / 255, blue: 0x28 / 255)
+
+    private var details: String {
+        let at = alert.time.formatted(date: .omitted, time: .shortened)
+        let asked = alert.count > 1 ? "asked \(alert.count) times, last at \(at)" : "at \(at)"
+        return [alert.whereFrom, asked].compactMap { $0 }.joined(separator: "  ·  ")
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Text("SOS")
+                    .font(.system(size: 40, weight: .bold))
+                Text(alert.reason)
+                    .font(.system(size: 20, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 4)
+                Text("from \(alert.name)")
+                    .font(.system(size: 15))
+                    .padding(.top, 12)
+                Text(details)
+                    .font(.system(size: 13))
+                    .opacity(0.85)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 4)
+                if waiting > 0 {
+                    Text("+\(waiting) more SOS waiting")
+                        .font(.system(size: 12))
+                        .opacity(0.85)
+                        .padding(.top, 4)
+                }
+
+                Button {
+                    model.clearSos(alert)
+                } label: {
+                    Text("Clear")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                }
+                .foregroundStyle(Self.red)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.top, 18)
+            }
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 24)
+            .padding(.top, 22)
+            .padding(.bottom, 20)
+            .frame(width: 300)
+            .background(Self.red)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .transition(.opacity)
     }

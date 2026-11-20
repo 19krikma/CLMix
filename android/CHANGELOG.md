@@ -3,6 +3,36 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.22.0
+
+Needs desktop 1.29.0 or later for the new Mixer Control controls, SOS
+alerts and the Leader badge; older desktops simply don't offer them.
+
+- **DCA and Master faders.** Banks of DCAs, groups (the master among
+  them), auxes and matrices are no longer dimmed in Mixer Control: each
+  strip has its fader and Mute, under its own label ("DCA 3", "GRP 1").
+- **Inserts.** INS A and INS B under each strip's dynamics, lit while
+  that insert is in. Each opens its own sheet: in/out, 48V, PAD and the
+  return's gain on a dial with a box to type into.
+- **Channel delay** on the channel input sheet, under Trim: a Delay
+  on/off button, the time in ms and the fine trim in samples, each on a
+  dial with a box to type into.
+- **SOS alerts for sound techs.** Accounts with Mixer Control get a red
+  SOS card on whatever screen they are on when a performer presses SOS,
+  until a sound tech clears it - here, on another phone, or with "Got it"
+  on the desktop. Clearing it anywhere clears it everywhere.
+- **Leader badge.** A snapshot's Leader signs chat messages with a
+  "★ Leader" badge, and picks its colour on their Profile screen.
+- **Landscape Mixer Control.** The top bar folds into a sidebar on the
+  camera side - menu, Chat, BANK and Fine - as on the AUX screen, and
+  each strip's EQ, dynamics and insert buttons move beside the fader so
+  the fader keeps its full length.
+- **Chat on Mixer Control**, in the menu and on the landscape sidebar.
+- **Server Syncing** is a cleaner card, and stays up until the new info
+  has actually arrived. Mixer Control stays on Mixer Control through a
+  resync; an aux mixer goes back to the AUX list.
+- Fixed: turning the AUX screen on its side could close the app.
+
 ## 2.20.0
 
 Bank layers and the snapshot name on Mixer Control need desktop 1.27.0

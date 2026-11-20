@@ -34,6 +34,31 @@ enum HeadAmpRange {
     static let trim = -40.0...40.0
 }
 
+/// One of a channel's two insert points (DiGiCo's Send A / Send B):
+/// whether it is in, and the return's own head amp - 48V, gain in dB and
+/// pad. Each is nil until the console has answered for it. Mirrors
+/// Android's InsertState.
+struct InsertState: Hashable {
+    var inOn: Bool? = nil
+    var phantom: Bool? = nil
+    var gain: Double? = nil
+    var pad: Bool? = nil
+
+    init(inOn: Bool? = nil, phantom: Bool? = nil, gain: Double? = nil, pad: Bool? = nil) {
+        self.inOn = inOn
+        self.phantom = phantom
+        self.gain = gain
+        self.pad = pad
+    }
+
+    init(json: [String: Any]) {
+        inOn = json["in"] as? Bool
+        phantom = json["phantom"] as? Bool
+        gain = json["gain"] as? Double
+        pad = json["pad"] as? Bool
+    }
+}
+
 struct ChannelState: Identifiable, Hashable {
     let channel: Int
     let name: String
@@ -56,6 +81,29 @@ struct ChannelState: Identifiable, Hashable {
     // the console has answered for this channel.
     var gain: Double? = nil
     var trim: Double? = nil
+
+    // The channel delay behind the trim: its time in ms (the server
+    // converts from the wire's seconds), whether it is in, and the fine
+    // trim in samples. Nil until the console answers, or from a server
+    // too old to send them.
+    var delayMs: Double? = nil
+    var delayOn: Bool? = nil
+    var fineDelay: Double? = nil
+
+    // The insert points A and B - see InsertState. Nil from a server too
+    // old to send them.
+    var insertA: InsertState? = nil
+    var insertB: InsertState? = nil
+
+    // Not an input channel: a DCA, group (the master among them), aux,
+    // matrix or multi on a Mixer Control bank. "kind" is the console's
+    // category, "label" what the strip shows above its name ("DCA 3").
+    // Its fader and mute are driven so far. Nil for an input.
+    var kind: String? = nil
+    var label: String? = nil
+
+    /// An input channel, with everything Mixer Control has for one.
+    var isInput: Bool { kind == nil || kind == "Input_Channels" }
 
     // 48V on the channel's main input. False rather than nil when the
     // console has not answered yet: phantom off is the safe reading, and
@@ -138,6 +186,10 @@ struct ChatMessage: Identifiable, Equatable {
     let mine: Bool
     /// The sender's username; nil for the sound engineer's.
     let user: String?
+    /// Sent by the Leader of the live snapshot - drawn with a badge.
+    let leader: Bool
+    /// The badge's colour, "#RRGGBB", as the leader chose it.
+    let leaderColor: String
 
     var isTech: Bool { kind == "tech" }
     var isSos: Bool { kind == "sos" }
@@ -151,6 +203,8 @@ struct ChatMessage: Identifiable, Equatable {
         time = Date(timeIntervalSince1970: json["time"] as? Double ?? 0)
         mine = json["mine"] as? Bool ?? false
         user = (json["user"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        leader = json["leader"] as? Bool ?? false
+        leaderColor = json["leader_color"] as? String ?? LeaderBadge.defaultHex
     }
 }
 
@@ -553,6 +607,10 @@ struct AccountProfile: Equatable {
     var displayName: String
     /// A small JPEG or PNG, or nil for the person figure.
     var picture: Data?
+    /// Leader of leaderSnapshot - see LeaderBadge.
+    var leader = false
+    var leaderSnapshot = ""
+    var leaderColor = LeaderBadge.defaultHex
 
     init(username: String, firstName: String = "", lastName: String = "",
          displayName: String? = nil, picture: Data? = nil) {
@@ -573,6 +631,10 @@ struct AccountProfile: Equatable {
             displayName: json["display_name"] as? String,
             picture: (json["picture"] as? String).flatMap { Data(base64Encoded: $0) }
         )
+        leader = json["leader"] as? Bool ?? false
+        leaderSnapshot = json["leader_snapshot"] as? String ?? ""
+        leaderColor = (json["leader_color"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? LeaderBadge.defaultHex
     }
 }
 
@@ -599,6 +661,32 @@ struct BankLayer: Equatable, Identifiable {
 /// One choice on the SOS card - see SosOptions. Sent by the server in
 /// login_result and "sos_options"; set up in the desktop's Settings >
 /// General, and able to differ per snapshot (services/sos_options.py).
+/// An SOS a performer sent, on a sound tech's phone - an account holding
+/// Mixer Control - until a sound tech clears it. See SosAlertCover.
+/// Mirrors Android's SosAlerts.
+struct SosAlert: Identifiable, Equatable {
+    let id: Int
+    let name: String
+    let reason: String
+    /// The aux (or "Mixer control") they asked from, if any.
+    let whereFrom: String?
+    let time: Date
+    /// How many times this account has asked since it was last cleared.
+    let count: Int
+
+    init?(json: [String: Any]) {
+        guard let id = json["id"] as? Int else { return nil }
+        self.id = id
+        let user = json["user"] as? String ?? ""
+        let name = json["name"] as? String ?? ""
+        self.name = name.isEmpty ? user : name
+        reason = json["reason"] as? String ?? ""
+        whereFrom = (json["aux_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        time = Date(timeIntervalSince1970: json["time"] as? Double ?? 0)
+        count = json["count"] as? Int ?? 1
+    }
+}
+
 struct SosOption: Identifiable, Equatable {
     /// What the server knows it by - sent back as the SOS's "reason".
     let id: String

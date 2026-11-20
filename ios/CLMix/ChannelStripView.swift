@@ -58,6 +58,15 @@ struct ChannelStripView: View, Equatable {
     // Full Mixer Control only, like onOpenEq: COMP and GATE under the EQ,
     // opening the Dynamics screen on the compressor (true) or gate.
     var onOpenDynamics: ((ChannelState, Bool) -> Void)? = nil
+    // Full Mixer Control only as well: INS A / INS B under the dynamics,
+    // opening the Inserts sheet ("A" or "B").
+    var onOpenInsert: ((ChannelState, String) -> Void)? = nil
+    // A phone on its side (MixerControlView sets it from the vertical
+    // size class): the EQ, dynamics and insert buttons stacked above the
+    // fader would leave it no length at all, so they go in a column
+    // beside it and the strip widens to hold them. Mirrors Android's
+    // ChannelAdapter.sideControls.
+    var sideControls: Bool = false
 
     @State private var showPanSheet = false
     @State private var showRenameAlert = false
@@ -73,6 +82,12 @@ struct ChannelStripView: View, Equatable {
     /// strip used to be sized around the band. Five full strips now fit
     /// on a phone that showed three and a half.
     private static let width: CGFloat = 76
+
+    /// The strip with its side column beside the fader (see sideControls):
+    /// the column and its 4pt gap beside the fader, without the spare
+    /// width the portrait strip carries to the fader's right.
+    private static let sideColumnWidth: CGFloat = 52
+    private static let sideWidth: CGFloat = 118
 
     /// Compares what the strip draws, and nothing else. The action
     /// closures are new objects on every evaluation of the parent's body
@@ -94,12 +109,38 @@ struct ChannelStripView: View, Equatable {
             && (lhs.onOpenInput == nil) == (rhs.onOpenInput == nil)
             && (lhs.onOpenEq == nil) == (rhs.onOpenEq == nil)
             && (lhs.onOpenDynamics == nil) == (rhs.onOpenDynamics == nil)
+            && (lhs.onOpenInsert == nil) == (rhs.onOpenInsert == nil)
+            && lhs.sideControls == rhs.sideControls
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            heading
+    /// Whether this strip draws its EQ, dynamics and insert buttons
+    /// beside the fader rather than above it - see sideControls.
+    private var hasSideColumn: Bool {
+        // A DCA or output strip has nothing to put there, so it stays
+        // narrow - its fader runs the full height either way.
+        sideControls && channel.isInput
+            && (onOpenEq != nil || onOpenDynamics != nil || onOpenInsert != nil)
+    }
 
+    /// The side column's controls, weighted to their usual heights and
+    /// shrunk together to fit whatever height the fader has.
+    private func sideColumn(height: CGFloat) -> some View {
+        let gaps: [CGFloat] = [4, 4, 4, 0]
+        let space = max(0, height - gaps.reduce(0, +))
+        let unit = space / 164  // 40 + 34 + 34 + 56
+        let insertGap: CGFloat = 3
+        return controls(eq: unit * 40, comp: unit * 34, gate: unit * 34,
+                        insert: max(0, (unit * 56 - insertGap) / 2),
+                        insertGap: insertGap, gaps: gaps)
+    }
+
+    /// The EQ, compressor, gate and insert buttons, top to bottom, at the
+    /// heights given; gaps[i] is the space after each of the four.
+    @ViewBuilder
+    private func controls(eq: CGFloat, comp: CGFloat, gate: CGFloat,
+                          insert: CGFloat, insertGap: CGFloat,
+                          gaps: [CGFloat]) -> some View {
+        VStack(spacing: 0) {
             // The channel's EQ curve in miniature, and the button that
             // opens it full size. Between the name and the fader, so the
             // fader gives up the height rather than the buttons along the
@@ -108,11 +149,11 @@ struct ChannelStripView: View, Equatable {
                 Button { onOpenEq(channel) } label: {
                     EqThumbView(eq: channel.eq)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 40)
+                        .frame(height: eq)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("EQ")
-                .padding(.bottom, 6)
+                .padding(.bottom, gaps[0])
             }
 
             // The channel's dynamics in miniature: the compressor's curve
@@ -123,29 +164,94 @@ struct ChannelStripView: View, Equatable {
                 Button { onOpenDynamics(channel, true) } label: {
                     DynThumbView(comp: true, section: channel.dynamics?.comp)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 34)
+                        .frame(height: comp)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Compressor")
-                .padding(.bottom, 4)
+                .padding(.bottom, gaps[1])
 
                 Button { onOpenDynamics(channel, false) } label: {
                     DynThumbView(comp: false, section: channel.dynamics?.gate)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 34)
+                        .frame(height: gate)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Gate")
-                .padding(.bottom, 6)
+                .padding(.bottom, gaps[2])
             }
 
-            faderRow
+            // The insert points A and B (DiGiCo's Send A / Send B), lit
+            // while that insert is in. Either opens the Inserts sheet;
+            // like the EQ and dynamics, the fader gives up the height.
+            if let onOpenInsert {
+                // Stacked A over B, each the strip's full width.
+                VStack(spacing: insertGap) {
+                    insertButton("A", on: channel.insertA?.inOn == true) {
+                        onOpenInsert(channel, "A")
+                    }
+                    .frame(height: insert)
+                    insertButton("B", on: channel.insertB?.inOn == true) {
+                        onOpenInsert(channel, "B")
+                    }
+                    .frame(height: insert)
+                }
+                .padding(.bottom, gaps[3])
+            }
+
+        }
+    }
+
+    private func insertButton(_ slot: String, on: Bool,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text("INS \(slot)")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(on ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
+        .background(on ? Color.clmixPrimary : Color.clmixMuteInactive)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .accessibilityLabel("Insert \(slot) \(on ? "in" : "out")")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            heading
+
+            if hasSideColumn {
+                // A phone on its side: the EQ, dynamics and insert buttons
+                // in a column beside the fader, sized to its height, so
+                // the fader keeps its full length. See sideControls.
+                HStack(spacing: 4) {
+                    GeometryReader { geo in
+                        sideColumn(height: geo.size.height)
+                    }
+                    .frame(width: Self.sideColumnWidth)
+
+                    faderRow
+                }
+            } else if sideControls && !channel.isInput {
+                faderRow
+            } else {
+                // A DCA or output strip (not an input) has only its fader
+                // and name so far: what it lacks is blanked rather than
+                // left out, so its fader lines up with the inputs' beside it.
+                controls(eq: 40, comp: 34, gate: 34, insert: 26, insertGap: 4,
+                         gaps: [6, 4, 6, 6])
+                    .opacity(channel.isInput ? 1 : 0)
+                    .allowsHitTesting(channel.isInput)
+
+                faderRow
+            }
 
             if panSupported {
                 tonalButton(PanFormat.buttonLabel(channel.pan)) {
                     showPanSheet = true
                 }
                 .padding(.top, 4)
+                .opacity(channel.isInput ? 1 : 0)
+                .allowsHitTesting(channel.isInput)
             }
 
             if muteOffered {
@@ -166,7 +272,7 @@ struct ChannelStripView: View, Equatable {
             }
         }
         .padding(.horizontal, 4)
-        .frame(width: Self.width)
+        .frame(width: hasSideColumn ? Self.sideWidth : Self.width)
         .frame(maxHeight: .infinity)
         .background(alternate ? Color.clmixSurfaceVariant : Color.clear)
         .sheet(isPresented: $showPanSheet) {
@@ -219,7 +325,7 @@ struct ChannelStripView: View, Equatable {
     /// plain text that swallows nothing.
     @ViewBuilder
     private var heading: some View {
-        if showChannelNumber, let onOpenInput {
+        if showChannelNumber, let onOpenInput, channel.isInput {
             Button { onOpenInput(channel) } label: { headingLabel }
                 .buttonStyle(.plain)
         } else {
@@ -251,7 +357,7 @@ struct ChannelStripView: View, Equatable {
         HStack(alignment: .top, spacing: 3) {
             VStack(spacing: 0) {
                 if showChannelNumber {
-                    Text("\(channel.channel)")
+                    Text(channel.label ?? "\(channel.channel)")
                         .font(.system(size: 11))
                         .foregroundStyle(Color.clmixOnSurfaceVariant)
                         .lineLimit(1)
@@ -275,6 +381,7 @@ struct ChannelStripView: View, Equatable {
 
             if meterBesideName {
                 ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                    .opacity(channel.isInput ? 1 : 0)
                     .frame(width: 7)
                     .frame(maxHeight: .infinity)
                     .padding(.top, 4)

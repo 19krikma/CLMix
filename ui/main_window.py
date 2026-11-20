@@ -131,7 +131,26 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Input_Channels/\d+/EQ/[^/]+$"),
     re.compile(r"^/Input_Channels/\d+/Filters/[^/]+$"),
     re.compile(r"^/Input_Channels/\d+/Dynamics/(?!GR_meter)[^/]+$"),
+
+    # The channel delay and the two insert points, for Full Mixer
+    # Control's input sheet and its INS A / INS B.
+    re.compile(r"^/Input_Channels/\d+/Channel_Delay/[^/]+$"),
+    re.compile(r"^/Input_Channels/\d+/Insert/[^/]+$"),
+
+    # Every other kind of strip a bank can put on a fader - DCAs,
+    # groups (the master among them), auxes, matrices and multis - for
+    # Full Mixer Control: its fader and its name. See LAYOUT_STRIP_KINDS.
+    re.compile(r"^/(Control_Groups|Group_Outputs|Aux_Outputs|Matrix_Outputs|Multis)/\d+/(fader|mute)$"),
+    re.compile(r"^/(Control_Groups|Multis)/\d+/name$"),
+    re.compile(r"^/(Group_Outputs|Matrix_Outputs)/\d+/Buss_Trim/name$"),
 ]
+
+# The strip kinds a bank can carry besides inputs that Full Mixer Control
+# shows. Kept in bank_layout as (kind, number) beside the input channels.
+LAYOUT_STRIP_KINDS = (
+    "Input_Channels", "Control_Groups", "Group_Outputs", "Aux_Outputs",
+    "Matrix_Outputs", "Multis",
+)
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
 
@@ -1203,6 +1222,9 @@ class MixerWorker(threading.Thread):
 
         name = args[0]
         channels = []
+        # Every strip on the bank's faders, in order, as (kind, number) -
+        # inputs and DCAs, groups, auxes, matrices and multis alike.
+        strips = []
 
         for i in range(4, len(args) - 1, 2):
             kind = args[i]
@@ -1210,13 +1232,18 @@ class MixerWorker(threading.Thread):
 
             if kind == "Input_Channels":
                 channels.append(int(index))
+            if kind in LAYOUT_STRIP_KINDS:
+                try:
+                    strips.append((kind, int(index)))
+                except (TypeError, ValueError):
+                    pass
 
         if channels:
             self.banks[name] = channels
 
-        self._store_layout_bank(args, channels)
+        self._store_layout_bank(args, channels, strips)
 
-    def _store_layout_bank(self, args, channels):
+    def _store_layout_bank(self, args, channels, strips=()):
         """File one reply into bank_layout, by layer and position.
 
         The console answers once per side, and the L and R halves of a
@@ -1238,10 +1265,20 @@ class MixerWorker(threading.Thread):
 
         if entry is None or entry["name"] != args[0]:
             entry = {"name": args[0], "layer": layer, "position": position,
-                     "sides": {}, "channels": []}
+                     "sides": {}, "channels": [], "strip_sides": {},
+                     "strips": []}
             self.bank_layout[key] = entry
 
         entry["sides"][str(args[1])] = list(channels)
+        entry.setdefault("strip_sides", {})[str(args[1])] = list(strips)
+
+        # Every strip, the same way the inputs are merged below.
+        merged_strips = []
+        for side in sorted(entry["strip_sides"]):
+            for strip in entry["strip_sides"][side]:
+                if strip not in merged_strips:
+                    merged_strips.append(strip)
+        entry["strips"] = merged_strips
 
         merged = []
         for side in sorted(entry["sides"]):
@@ -5998,6 +6035,11 @@ class MainWindow:
             bind_ip=remote_bind_ip,
             # From the server's thread; shown from process_messages.
             on_sos=lambda sos: self.message_queue.put(("sos", sos)),
+            # A sound tech cleared one from their phone - its window here
+            # goes too. See show_sos.
+            on_sos_cleared=lambda alert_id, by: self.message_queue.put(
+                ("sos_cleared", (alert_id, by))
+            ),
             chat_log=self.chat_log,
             # .get: reload_settings empties the dict for a moment.
             get_sos_config=lambda: self.settings.get("sos")
@@ -6680,9 +6722,22 @@ class MainWindow:
             window.update(sos)
             return
 
-        self.sos_windows[user] = SosWindow(
-            self.root, sos, on_closed=lambda: self.sos_windows.pop(user, None)
-        )
+        def closed(by_phone):
+            window = self.sos_windows.pop(user, None)
+            # "Got it" here clears it on every sound tech's phone too; a
+            # clear from a phone has already done that.
+            if not by_phone and window is not None and self.remote_server:
+                self.remote_server.clear_sos(window.alert_id, self.tech_name())
+
+        self.sos_windows[user] = SosWindow(self.root, sos, on_closed=closed)
+
+    def clear_sos_window(self, alert_id, by):
+        """An SOS cleared from a sound tech's phone: its window goes, and
+        the log says who dealt with it."""
+        for window in list(self.sos_windows.values()):
+            if window.alert_id == alert_id and window.window.winfo_exists():
+                window.close(by_phone=True)
+        log("info", f"SOS cleared by {by}")
 
     def process_messages(self):
 
@@ -6706,6 +6761,9 @@ class MainWindow:
 
             elif msg_type == "sos":
                 self.show_sos(value)
+
+            elif msg_type == "sos_cleared":
+                self.clear_sos_window(*value)
 
         self._refresh_chat()
 

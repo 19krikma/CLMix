@@ -11,6 +11,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- The drawer's main child: the mixer column, and over it the
+         landscape sidebar, its panel and the scrim behind that panel -
+         the same furniture as activity_mixer.xml, see
+         MixerControlActivity.applyOrientation. -->
+    <FrameLayout
+        android:id="@+id/mixer_frame"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
     <LinearLayout
         android:id="@+id/mixer_column"
         android:layout_width="match_parent"
@@ -126,6 +135,157 @@
 
     </LinearLayout>
 
+    <!-- Landscape on a phone: the top bar folds away and what it held
+         moves into the sidebar below, on the edge the selfie camera is
+         on. Its panel slides out beside it with the menu or the banks;
+         the scrim behind it closes it on a tap. All gone in portrait. -->
+    <View
+        android:id="@+id/landscape_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/landscape_panel"
+        android:layout_width="@dimen/landscape_panel_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:orientation="vertical"
+        android:background="?attr/colorSurface"
+        android:elevation="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/landscape_panel_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="14dp"
+            android:paddingBottom="8dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/on_surface_variant" />
+
+        <!-- Holds the drawer's own content while the phone is on its
+             side. Empty in portrait, where the menu lives in the
+             drawer as usual. -->
+        <FrameLayout
+            android:id="@+id/landscape_panel_menu_host"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:visibility="gone" />
+
+        <!-- Holds the bank panel while the phone is on its side, every
+             layer, scrolling if the surface has more than fit. -->
+        <ScrollView
+            android:id="@+id/landscape_panel_bank_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:visibility="gone">
+
+            <FrameLayout
+                android:id="@+id/landscape_panel_bank_host"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="9dp"
+                android:paddingBottom="10dp" />
+
+        </ScrollView>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/landscape_sidebar"
+        android:layout_width="@dimen/landscape_sidebar_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:orientation="vertical"
+        android:background="?attr/colorSurface"
+        android:elevation="12dp"
+        android:gravity="center_horizontal"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/sidebar_menu_button"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginTop="10dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Menu"
+            android:src="@drawable/ic_menu" />
+
+        <!-- The chat every phone shares with the sound engineer - see
+             ChatActivity. Also in the menu; here so it is one tap away
+             with the phone on its side. -->
+        <ImageButton
+            android:id="@+id/sidebar_chat_button"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginTop="6dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Chat"
+            android:src="@drawable/ic_chat" />
+
+        <!-- The middle of the strip, left empty on purpose: it is the
+             stretch the selfie camera sits in. BANK rides down against
+             Fine, as on the aux screen. -->
+        <Space
+            android:layout_width="1dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:id="@+id/sidebar_bank_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingVertical="10dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/sidebar_bank_arrow"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_left"
+                app:tint="@color/primary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BANK"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" />
+
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/sidebar_smooth_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="48dp"
+            android:layout_height="38dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="12dp"
+            android:text="Fine"
+            android:textSize="11sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="0dp"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
+
+    </LinearLayout>
+
+    </FrameLayout>
+
     <LinearLayout
         android:id="@+id/menu_content"
         android:layout_width="@dimen/side_menu_width"
@@ -147,6 +307,20 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1" />
+
+        <!-- The chat every phone shares with the sound engineer - see
+             ChatActivity. Open to every account, as on the aux screen. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/chat_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="14dp"
+            android:layout_marginTop="10dp"
+            android:text="Chat"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
 
         <!-- Presets are per-aux-send, so the aux screen's Presets button
              has nothing to act on here and is deliberately absent. -->

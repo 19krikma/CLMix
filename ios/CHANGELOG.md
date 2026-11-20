@@ -9,6 +9,29 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.17.0
+
+- **DCA and Master faders.** Banks of DCAs, groups (the master among
+  them), auxes and matrices now open in Mixer Control: each strip has its
+  fader and Mute, under its own label ("DCA 3", "GRP 1").
+- **Inserts.** INS A and INS B under each strip's dynamics, lit while
+  that insert is in. Each opens its own sheet: in/out, 48V, PAD and the
+  return's gain on a dial with a box to type into.
+- **Channel delay** on the channel input sheet, under Trim: a Delay
+  on/off button, the time in ms and the fine trim in samples.
+- **SOS alerts for sound techs.** Accounts with Mixer Control get a red
+  SOS card over every screen when a performer presses SOS, until a sound
+  tech clears it. Clearing it anywhere clears it everywhere.
+- **Leader badge.** A snapshot's Leader signs chat messages with a
+  "★ Leader" badge, and picks its colour in Profile.
+- **Landscape Mixer Control.** The top bar folds into a sidebar on the
+  camera side - menu, Chat, BANK and Fine - and each strip's EQ, dynamics
+  and insert buttons move beside the fader so it keeps its full length.
+- **Chat on Mixer Control**, in the menu and on the landscape sidebar.
+- **Server Syncing** is a cleaner card, and stays up until the new info
+  has arrived. Mixer Control stays put through a resync; an aux mixer
+  goes back to the aux list.
+
 ## 1.16.0
 
 Bank layers and the snapshot name on Mixer Control need desktop 1.27.0

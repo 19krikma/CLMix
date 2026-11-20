@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.SeekBar
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -36,7 +37,10 @@ class ChannelAdapter(
     private val onEqClicked: ((ChannelState) -> Unit)? = null,
     // Only Full Mixer Control passes this either: COMP and GATE under the
     // EQ, opening the Dynamics screen on the compressor (true) or gate.
-    private val onDynamicsClicked: ((ChannelState, Boolean) -> Unit)? = null
+    private val onDynamicsClicked: ((ChannelState, Boolean) -> Unit)? = null,
+    // Full Mixer Control only as well: INS A / INS B under the dynamics,
+    // opening the Inserts sheet ("A" or "B").
+    private val onInsertClicked: ((ChannelState, String) -> Unit)? = null
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     // "Fine" mode (toggled from MixerActivity's top bar): while on, the
@@ -45,6 +49,20 @@ class ChannelAdapter(
     // travel distance, for finer control than the widget's ~44dp of
     // rotated travel normally allows.
     var smoothEnabled: Boolean = false
+
+    // On a short screen - a phone on its side - the EQ, dynamics and
+    // insert buttons stacked above the fader leave it no room at all. With
+    // this set (MixerControlActivity sets it from the screen's height),
+    // they move into a column beside the fader instead, sized to its
+    // height, and the strip widens to hold them. Only strips that show
+    // those buttons (Full Mixer Control) are affected.
+    var sideControls: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
 
     // Both mirror a server-side truth rather than deciding anything: the
     // server rejects a pan write to a mono bus and a mute from an account
@@ -142,6 +160,7 @@ class ChannelAdapter(
     private val displayedMuted = mutableMapOf<Int, Boolean>()
     private val displayedEq = mutableMapOf<Int, ChannelEq?>()
     private val displayedDyn = mutableMapOf<Int, ChannelDynamics?>()
+    private val displayedInserts = mutableMapOf<Int, Pair<Boolean, Boolean>>()
 
     // A mute tap flips the button straight away rather than waiting for
     // the console's echo to travel back through the desktop app's cache
@@ -237,7 +256,8 @@ class ChannelAdapter(
             val nameChanged = displayedName[channel.channel] != channel.name
 
             val eqChanged = displayedEq[channel.channel] != channel.eq ||
-                displayedDyn[channel.channel] != channel.dynamics
+                displayedDyn[channel.channel] != channel.dynamics ||
+                displayedInserts[channel.channel] != insertsIn(channel)
 
             if (progressChanged || panChanged || muteChanged || nameChanged || eqChanged) {
                 notifyItemChanged(index, PAYLOAD_UPDATE)
@@ -270,6 +290,8 @@ class ChannelAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = channels[position]
+
+        arrangeControls(holder.binding, channel.isInput)
 
         holder.binding.channelName.text = channel.name
 
@@ -354,6 +376,20 @@ class ChannelAdapter(
             }
         }
 
+        holder.binding.insertAButton.setOnClickListener {
+            val adapterPosition = holder.bindingAdapterPosition
+            if (adapterPosition != RecyclerView.NO_POSITION) {
+                onInsertClicked?.invoke(channels[adapterPosition], "A")
+            }
+        }
+
+        holder.binding.insertBButton.setOnClickListener {
+            val adapterPosition = holder.bindingAdapterPosition
+            if (adapterPosition != RecyclerView.NO_POSITION) {
+                onInsertClicked?.invoke(channels[adapterPosition], "B")
+            }
+        }
+
         holder.binding.gateButton.setOnClickListener {
             val adapterPosition = holder.bindingAdapterPosition
             if (adapterPosition != RecyclerView.NO_POSITION) {
@@ -430,11 +466,16 @@ class ChannelAdapter(
         holder.binding.channelName.text = channel.name
         displayedName[channel.channel] = channel.name
 
-        holder.binding.nameMeter.visibility = if (meterBesideName) View.VISIBLE else View.GONE
+        // A DCA, group or output strip (not an input) has only its fader
+        // and name so far. What it lacks is blanked rather than removed,
+        // so its fader starts and ends level with the inputs' beside it.
+        val blank = if (channel.isInput) View.VISIBLE else View.INVISIBLE
+
+        holder.binding.nameMeter.visibility = if (meterBesideName) blank else View.GONE
         holder.binding.channelMeter.visibility = if (meterBesideName) View.GONE else View.VISIBLE
         meterOf(holder).setStereo(channel.stereo)
 
-        holder.binding.channelNumber.text = channel.channel.toString()
+        holder.binding.channelNumber.text = channel.label ?: channel.channel.toString()
         holder.binding.channelNumber.visibility =
             if (showChannelNumber) View.VISIBLE else View.GONE
 
@@ -443,7 +484,7 @@ class ChannelAdapter(
         // strip, rather than two small digits on their own. Resolved
         // through the holder rather than captured, so a recycled strip
         // opens the channel it is currently showing.
-        val openInput = if (showChannelNumber && onChannelNumberClicked != null) {
+        val openInput = if (showChannelNumber && onChannelNumberClicked != null && channel.isInput) {
             View.OnClickListener {
                 val adapterPosition = holder.bindingAdapterPosition
                 if (adapterPosition != RecyclerView.NO_POSITION) {
@@ -490,7 +531,8 @@ class ChannelAdapter(
         holder.binding.channelName.isLongClickable = onNameLongPressed != null
 
         holder.binding.panButton.visibility =
-            if (panSupported) View.VISIBLE else View.GONE
+            if (panSupported) blank else View.GONE
+        // Mute is on every strip, DCAs and outputs included.
         holder.binding.muteButton.visibility =
             if (muteSupported) View.VISIBLE else View.GONE
 
@@ -502,11 +544,11 @@ class ChannelAdapter(
         applyMuteAppearance(holder, muted)
 
         holder.binding.eqButton.visibility =
-            if (onEqClicked != null) View.VISIBLE else View.GONE
+            if (onEqClicked != null) blank else View.GONE
         displayedEq[channel.channel] = channel.eq
         holder.binding.eqButton.eq = channel.eq
 
-        val dynVisibility = if (onDynamicsClicked != null) View.VISIBLE else View.GONE
+        val dynVisibility = if (onDynamicsClicked != null) blank else View.GONE
         holder.binding.compButton.visibility = dynVisibility
         holder.binding.gateButton.visibility = dynVisibility
         displayedDyn[channel.channel] = channel.dynamics
@@ -514,6 +556,86 @@ class ChannelAdapter(
         holder.binding.compButton.section = channel.dynamics?.comp
         holder.binding.gateButton.comp = false
         holder.binding.gateButton.section = channel.dynamics?.gate
+
+        holder.binding.insertRow.visibility =
+            if (onInsertClicked != null) blank else View.GONE
+        val (aIn, bIn) = insertsIn(channel)
+        displayedInserts[channel.channel] = aIn to bIn
+        applyInsertButton(holder.binding.insertAButton, aIn)
+        applyInsertButton(holder.binding.insertBButton, bIn)
+    }
+
+    /**
+     * Puts the EQ, dynamics and insert buttons above the fader, or in the
+     * side column beside it (see sideControls). The same views move back
+     * and forth rather than there being two sets, so everything bound to
+     * them keeps working; each gets layout params for where it lands.
+     */
+    private fun arrangeControls(b: ItemChannelBinding, isInput: Boolean = true) {
+        val side = sideControls && onEqClicked != null
+        val density = b.root.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+
+        // A DCA or output strip has nothing to put in the side column, so
+        // it stays narrow - its fader runs the full height either way.
+        b.root.layoutParams = b.root.layoutParams.apply {
+            width = dp(if (side && isInput) SIDE_STRIP_WIDTH_DP else STRIP_WIDTH_DP)
+        }
+        b.sideColumn.visibility = if (side && isInput) View.VISIBLE else View.GONE
+
+        if ((b.eqButton.parent === b.sideColumn) == side) return
+
+        val movable = listOf(b.eqButton, b.compButton, b.gateButton, b.insertRow)
+        movable.forEach { (it.parent as? ViewGroup)?.removeView(it) }
+
+        val match = ViewGroup.LayoutParams.MATCH_PARENT
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
+
+        if (side) {
+            // Weighted to their usual heights, so the column shrinks them
+            // in proportion to whatever height the fader has.
+            val weights = listOf(40f, 34f, 34f, 56f)
+            movable.forEachIndexed { i, view ->
+                b.sideColumn.addView(view, LinearLayout.LayoutParams(match, 0, weights[i]).apply {
+                    if (i < movable.lastIndex) bottomMargin = dp(4)
+                })
+            }
+            b.insertAButton.layoutParams = LinearLayout.LayoutParams(match, 0, 1f)
+            b.insertBButton.layoutParams = LinearLayout.LayoutParams(match, 0, 1f).apply {
+                topMargin = dp(3)
+            }
+        } else {
+            val heights = listOf(dp(40), dp(34), dp(34), wrap)
+            val margins = listOf(dp(6), dp(4), dp(6), dp(6))
+            val at = b.root.indexOfChild(b.faderRow)
+            movable.forEachIndexed { i, view ->
+                b.root.addView(view, at + i, LinearLayout.LayoutParams(match, heights[i]).apply {
+                    bottomMargin = margins[i]
+                })
+            }
+            b.insertAButton.layoutParams = LinearLayout.LayoutParams(match, dp(26))
+            b.insertBButton.layoutParams = LinearLayout.LayoutParams(match, dp(26)).apply {
+                topMargin = dp(4)
+            }
+        }
+    }
+
+    private fun insertsIn(channel: ChannelState) =
+        (channel.insertA?.inOn == true) to (channel.insertB?.inOn == true)
+
+    /** In: the accent fill. Out: the strip's grey. */
+    private fun applyInsertButton(button: com.google.android.material.button.MaterialButton, on: Boolean) {
+        val context = button.context
+        button.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            androidx.core.content.ContextCompat.getColor(
+                context, if (on) R.color.primary else R.color.mute_inactive
+            )
+        )
+        button.setTextColor(
+            androidx.core.content.ContextCompat.getColor(
+                context, if (on) R.color.on_primary else R.color.on_mute_inactive
+            )
+        )
     }
 
     // What this channel's Mute button should read right now: the pushed
@@ -618,6 +740,14 @@ class ChannelAdapter(
     override fun getItemCount() = channels.size
 
     companion object {
+        // A strip's width, and its width with the side column beside the
+        // fader (see sideControls): 52dp of column plus its 4dp gap, beside
+        // the ruler, fader and meter - without the spare width the portrait
+        // strip carries to the right of the fader, which here only pushed
+        // the strips apart.
+        private const val STRIP_WIDTH_DP = 76
+        private const val SIDE_STRIP_WIDTH_DP = 118
+
         private const val SEEK_MAX = 1000
         private const val PAYLOAD_UPDATE = "update"
 

@@ -96,6 +96,12 @@ fun moveBanksIntoTopBar(
  * rotation drawn without their tracks.
  */
 fun setSideMenuDocked(drawer: DrawerLayout, menu: View, content: View, docked: Boolean) {
+    // On a phone on its side the menu has been lifted out of the drawer
+    // into the landscape sidebar's panel (hostMenu on both mixer
+    // screens). Docking is a tablet's, so there is nothing to do - and
+    // the menu's params are the panel's then, not the drawer's.
+    if (menu.parent !== drawer) return
+
     val menuParams = menu.layoutParams as DrawerLayout.LayoutParams
     val contentParams = content.layoutParams as DrawerLayout.LayoutParams
     val wanted = if (docked) Gravity.NO_GRAVITY else GravityCompat.START

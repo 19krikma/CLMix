@@ -13,6 +13,9 @@ USERS_PATH = Path.home() / ".clmix_users.json"
 ALL_SNAPSHOTS = "All Snapshots"
 ALL_AUX = "All Aux"
 
+# The Leader badge's colour until the leader picks another - gold.
+DEFAULT_LEADER_COLOR = "#D4AF37"
+
 
 class UserStore:
     """Remote-access accounts, keyed by username.
@@ -111,6 +114,12 @@ class UserStore:
 
             record.setdefault("personalization", False)
 
+            # Leader: off for every account that predates it. Grants the
+            # auxes of everyone else on leader_snapshot - see leader_aux.
+            record.setdefault("leader", False)
+            record.setdefault("leader_snapshot", "")
+            record.setdefault("leader_color", DEFAULT_LEADER_COLOR)
+
         return users
 
     def _save(self):
@@ -149,7 +158,8 @@ class UserStore:
 
     def save_user(self, username, password, snapshot, aux, presets=False,
                   mute=True, mixer_control=False, personalization=False,
-                  first_name="", last_name=""):
+                  first_name="", last_name="", leader=False,
+                  leader_snapshot=""):
         with self._lock:
             record = dict(self.users.get(username, {}))
             salt = record.get("salt") or secrets.token_hex(16)
@@ -168,6 +178,12 @@ class UserStore:
             record["personalization"] = personalization
             record["first_name"] = (first_name or "").strip()
             record["last_name"] = (last_name or "").strip()
+            record["leader"] = bool(leader and leader_snapshot)
+            record["leader_snapshot"] = (leader_snapshot or "") if leader else ""
+            # The colour is the leader's own choice from their phone, so
+            # it is kept through an edit here - and through losing and
+            # regaining the role.
+            record.setdefault("leader_color", DEFAULT_LEADER_COLOR)
 
             # Copied forward rather than rewritten: revoking the
             # permission is not the same as discarding what the performer
@@ -203,7 +219,87 @@ class UserStore:
             "last_name": record.get("last_name", ""),
             "display_name": self.display_name(username),
             "picture": record.get("picture"),
+            "leader": bool(record.get("leader")),
+            "leader_snapshot": record.get("leader_snapshot", ""),
+            "leader_color": record.get("leader_color", DEFAULT_LEADER_COLOR),
         }
+
+    def leading(self, username, live_snapshot):
+        """Whether this account is acting as Leader right now: it holds
+        the role, and the desk is on the snapshot it leads.
+
+        An unknown live snapshot (None - the gap while a recall is
+        answered) counts as on it, the same as RemoteServer treats an
+        unknown snapshot as no reason to deny: otherwise every recall
+        would flicker the leader's extra auxes away and back.
+        """
+        record = self.users.get(username) or {}
+        snapshot = record.get("leader_snapshot")
+
+        if not record.get("leader") or not snapshot:
+            return False
+
+        return live_snapshot is None or live_snapshot == snapshot
+
+    def leader_aux(self, username, live_snapshot):
+        """The auxes a leader gets on top of their own: every aux any
+        other account scoped to the led snapshot has been given.
+
+        Returns ALL_AUX if one of those accounts has every aux, [] when
+        the account is not leading right now. Only accounts set to that
+        exact snapshot count - an "All Snapshots" account belongs to no
+        one show in particular, and is usually the tech's own.
+
+        Worked out on every call rather than at login, so a performer
+        given a new aux on the desktop appears on the leader's list
+        without the leader logging in again.
+        """
+        if not self.leading(username, live_snapshot):
+            return []
+
+        snapshot = self.users[username]["leader_snapshot"]
+        auxes = []
+
+        for name, record in list(self.users.items()):
+            if name == username or record.get("snapshot") != snapshot:
+                continue
+
+            aux = record.get("aux")
+
+            if aux == ALL_AUX:
+                return ALL_AUX
+
+            for item in aux or []:
+                if item not in auxes:
+                    auxes.append(item)
+
+        return auxes
+
+    def leader_color(self, username):
+        record = self.users.get(username) or {}
+        return record.get("leader_color") or DEFAULT_LEADER_COLOR
+
+    def set_leader_color(self, username, color):
+        """A leader choosing their badge's colour. Raises ValueError
+        unless it is "#RRGGBB" and the account is a leader."""
+        if not isinstance(color, str) or len(color) != 7 or color[0] != "#":
+            raise ValueError("Colour must look like #RRGGBB")
+
+        try:
+            int(color[1:], 16)
+        except ValueError:
+            raise ValueError("Colour must look like #RRGGBB")
+
+        with self._lock:
+            record = self.users.get(username)
+
+            if record is None:
+                raise ValueError("Account not found")
+            if not record.get("leader"):
+                raise ValueError("Only a leader has a badge colour")
+
+            record["leader_color"] = color.upper()
+            self._save()
 
     def update_profile(self, username, first_name=None, last_name=None,
                        new_username=None, new_password=None):
@@ -299,6 +395,8 @@ class UserStore:
             "mute": record.get("mute", True),
             "mixer_control": record.get("mixer_control", False),
             "personalization": record.get("personalization", False),
+            "leader": bool(record.get("leader")),
+            "leader_snapshot": record.get("leader_snapshot", ""),
         }
 
     def personal_names(self, username, snapshot):

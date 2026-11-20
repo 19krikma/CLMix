@@ -48,6 +48,65 @@ HEAD_AMP_RANGES = {
     "trim": (-40.0, 40.0),
 }
 
+# The channel delay, behind the trim (PROTOCOL.md, "Units"). The wire
+# carries the time in SECONDS, 0..1.3 - phones work in milliseconds and
+# the conversion happens here, both ways, so no app can be a factor of
+# 1000 out. fine_delay is in samples. There is one delay per channel,
+# after the main/alt switch, so it serves whichever input is live.
+DELAY_MS_RANGE = (0.0, 1300.0)
+
+# The channel's two insert points (DiGiCo's Send A / Send B). Each has its
+# own in/out, and a head amp of its own for the return - 48V, gain and
+# pad, on the same ranges as the channel's main input (PROTOCOL.md,
+# /Input_Channels/{n}/Insert/*). Keyed by what a phone sends.
+INSERT_SLOTS = ("A", "B")
+INSERT_PARAMS = {
+    "in": "in",
+    "phantom": "phantom",
+    "gain": "analog_gain",
+    "pad": "input_pad",
+}
+INSERT_GAIN_RANGE = (-20.0, 60.0)
+
+# Strips a Mixer Control bank can carry besides input channels, and how
+# a phone tells them apart: each is sent as a "channel" number of its
+# kind's base plus its own number (DCA 3 is 10003), so it can never be
+# taken for an input. Its fader and mute are driven so far. Every one of these
+# faders is dB on the same -150..+10 scale as an input's (the official
+# app's parameter dictionary - PROTOCOL.md), DCAs included.
+#   kind: (base, short label, name address)
+STRIP_KINDS = {
+    "Control_Groups": (10000, "DCA", "/Control_Groups/{n}/name"),
+    "Group_Outputs": (20000, "GRP", "/Group_Outputs/{n}/Buss_Trim/name"),
+    "Aux_Outputs": (30000, "AUX", "/Aux_Outputs/{n}/Buss_Trim/name"),
+    "Matrix_Outputs": (40000, "MTX", "/Matrix_Outputs/{n}/Buss_Trim/name"),
+    "Multis": (50000, "MULTI", "/Multis/{n}/name"),
+}
+STRIP_BASE = 10000
+
+
+def strip_id(kind, number):
+    """The id a phone knows a strip by: an input's own number, or its
+    kind's base plus its number for anything else - see STRIP_KINDS."""
+    if kind == "Input_Channels":
+        return int(number)
+    return STRIP_KINDS[kind][0] + int(number)
+
+
+def strip_of(channel):
+    """(kind, number) for a strip id, or None for an input channel."""
+    try:
+        channel = int(channel)
+    except (TypeError, ValueError):
+        return None
+    if channel < STRIP_BASE:
+        return None
+    for kind, (base, _, _) in STRIP_KINDS.items():
+        if base < channel < base + STRIP_BASE:
+            return kind, channel - base
+    return None
+FINE_DELAY_RANGE = (-127.0, 127.0)
+
 # The channel EQ Full Mixer Control's EQ screen edits: four parametric
 # bands plus the high- and low-pass filters ahead of them. Ranges are the
 # official app's parameter dictionary (docs/mixer_protocol/PROTOCOL.md,
@@ -237,7 +296,7 @@ class RemoteServer:
     def __init__(self, get_worker, command_queue, port, user_store,
                  preset_store, get_hidden_auxes=None, bind_ip=None,
                  on_sos=None, chat_log=None, get_sos_config=None,
-                 get_tech_name=None):
+                 get_tech_name=None, on_sos_cleared=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
@@ -248,6 +307,19 @@ class RemoteServer:
         # Called on the event loop's thread with one dict per SOS a phone
         # sends (see _handle_sos); the desktop hands it to its own thread.
         self.on_sos = on_sos
+
+        # Called on the event loop's thread with (alert id, who cleared
+        # it) when a phone clears an SOS, so the desktop can close its
+        # window for it - see clear_sos.
+        self.on_sos_cleared = on_sos_cleared
+
+        # SOS calls nobody has dealt with yet, by id, oldest first. One
+        # per account, as the desktop's windows are: asking again updates
+        # the open one. Every phone holding Mixer Control - the sound
+        # techs - is shown each of these until one of them, or the
+        # desktop, clears it.
+        self._sos_alerts = {}
+        self._next_sos_id = 1
 
         # The SOS messages phones are offered - a normalized config as
         # services/sos_options.py describes it. A getter, since the
@@ -635,6 +707,10 @@ class RemoteServer:
             await self._handle_sos(websocket, state, msg)
             return
 
+        if action == "sos_clear":
+            await self._handle_sos_clear(websocket, state, msg)
+            return
+
         # Chat too, for the same reason: talking to the sound engineer
         # matters most when the console is not working.
         if action in ("chat_history", "chat_send"):
@@ -694,9 +770,20 @@ class RemoteServer:
             )
             return
 
+        # A DCA, group or output strip (see STRIP_KINDS) has only its
+        # fader driven so far; anything else aimed at one would land on an
+        # input channel address that does not exist.
+        if action not in ("set_level", "set_mute") \
+                and strip_of(msg.get("channel")) is not None:
+            await self._send(
+                websocket, {"type": "error", "message": "Not available on this strip yet"}
+            )
+            return
+
         if action == "list_auxes":
             await self._send(
-                websocket, {"type": "auxes", "auxes": self._aux_list(worker, entry)}
+                websocket, {"type": "auxes",
+                            "auxes": self._aux_list(worker, self._scope(worker, state))}
             )
             # Who is on each, straight away: the broadcast only goes out
             # when that changes, which may not be for a while.
@@ -716,7 +803,7 @@ class RemoteServer:
         elif action == "select_aux":
             aux = msg.get("aux")
 
-            if not self._aux_allowed(worker, entry, aux):
+            if not self._aux_allowed(worker, self._scope(worker, state), aux):
                 await self._send(
                     websocket, {"type": "error", "message": "Not permitted for this aux"}
                 )
@@ -818,7 +905,8 @@ class RemoteServer:
 
         elif action in ("set_gain", "set_trim", "set_phantom", "set_phase",
                         "set_name", "set_alt_gain", "set_alt_phantom",
-                        "set_alt_in"):
+                        "set_alt_in", "set_delay", "set_delay_on",
+                        "set_fine_delay", "set_insert"):
             # The head amp and its trim belong to the channel, not to any
             # one mix: turning a preamp down changes what FOH, every
             # monitor and the recording hear at once. So unlike level/pan/
@@ -852,6 +940,15 @@ class RemoteServer:
             elif action == "set_alt_in":
                 self._set_alt_in(state, worker, msg.get("channel"),
                                  msg.get("alt_in"))
+            elif action == "set_delay":
+                self._set_delay(msg.get("channel"), msg.get("delay_ms"))
+            elif action == "set_delay_on":
+                self._set_delay_on(msg.get("channel"), msg.get("delay_on"))
+            elif action == "set_fine_delay":
+                self._set_fine_delay(msg.get("channel"), msg.get("fine_delay"))
+            elif action == "set_insert":
+                self._set_insert(msg.get("channel"), msg.get("slot"),
+                                 msg.get("param"), msg.get("value"))
             else:
                 self._set_name(state, msg.get("channel"), msg.get("name"))
 
@@ -1034,6 +1131,9 @@ class RemoteServer:
             "mute": entry.get("mute", True),
             "mixer_control": entry.get("mixer_control", False),
             "personalization": entry.get("personalization", False),
+            # Leader of a snapshot: sees the auxes of everyone on it, and
+            # signs chat messages with a badge - see UserStore.leader_aux.
+            "leader": bool((self.user_store.get(username) or {}).get("leader")),
             "head_amp": HEAD_AMP_RANGES,
             "token": new_token,
             # The profile screen: who this is, and that this server
@@ -1044,6 +1144,8 @@ class RemoteServer:
             # The SOS button's choices for the live snapshot; updates
             # follow as "sos_options" - see _push_sos_options.
             "sos_options": self._sos_options_for(state),
+            # Open SOS calls, for a sound tech to clear - see _handle_sos.
+            "sos_alerts": self._sos_alerts_for(entry),
         })
 
     async def _handle_token_login(self, websocket, state, token):
@@ -1097,6 +1199,9 @@ class RemoteServer:
             "mute": entry.get("mute", True),
             "mixer_control": entry.get("mixer_control", False),
             "personalization": entry.get("personalization", False),
+            # Leader of a snapshot: sees the auxes of everyone on it, and
+            # signs chat messages with a badge - see UserStore.leader_aux.
+            "leader": bool((self.user_store.get(username) or {}).get("leader")),
             "head_amp": HEAD_AMP_RANGES,
             "token": token,
             # The profile screen: who this is, and that this server
@@ -1107,6 +1212,8 @@ class RemoteServer:
             # The SOS button's choices for the live snapshot; updates
             # follow as "sos_options" - see _push_sos_options.
             "sos_options": self._sos_options_for(state),
+            # Open SOS calls, for a sound tech to clear - see _handle_sos.
+            "sos_alerts": self._sos_alerts_for(entry),
         })
 
     def _prune_expired_sessions(self):
@@ -1183,6 +1290,27 @@ class RemoteServer:
 
         return cls._aux_name(worker, aux_index) in entry["aux"]
 
+    def _scope(self, worker, state):
+        """This socket's permission entry with its aux list widened by
+        Leader (see UserStore.leader_aux). Every aux check goes through
+        here rather than reading state["permission"] directly, since the
+        entry is fixed at login and a leader's auxes follow the other
+        accounts as the desktop edits them."""
+        return self._widened(worker, state.get("user"), state.get("permission") or {})
+
+    def _widened(self, worker, user, entry):
+        live = worker.snapshot_name if worker is not None else None
+        extra = self.user_store.leader_aux(user, live) if user else []
+        own = entry.get("aux")
+
+        if not extra or own == ALL_AUX:
+            return entry
+
+        if extra == ALL_AUX:
+            return dict(entry, aux=ALL_AUX)
+
+        return dict(entry, aux=list(own or []) + [a for a in extra if a not in (own or [])])
+
     @staticmethod
     def _in_mixer_mode(state):
         return state.get("mode") == "mixer"
@@ -1216,7 +1344,7 @@ class RemoteServer:
             )
             return True
 
-        if self._aux_allowed(worker, entry, state.get("aux")):
+        if self._aux_allowed(worker, self._scope(worker, state), state.get("aux")):
             return False
 
         await self._send(
@@ -1400,10 +1528,11 @@ class RemoteServer:
 
         Starting, the phone is sent {"type": "sync", "syncing": true} and
         its selection is dropped, so nothing it has open keeps writing to
-        strips whose names and layout are being replaced: it goes back to
-        its aux list, or to Mixer Control for an account holding it, and
-        shows "Server Syncing" there. Done, it gets "syncing": false and
-        asks again for whatever it needs, as after logging in.
+        strips whose names and layout are being replaced: a phone on
+        Mixer Control stays there, one riding an aux goes back to its aux
+        list, and either shows "Server Syncing" until it is over. Done, it
+        gets "syncing": false and asks again for whatever it needs, as
+        after logging in - and keeps the card up until that arrives.
         """
         key = (id(worker), worker.resync_epoch)
         seen = state["resync_seen"]
@@ -1505,8 +1634,10 @@ class RemoteServer:
         if not self._has_selection(state):
             return
 
+        # Inputs only: the meter slots are bound to input channels, and
+        # the other strips carry no meter yet.
         worker.subscribe_meters(
-            self._channels_for(worker, state),
+            [c for c in self._channels_for(worker, state) if strip_of(c) is None],
             source=state["meter_source"],
         )
 
@@ -1516,7 +1647,22 @@ class RemoteServer:
             # a parameter only when it changes, so a channel nobody has
             # touched this session would arrive with no fader, no pan and
             # no mute at all until someone moved it on the desk.
-            for channel in self._channels_for(worker, state):
+            channels = self._channels_for(worker, state)
+
+            # DCAs, groups and the other non-input strips: their fader and
+            # name, all they show for now.
+            for channel in channels:
+                strip = strip_of(channel)
+                if strip is None:
+                    continue
+                kind, number = strip
+                self.command_queue.put(f"/{kind}/{number}/fader/?")
+                self.command_queue.put(f"/{kind}/{number}/mute/?")
+                self.command_queue.put(STRIP_KINDS[kind][2].format(n=number) + "/?")
+
+            for channel in channels:
+                if strip_of(channel) is not None:
+                    continue
                 self.command_queue.put(f"/Input_Channels/{channel}/fader/?")
                 self.command_queue.put(f"/Input_Channels/{channel}/mute/?")
                 self.command_queue.put(f"/Input_Channels/{channel}/Panner/pan/?")
@@ -1524,6 +1670,15 @@ class RemoteServer:
                     f"/Input_Channels/{channel}/Channel_Input/analog_gain/?"
                 )
                 self.command_queue.put(f"/Input_Channels/{channel}/Channel_Input/trim/?")
+                for key in ("delay", "delay_on", "fine_delay"):
+                    self.command_queue.put(
+                        f"/Input_Channels/{channel}/Channel_Delay/{key}/?"
+                    )
+                for slot in INSERT_SLOTS:
+                    for wire in INSERT_PARAMS.values():
+                        self.command_queue.put(
+                            f"/Input_Channels/{channel}/Insert/insert_{slot}_{wire}/?"
+                        )
                 self.command_queue.put(
                     f"/Input_Channels/{channel}/Channel_Input/phantom/?"
                 )
@@ -1584,6 +1739,13 @@ class RemoteServer:
         # The channel's own fader carries the same dB scale as a send
         # level, so the phone's taper needs no special case here.
         if self._in_mixer_mode(state):
+            strip = strip_of(channel)
+            if strip is not None:
+                # A DCA, group or output fader - see STRIP_KINDS.
+                kind, number = strip
+                db = min(max(db, -150.0), 10.0)
+                self.command_queue.put(f"/{kind}/{number}/fader {db}")
+                return
             self.command_queue.put(f"/Input_Channels/{channel}/fader {db}")
             return
 
@@ -1638,6 +1800,79 @@ class RemoteServer:
         self.command_queue.put(
             f"/Input_Channels/{channel}/Channel_Input/trim {round(float(trim), 2)}"
         )
+
+    def _set_delay(self, channel, delay_ms):
+        """Delay time from a phone in ms, onto the wire in seconds."""
+        try:
+            delay_ms = float(delay_ms)
+        except (TypeError, ValueError):
+            return
+
+        if channel is None:
+            return
+
+        delay_ms = min(max(delay_ms, DELAY_MS_RANGE[0]), DELAY_MS_RANGE[1])
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Delay/delay "
+            f"{round(delay_ms / 1000.0, 5)}"
+        )
+
+    def _set_delay_on(self, channel, delay_on):
+        if channel is None or delay_on is None:
+            return
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Delay/delay_on "
+            f"{1.0 if delay_on else 0.0}"
+        )
+
+    def _set_fine_delay(self, channel, samples):
+        try:
+            samples = float(samples)
+        except (TypeError, ValueError):
+            return
+
+        if channel is None:
+            return
+
+        samples = round(min(max(samples, FINE_DELAY_RANGE[0]), FINE_DELAY_RANGE[1]))
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Channel_Delay/fine_delay {float(samples)}"
+        )
+
+    def _set_insert(self, channel, slot, param, value):
+        """One setting of one insert point: "in", "phantom" and "pad" are
+        switches, "gain" is the return's head amp in dB."""
+        if channel is None or slot not in INSERT_SLOTS \
+                or param not in INSERT_PARAMS or value is None:
+            return
+
+        if param == "gain":
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return
+            value = round(min(max(value, INSERT_GAIN_RANGE[0]), INSERT_GAIN_RANGE[1]), 2)
+        else:
+            value = 1.0 if value else 0.0
+
+        self.command_queue.put(
+            f"/Input_Channels/{channel}/Insert/insert_{slot}_{INSERT_PARAMS[param]} {value}"
+        )
+
+    @classmethod
+    def _insert_state(cls, worker, channel, slot):
+        """One insert point as phones get it. Each value is null until the
+        console has answered for it."""
+        base = f"/Input_Channels/{channel}/Insert/insert_{slot}_"
+        gain_key = base + "analog_gain"
+        return {
+            "in": cls._cached_flag(worker, base + "in"),
+            "phantom": cls._cached_flag(worker, base + "phantom"),
+            "gain": round(worker.cache[gain_key][0], 2)
+                    if gain_key in worker.cache else None,
+            "pad": cls._cached_flag(worker, base + "input_pad"),
+        }
 
     def _set_phantom(self, state, channel, phantom):
         if channel is None or phantom is None:
@@ -1827,6 +2062,13 @@ class RemoteServer:
         # Reads the right way round, too: 1.0 *is* muted here, where
         # send_on means the opposite.
         if self._in_mixer_mode(state):
+            # A DCA, group or output strip's own mute - see STRIP_KINDS.
+            # The same sense as an input's: 1.0 is muted.
+            strip = strip_of(channel)
+            if strip is not None:
+                kind, number = strip
+                self.command_queue.put(f"/{kind}/{number}/mute {1.0 if muted else 0.0}")
+                return
             self.command_queue.put(
                 f"/Input_Channels/{channel}/mute {1.0 if muted else 0.0}"
             )
@@ -2050,6 +2292,10 @@ class RemoteServer:
 
         log("warning", f"SOS from {user!r} ({where or 'no aux'}): {reason}")
 
+        # Filed as open before the desktop hears of it, so its window
+        # knows which alert "Got it" clears.
+        sos["id"] = self._sos_alert(sos)
+
         if self.on_sos is not None:
             try:
                 self.on_sos(sos)
@@ -2063,12 +2309,102 @@ class RemoteServer:
 
         await self._send(websocket, {"type": "sos_sent", "reason": msg["reason"]})
 
+        # And to every sound tech's phone, to clear - see _sos_alert.
+        await self._broadcast_sos(
+            {"type": "sos_alert", "alert": self._sos_alerts[sos["id"]]},
+            exclude=websocket,
+        )
+
         # Into the chat as well, so every phone sees who asked for what.
         if self.chat_log is not None:
             text = f"SOS: {reason}" + (f" ({where})" if where else "")
             await self._broadcast_chat(
                 self.chat_log.add(KIND_SOS, text, user=user, name=sos["name"])
             )
+
+    # ---- SOS alerts on the sound techs' phones ----
+
+    def _sos_alert(self, sos):
+        """Files an SOS as open, or adds to the one already open for that
+        account. Returns its id."""
+        for alert_id, alert in self._sos_alerts.items():
+            if alert["user"] == sos["user"]:
+                alert.update(reason=sos["reason"], aux_name=sos["aux_name"],
+                             time=sos["time"], name=sos["name"],
+                             count=alert["count"] + 1)
+                return alert_id
+
+        alert_id = self._next_sos_id
+        self._next_sos_id += 1
+        self._sos_alerts[alert_id] = {
+            "id": alert_id,
+            "user": sos["user"],
+            "name": sos["name"],
+            "reason": sos["reason"],
+            "aux_name": sos["aux_name"],
+            "time": sos["time"],
+            "count": 1,
+        }
+        return alert_id
+
+    @staticmethod
+    def _is_sound_tech(entry):
+        """Who is shown SOS calls to clear: accounts holding Mixer Control."""
+        return bool(entry and entry.get("mixer_control", False))
+
+    def _sos_alerts_for(self, entry):
+        if not self._is_sound_tech(entry):
+            return []
+        return list(self._sos_alerts.values())
+
+    async def _broadcast_sos(self, payload, exclude=None):
+        """Sends to every logged-in phone holding Mixer Control - except
+        the one that asked, which already knows."""
+        for websocket, state in list(self._clients.items()):
+            if websocket is exclude or state.get("user") is None:
+                continue
+            if not self._is_sound_tech(state.get("permission")):
+                continue
+            try:
+                await self._send(websocket, payload)
+            except websockets.ConnectionClosed:
+                pass
+
+    async def _handle_sos_clear(self, websocket, state, msg):
+        """A sound tech's phone clearing an SOS: gone from every other
+        phone and from the desktop too."""
+        if not self._is_sound_tech(state.get("permission")):
+            await self._send(
+                websocket, {"type": "error", "message": "Not permitted to clear SOS"}
+            )
+            return
+
+        alert_id = msg.get("id")
+        by = self.user_store.display_name(state["user"])
+        if await self._clear_sos(alert_id, by) and self.on_sos_cleared is not None:
+            try:
+                self.on_sos_cleared(alert_id, by)
+            except Exception as ex:
+                log("error", f"SOS clear could not reach the desktop: {ex!r}")
+
+    async def _clear_sos(self, alert_id, by):
+        alert = self._sos_alerts.pop(alert_id, None)
+        if alert is None:
+            return False
+
+        log("info", f"SOS from {alert['user']!r} cleared by {by}")
+        await self._broadcast_sos({"type": "sos_cleared", "id": alert_id, "by": by})
+        return True
+
+    def clear_sos(self, alert_id, by):
+        """The desktop clearing an SOS ("Got it" on its window). Called
+        from the Tkinter thread; does nothing while the server is not
+        running."""
+        if self._loop is None or not self._loop.is_running():
+            self._sos_alerts.pop(alert_id, None)
+            return
+
+        asyncio.run_coroutine_threadsafe(self._clear_sos(alert_id, by), self._loop)
 
     async def _handle_profile(self, websocket, state, action, msg):
         """A phone viewing or editing its own account.
@@ -2110,6 +2446,11 @@ class RemoteServer:
             def text(key):
                 value = msg.get(key)
                 return value if isinstance(value, str) else None
+
+            if msg.get("leader_color") is not None:
+                self.user_store.set_leader_color(user, msg.get("leader_color"))
+                log("info", f"User {user!r} set their Leader badge to "
+                    f"{msg.get('leader_color')}")
 
             new_username = text("username")
             new_password = text("new_password") or None
@@ -2296,8 +2637,20 @@ class RemoteServer:
             return
 
         user = state["user"]
+        worker = self.get_worker()
+        live = worker.snapshot_name if worker is not None else None
+
+        # The badge is stamped on the message as it is sent, so it shows
+        # what the sender was at the time: a leader's older messages keep
+        # it after a recall, and a colour change applies from then on.
+        badge = None
+        if self.user_store.leading(user, live):
+            badge = {"leader": True,
+                     "leader_color": self.user_store.leader_color(user)}
+
         message = self.chat_log.add(
-            KIND_USER, text, user=user, name=self.user_store.display_name(user)
+            KIND_USER, text, user=user, name=self.user_store.display_name(user),
+            extra=badge,
         )
         log("info", f"Chat from {user!r}: {text}")
         await self._broadcast_chat(message)
@@ -2380,7 +2733,7 @@ class RemoteServer:
             await self._save_preset(websocket, worker, state, msg.get("name"))
 
         elif action == "load_preset":
-            if not self._aux_allowed(worker, state["permission"], state.get("aux")):
+            if not self._aux_allowed(worker, self._scope(worker, state), state.get("aux")):
                 await self._send(
                     websocket, {"type": "error", "message": "Not permitted for this aux"}
                 )
@@ -2492,7 +2845,8 @@ class RemoteServer:
             name for name, record in self.user_store.list_users()
             if name != user and record.get("presets", False)
             and (aux is None or worker is None
-                 or self._aux_allowed(worker, record, aux))
+                 or self._aux_allowed(
+                     worker, self._widened(worker, name, record), aux))
         ]
 
     async def _save_preset(self, websocket, worker, state, name):
@@ -2610,7 +2964,13 @@ class RemoteServer:
             layout_bank = self._layout_bank(worker, bank)
 
             if layout_bank is not None:
-                return list(layout_bank["channels"])
+                # Every strip the bank puts on a fader, inputs and DCAs,
+                # groups and the rest alike - see STRIP_KINDS.
+                strips = layout_bank.get("strips")
+                if strips is None:
+                    return list(layout_bank["channels"])
+                return [strip_id(kind, number) for kind, number in strips
+                        if kind == "Input_Channels" or kind in STRIP_KINDS]
 
         if not self._in_mixer_mode(state):
             custom = self._stored_banks(worker, state)
@@ -2725,7 +3085,10 @@ class RemoteServer:
             layers.setdefault(layer, []).append({
                 "id": self._layout_bank_id(layer, position),
                 "name": entry["name"],
-                "inputs": len(entry["channels"]),
+                # Strips Mixer Control can show - inputs, and the DCAs,
+                # groups and outputs it now drives the faders of. A bank
+                # with none is listed dimmed.
+                "inputs": len(entry.get("strips") or entry["channels"]),
             })
 
         return [
@@ -2841,6 +3204,37 @@ class RemoteServer:
         return states
 
     @classmethod
+    def _other_strip_state(cls, worker, channel, kind, number):
+        """A DCA, group, aux, matrix or multi strip, for Mixer Control:
+        its name and fader - see STRIP_KINDS. "kind" and "label" tell the
+        phone it is not an input, so it draws the fader and name alone."""
+        _, short, name_address = STRIP_KINDS[kind]
+        label = f"{short} {number}"
+
+        name_key = name_address.format(n=number)
+        name = worker.cache[name_key][0] if name_key in worker.cache else label
+        if not isinstance(name, str) or not name.strip():
+            name = label
+
+        fader_key = f"/{kind}/{number}/fader"
+        level = round(worker.cache[fader_key][0], 2) \
+            if fader_key in worker.cache else None
+
+        mute_key = f"/{kind}/{number}/mute"
+        muted = bool(worker.cache[mute_key][0]) if mute_key in worker.cache else False
+
+        return {
+            "channel": channel,
+            "name": name.strip(),
+            "level": level,
+            "pan": None,
+            "muted": muted,
+            "stereo": False,
+            "kind": kind,
+            "label": label,
+        }
+
+    @classmethod
     def _mixer_channel_states(cls, worker, channels):
         """The same row shape as _channel_states, read off the channel itself.
 
@@ -2851,6 +3245,11 @@ class RemoteServer:
         states = []
 
         for channel in channels:
+            strip = strip_of(channel)
+            if strip is not None:
+                states.append(cls._other_strip_state(worker, channel, *strip))
+                continue
+
             name_key = f"/Input_Channels/{channel}/Channel_Input/name"
             name = worker.cache[name_key][0] \
                 if name_key in worker.cache else f"Ch {channel}"
@@ -2881,6 +3280,17 @@ class RemoteServer:
             trim_key = f"/Input_Channels/{channel}/Channel_Input/trim"
             trim = round(worker.cache[trim_key][0], 2) \
                 if trim_key in worker.cache else None
+
+            # The channel delay: ms for the phones (the wire is seconds -
+            # see DELAY_MS_RANGE), whether it is in, and the fine trim in
+            # samples. Null until the console has answered, as for trim.
+            delay_key = f"/Input_Channels/{channel}/Channel_Delay/delay"
+            delay_ms = round(worker.cache[delay_key][0] * 1000.0, 2) \
+                if delay_key in worker.cache else None
+
+            fine_key = f"/Input_Channels/{channel}/Channel_Delay/fine_delay"
+            fine_delay = int(round(worker.cache[fine_key][0])) \
+                if fine_key in worker.cache else None
 
             # 48V on the channel's main input. The alternate input's own
             # is alt_phantom, below.
@@ -2919,6 +3329,14 @@ class RemoteServer:
                 "muted": muted,
                 "gain": gain,
                 "trim": trim,
+                "delay_ms": delay_ms,
+                "delay_on": cls._cached_flag(
+                    worker, f"/Input_Channels/{channel}/Channel_Delay/delay_on"
+                ),
+                "fine_delay": fine_delay,
+                # The two insert points (Send A / Send B).
+                "insert_a": cls._insert_state(worker, channel, "A"),
+                "insert_b": cls._insert_state(worker, channel, "B"),
                 "phantom": phantom,
                 "phase": phase_state != PHASE_NORMAL,
                 "phase_state": phase_state,

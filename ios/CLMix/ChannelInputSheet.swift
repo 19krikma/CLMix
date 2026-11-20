@@ -36,6 +36,10 @@ struct ChannelInputSheet: View {
     let onAltPhantomChanged: (Int, Bool) -> Void
     let onAltInChanged: (Int, Bool) -> Void
     let onPhaseChanged: (Int, Int) -> Void
+    /// The channel delay: time in ms, in/out, and fine trim in samples.
+    let onDelayChanged: (Int, Double) -> Void
+    let onDelayOnChanged: (Int, Bool) -> Void
+    let onFineDelayChanged: (Int, Int) -> Void
     /// What each dial sweeps, in dB - one range per parameter, as the
     /// server states them at login (see MixerClient.gainRange).
     let gainRange: ClosedRange<Double>
@@ -48,6 +52,14 @@ struct ChannelInputSheet: View {
     @State private var gainShown: Double?
     @State private var altGainShown: Double?
     @State private var trimShown: Double?
+    @State private var delayShown: Double?
+    @State private var fineDelayShown: Double?
+    @State private var delayTouchedAt = Date.distantPast
+    @State private var fineDelayTouchedAt = Date.distantPast
+    @State private var delaySentAt = Date.distantPast
+    @State private var fineDelaySentAt = Date.distantPast
+    // Delay in or out; drawn as out until the console has said.
+    @State private var delayOn = Optimistic(false)
 
     // When each value was last turned by hand. A push arriving right
     // after a turn still carries the console's pre-turn value (it has to
@@ -141,6 +153,20 @@ struct ChannelInputSheet: View {
                         .allowsHitTesting(false)
                 }
                 .fixedSize(horizontal: false, vertical: true)
+
+                // A fine rule between the input stage and the delay
+                // behind it, inset so it stops short of both edges.
+                Rectangle()
+                    .fill(Color.clmixDivider)
+                    .frame(height: 1)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 20)
+                    .padding(.bottom, 16)
+
+                delaySection
+                    // Lined up with the columns, which stop short of the
+                    // meter down their right-hand side.
+                    .padding(.trailing, 24)
             }
             .padding(.horizontal, 24)
             .padding(.top, 10)
@@ -390,6 +416,57 @@ struct ChannelInputSheet: View {
         .opacity(editable ? 1 : Self.disabledOpacity)
     }
 
+    /// The channel delay: one per channel, after the main/alt switch, so
+    /// it serves whichever input is live. The button switches it in and
+    /// out; time (ms) and fine trim (samples) each have a dial and a box
+    /// that can be typed into, as gain and trim do above.
+    private var delaySection: some View {
+        VStack(spacing: 12) {
+            Button {
+                delayOn.set(!delayOn.shown)
+                onDelayOnChanged(channel.channel, delayOn.shown)
+            } label: {
+                Text(delayOn.shown ? "Delay On" : "Delay Off")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
+            .foregroundStyle(delayOn.shown ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
+            .background(delayOn.shown ? Color.clmixPrimary : Color.clmixMuteInactive)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            HStack(alignment: .top, spacing: 16) {
+                // A full sweep is 1.3 s, so the time dial turns slowly.
+                dialRow(
+                    label: "Delay", value: delayShown, range: Self.delayMsRange,
+                    rate: Self.delayDialRate, enabled: true,
+                    format: Self.formatMs,
+                    onChanged: { value, force in
+                        delayShown = value
+                        throttle(value, force, touched: &delayTouchedAt, sent: &delaySentAt) {
+                            onDelayChanged(channel.channel, $0)
+                        }
+                    }
+                )
+                .frame(maxWidth: .infinity)
+
+                // Fine trim snaps to whole samples.
+                dialRow(
+                    label: "Fine", value: fineDelayShown, range: Self.fineDelayRange,
+                    enabled: true, format: Self.formatSamples,
+                    onChanged: { value, force in
+                        let samples = value.rounded()
+                        fineDelayShown = samples
+                        throttle(samples, force, touched: &fineDelayTouchedAt,
+                                 sent: &fineDelaySentAt) {
+                            onFineDelayChanged(channel.channel, Int($0))
+                        }
+                    }
+                )
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
     private func selectSource(alt: Bool) {
         guard alt != altIn.shown else { return }
         guard !alt || channel.altAvailable else { return }
@@ -409,6 +486,7 @@ struct ChannelInputSheet: View {
         range: ClosedRange<Double>,
         rate: Double = 1,
         enabled: Bool,
+        format: @escaping (Double?) -> String = ChannelInputSheet.formatDb,
         onChanged: @escaping (Double, Bool) -> Void
     ) -> some View {
         HStack(spacing: 8) {
@@ -430,7 +508,7 @@ struct ChannelInputSheet: View {
 
                 // A typed value is the operator's final choice, so it
                 // always goes out (force), like a finished turn.
-                ValueField(value: value, range: range, enabled: enabled) {
+                ValueField(value: value, range: range, enabled: enabled, format: format) {
                     onChanged($0, true)
                 }
                 .background { readoutBox }
@@ -459,6 +537,9 @@ struct ChannelInputSheet: View {
         gainShown = channel.gain
         altGainShown = channel.altGain
         trimShown = channel.trim
+        delayShown = channel.delayMs
+        fineDelayShown = channel.fineDelay
+        delayOn = Optimistic(channel.delayOn ?? false)
         phantom = Optimistic(channel.phantom)
         altPhantom = Optimistic(channel.altPhantom)
         altIn = Optimistic(channel.altIn)
@@ -490,6 +571,20 @@ struct ChannelInputSheet: View {
         if let trim = state.trim, now.timeIntervalSince(trimTouchedAt) > Self.settle,
            differs(trimShown, trim) {
             trimShown = trim
+        }
+
+        if let delay = state.delayMs, now.timeIntervalSince(delayTouchedAt) > Self.settle,
+           differs(delayShown, delay) {
+            delayShown = delay
+        }
+
+        if let fine = state.fineDelay, now.timeIntervalSince(fineDelayTouchedAt) > Self.settle,
+           differs(fineDelayShown, fine) {
+            fineDelayShown = fine
+        }
+
+        if let on = state.delayOn {
+            delayOn.reconcile(on, confirm: Self.flagConfirm)
         }
 
         phantom.reconcile(state.phantom, confirm: Self.flagConfirm)
@@ -546,6 +641,23 @@ struct ChannelInputSheet: View {
     private static let gainDialRate = 0.25
 
     /// A dash rather than a number the console never sent.
+    // The delay's range, as the server clamps it: 0...1300 ms (the
+    // wire's 0...1.3 s), and -127...+127 samples of fine trim.
+    static let delayMsRange = 0.0...1300.0
+    static let fineDelayRange = -127.0...127.0
+    static let delayDialRate = 0.15
+
+    static func formatMs(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.2f ms", value)
+    }
+
+    static func formatSamples(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        let samples = Int(value.rounded())
+        return samples > 0 ? "+\(samples) smp" : "\(samples) smp"
+    }
+
     static func formatDb(_ value: Double?) -> String {
         guard let value else { return "—" }
 
@@ -558,7 +670,7 @@ struct ChannelInputSheet: View {
 /// Pushes are ignored until they agree or the confirm window passes, so a
 /// frame already in flight cannot flip it back; after that the console's
 /// state wins. Mirrors ChannelInputBottomSheet.Optimistic on Android.
-private struct Optimistic<Value: Equatable> {
+struct Optimistic<Value: Equatable> {
     private(set) var shown: Value
     private var expected: Value?
     private var sentAt = Date.distantPast
@@ -596,17 +708,18 @@ private struct Optimistic<Value: Equatable> {
 /// "0" reads back as "0.0". Anything that is not a number puts back what
 /// the dial is on. Mirrors the value boxes in Android's
 /// ChannelInputBottomSheet.
-private struct ValueField: View {
+struct ValueField: View {
     let value: Double?
     let range: ClosedRange<Double>
     let enabled: Bool
+    var format: (Double?) -> String = ChannelInputSheet.formatDb
     let onCommit: (Double) -> Void
 
     @State private var draft = ""
     @FocusState private var editing: Bool
 
     var body: some View {
-        TextField(ChannelInputSheet.formatDb(value), text: $draft)
+        TextField(format(value), text: $draft)
             .font(.system(size: 15, weight: .bold))
             .foregroundStyle(Color.clmixReadoutText)
             .multilineTextAlignment(.center)
@@ -620,11 +733,11 @@ private struct ValueField: View {
             .onSubmit { editing = false }
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity)
-            .onAppear { draft = ChannelInputSheet.formatDb(value) }
+            .onAppear { draft = format(value) }
             // Mid-edit, the box holds what is being typed - the dial
             // follows the console, the box catches up on commit.
             .onChange(of: value) { _, now in
-                if !editing { draft = ChannelInputSheet.formatDb(now) }
+                if !editing { draft = format(now) }
             }
             .onChange(of: editing) { _, now in
                 if now { draft = "" } else { commit() }
@@ -642,18 +755,19 @@ private struct ValueField: View {
     }
 
     private func commit() {
-        let text = draft
-            .trimmingCharacters(in: .whitespaces)
+        // Units in the box ("ms", "smp") are left out of the number.
+        let text = String(draft
             .replacingOccurrences(of: ",", with: ".")
+            .filter { $0.isNumber || $0 == "." || $0 == "-" || $0 == "+" })
 
         guard enabled, let typed = Double(text) else {
-            draft = ChannelInputSheet.formatDb(value)
+            draft = format(value)
             return
         }
 
         let clamped = min(range.upperBound, max(range.lowerBound, typed))
         onCommit(clamped)
-        draft = ChannelInputSheet.formatDb(clamped)
+        draft = format(clamped)
     }
 }
 

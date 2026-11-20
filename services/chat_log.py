@@ -41,10 +41,11 @@ class ChatLog:
         self._next_id = 1
         self.revision = 0
 
-    def add(self, kind, text, user=None, name=None):
+    def add(self, kind, text, user=None, name=None, extra=None):
         """Stores one message and returns it. `text` must already be
         cleaned - see clean_text. A desktop message without a name goes
-        out as TECH_NAME."""
+        out as TECH_NAME. `extra` adds keys to the message - the
+        Leader badge ("leader", "leader_color") is carried this way."""
         with self._lock:
             if kind == KIND_TECH:
                 name = name or TECH_NAME
@@ -56,6 +57,8 @@ class ChatLog:
                 "text": text,
                 "time": time.time(),
             }
+            if extra:
+                message.update(extra)
             self._next_id += 1
             self._messages.append(message)
             del self._messages[:-MAX_MESSAGES]
