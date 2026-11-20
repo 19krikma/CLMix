@@ -8,7 +8,17 @@ enum EqTarget: Hashable {
     /// The low-pass, the console's hi_filter.
     case hiFilter
 
-    var color: Color {
+    /// `count` is how many bands the EQ has: a bus's eight take their
+    /// own colours, low (band 8) to high (band 1).
+    func color(_ count: Int = EqRange.bandCount) -> Color {
+        if count != EqRange.bandCount, case .band(let n) = self {
+            let colors: [Color] = [
+                .clmixEqBandLF, .clmixEqBand2, .clmixEqBandLMF, .clmixEqBand4,
+                .clmixEqBandHMF, .clmixEqBand6, .clmixEqBandHF, .clmixEqBand8,
+            ]
+            let index = count - n
+            return colors.indices.contains(index) ? colors[index] : .clmixEqBandHF
+        }
         switch self {
         case .band(4): return .clmixEqBandLF
         case .band(3): return .clmixEqBandLMF
@@ -18,15 +28,16 @@ enum EqTarget: Hashable {
         }
     }
 
-    var chipLabel: String {
+    func chipLabel(_ count: Int = EqRange.bandCount) -> String {
         switch self {
-        case .band(let n): return EqResponse.label(n)
+        case .band(let n): return EqResponse.label(n, count: count)
         case .loFilter: return "HPF"
         case .hiFilter: return "LPF"
         }
     }
 
-    var handleLabel: String {
+    func handleLabel(_ count: Int = EqRange.bandCount) -> String {
+        if count != EqRange.bandCount, case .band(let n) = self { return "\(n)" }
         switch self {
         case .band(4): return "LF"
         case .band(3): return "LM"
@@ -38,12 +49,17 @@ enum EqTarget: Hashable {
         }
     }
 
-    /// Low to high, the order the chips run in.
-    static let all: [EqTarget] =
-        [.loFilter] + EqResponse.bandsLowToHigh.map { .band($0) } + [.hiFilter]
+    /// Low to high, the order the chips run in - without the filters on
+    /// a bus, which has none.
+    static func all(for eq: ChannelEq) -> [EqTarget] {
+        let bands = EqResponse.bandsLowToHigh(eq.bands.count).map { EqTarget.band($0) }
+        return eq.hasFilters ? [.loFilter] + bands + [.hiFilter] : bands
+    }
 }
 
-/// One input channel's EQ, full screen and turned on its side.
+/// One input channel's EQ, full screen and turned on its side - or a
+/// bus's (the master, a group, an aux or a matrix): eight bands instead
+/// of four, and no high- or low-pass filter, so neither gets a chip.
 ///
 /// Opened from the EQ button on a Full Mixer Control strip, and like that
 /// screen it reaches the channel itself - every curve drawn here is what
@@ -58,15 +74,19 @@ enum EqTarget: Hashable {
 struct EqView: View {
     @EnvironmentObject var model: AppModel
 
-    @State private var selected: EqTarget = .band(EqResponse.lowBand)
+    @State private var selected: EqTarget = .band(EqRange.bandCount)
 
     private var eq: ChannelEq {
         model.eq ?? ChannelEq(channel: model.eqChannel ?? 0)
     }
 
-    private var channelName: String {
+    private var strip: ChannelState? {
         let number = eq.channel
-        return model.channels.first { $0.channel == number }?.name ?? "Ch \(number)"
+        return model.channels.first { $0.channel == number }
+    }
+
+    private var channelName: String {
+        strip?.name ?? "Ch \(eq.channel)"
     }
 
     var body: some View {
@@ -92,6 +112,8 @@ struct EqView: View {
             .padding(8)
         }
         .background(Color.clmixBackground.ignoresSafeArea())
+        // Opens on the lowest band - band 8 on a bus.
+        .onAppear { selected = .band(EqResponse.lowBand(eq.bands.count)) }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
     }
@@ -109,7 +131,8 @@ struct EqView: View {
             }
             .accessibilityLabel("Back to the mixer")
 
-            Text("\(eq.channel)")
+            // "GRP 1" on a bus, where the number alone is its id.
+            Text(strip?.label ?? "\(eq.channel)")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.clmixOnSurfaceVariant)
 
@@ -155,8 +178,8 @@ struct EqView: View {
     private var controlPanel: some View {
         VStack(spacing: 8) {
             HStack(spacing: 4) {
-                ForEach(EqTarget.all, id: \.self) { target in
-                    chip(target.chipLabel, lit: target == selected, color: target.color) {
+                ForEach(EqTarget.all(for: eq), id: \.self) { target in
+                    chip(target.chipLabel(eq.bands.count), lit: target == selected, color: target.color(eq.bands.count)) {
                         selected = target
                     }
                 }
@@ -171,7 +194,7 @@ struct EqView: View {
 
                 Spacer(minLength: 0)
 
-                chip(isBand ? "ON" : "IN", lit: selectedIsOn, color: selected.color, width: 64) {
+                chip(isBand ? "ON" : "IN", lit: selectedIsOn, color: selected.color(eq.bands.count), width: 64) {
                     toggleSelected()
                 }
                 .frame(height: 36)
@@ -311,7 +334,9 @@ struct EqView: View {
 
     private var title: String {
         switch selected {
-        case .band(let n): return "\(EqResponse.label(n)) - Band \(n)"
+        case .band(let n):
+            return eq.bands.count == EqRange.bandCount
+                ? "\(EqResponse.label(n)) - Band \(n)" : "Band \(n)"
         case .loFilter: return "High-pass filter"
         case .hiFilter: return "Low-pass filter"
         }
@@ -411,7 +436,7 @@ struct EqGraphView: View {
             ZStack(alignment: .topLeading) {
                 Canvas { context, _ in draw(in: &context, plot: plot) }
 
-                ForEach(EqTarget.all, id: \.self) { target in
+                ForEach(EqTarget.all(for: eq), id: \.self) { target in
                     if let point = handle(target, plot: plot) {
                         handleView(target).position(point)
                     }
@@ -511,8 +536,8 @@ struct EqGraphView: View {
         if case .band(let n) = selected,
            let band = eq.bands.first(where: { $0.band == n }), band.freq != nil {
             context.stroke(
-                trace(plot) { EqResponse.bandDb(band, hz: $0) },
-                with: .color(selected.color.opacity(0.8)),
+                trace(plot) { EqResponse.bandDb(band, hz: $0, count: eq.bands.count) },
+                with: .color(selected.color(eq.bands.count).opacity(0.8)),
                 style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
             )
         }
@@ -570,11 +595,11 @@ struct EqGraphView: View {
             : AnyShape(Circle())
 
         return ZStack {
-            shape.fill(active ? target.color : Color.clmixSurface)
-            shape.stroke(isSelected ? Color.clmixOnSurface : target.color, lineWidth: 2)
-            Text(target.handleLabel)
+            shape.fill(active ? target.color(eq.bands.count) : Color.clmixSurface)
+            shape.stroke(isSelected ? Color.clmixOnSurface : target.color(eq.bands.count), lineWidth: 2)
+            Text(target.handleLabel(eq.bands.count))
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(active ? Color.white : target.color)
+                .foregroundStyle(active ? Color.white : target.color(eq.bands.count))
         }
         .frame(width: size, height: size)
     }
@@ -644,7 +669,7 @@ struct EqGraphView: View {
     private func nearest(to location: CGPoint, plot: CGRect) -> EqTarget? {
         var best: EqTarget?
         var bestDistance = Self.touchRadius
-        let order = [selected] + EqTarget.all.filter { $0 != selected }
+        let order = [selected] + EqTarget.all(for: eq).filter { $0 != selected }
 
         for target in order {
             guard let point = handle(target, plot: plot) else { continue }

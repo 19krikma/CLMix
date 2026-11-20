@@ -14,17 +14,22 @@ enum EqResponse {
     enum Shape { case bell, lowShelf, highShelf }
 
     // Console band numbers by role. On every channel ever captured band 1
-    // sat highest and band 4 lowest, and a freshly reset bus seeds them
-    // that way round too (PROTOCOL.md's input and aux EQ tables), so the
-    // labels follow it. Only the labels and the shelf choice below lean on
-    // this - the graph places every band by its own frequency.
+    // sat highest and the last band (4 on an input, 8 on a bus) lowest,
+    // and a freshly reset bus seeds them that way round too (PROTOCOL.md's
+    // input and aux EQ tables), so the labels follow it. Only the labels
+    // and the shelf choice below lean on this - the graph places every
+    // band by its own frequency.
     static let highBand = 1
-    static let lowBand = EqRange.bandCount
+
+    /// The lowest band of an EQ with `count` bands.
+    static func lowBand(_ count: Int) -> Int { count }
 
     /// Low to high, the order the screen lays the bands out in.
-    static let bandsLowToHigh = Array((1...EqRange.bandCount).reversed())
+    static func bandsLowToHigh(_ count: Int) -> [Int] { Array((1...count).reversed()) }
 
-    static func label(_ band: Int) -> String {
+    /// An input's four bands by role; a bus's eight by number.
+    static func label(_ band: Int, count: Int = EqRange.bandCount) -> String {
+        if count != EqRange.bandCount { return "B\(band)" }
         switch band {
         case 4: return "LF"
         case 3: return "LMF"
@@ -38,17 +43,18 @@ enum EqResponse {
     /// desk, so 1 is drawn as the bell it plainly is. Anything else on an
     /// outer band is drawn as that band's shelf, and as a bell on a mid
     /// band. A guess about the picture only: the value is never written.
-    static func shape(_ band: EqBand) -> Shape {
+    static func shape(_ band: EqBand, count: Int = EqRange.bandCount) -> Shape {
         guard let curve = band.curve, curve != 1 else { return .bell }
         switch band.band {
-        case lowBand: return .lowShelf
+        case lowBand(count): return .lowShelf
         case highBand: return .highShelf
         default: return .bell
         }
     }
 
     /// One band's own contribution at `hz`, ignoring whether it is on.
-    static func bandDb(_ band: EqBand, hz: Double) -> Double {
+    /// `count` is how many bands its EQ has, for the shelf choice.
+    static func bandDb(_ band: EqBand, hz: Double, count: Int = EqRange.bandCount) -> Double {
         guard let f0 = band.freq, let gain = band.gain, gain != 0 else { return 0 }
 
         let q = min(EqRange.q.upperBound, max(EqRange.q.lowerBound, band.q ?? defaultQ))
@@ -57,7 +63,7 @@ enum EqResponse {
         let w2 = w * w
 
         let magnitude: Double
-        switch shape(band) {
+        switch shape(band, count: count) {
         case .bell:
             magnitude = hypot(1 - w2, w * a / q) / hypot(1 - w2, w / (a * q))
         // Shelves use a fixed slope rather than the band's Q: a shelf drawn
@@ -95,7 +101,7 @@ enum EqResponse {
 
         if asIfIn || eq.eqIn != false {
             for band in eq.bands where band.on != false {
-                db += bandDb(band, hz: hz)
+                db += bandDb(band, hz: hz, count: eq.bands.count)
             }
         }
 

@@ -53,7 +53,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
-        if Self.lockedToLandscape { return .landscape }
+        // An iPad is landscape on every screen, the login's portrait lock
+        // included - Info.plist lists only the landscapes for it, and a
+        // mask with nothing in common with that list is a crash.
+        if LargeScreen.isActive || Self.lockedToLandscape { return .landscape }
         return Self.lockedToPortrait ? .portrait : .all
     }
 }

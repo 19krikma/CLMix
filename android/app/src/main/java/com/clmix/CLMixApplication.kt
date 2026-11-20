@@ -10,6 +10,7 @@ class CLMixApplication : Application() {
         // any activity is created, so the first one already inflates dark.
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         MixerClient.init(this)
+        registerActivityLifecycleCallbacks(TabletLandscape)
         registerActivityLifecycleCallbacks(ServerSync)
         registerActivityLifecycleCallbacks(SosAlerts)
         Sos.init(this)

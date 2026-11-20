@@ -22,10 +22,15 @@ import kotlin.math.pow
 
 private const val EXTRA_CHANNEL = "channel"
 private const val EXTRA_NAME = "name"
+private const val EXTRA_LABEL = "label"
+private const val EXTRA_BANDS = "bands"
+private const val EXTRA_FILTERS = "filters"
 private const val STATE_SELECTED = "selected"
 
 /**
- * One input channel's EQ, full screen and turned on its side.
+ * One input channel's EQ, full screen and turned on its side - or a bus's
+ * (the master, a group, an aux or a matrix): eight bands instead of four,
+ * and no high- or low-pass filter, so neither gets a chip.
  *
  * Opened from the EQ button on a Full Mixer Control strip, and like that
  * screen it reaches the channel itself - every curve drawn here is what
@@ -49,7 +54,9 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
 
     private var channel = 0
     private var eq = ChannelEq(0)
-    private var selected: EqTarget = EqTarget.Band(EqResponse.LOW_BAND)
+    private var bandCount = EQ_BAND_COUNT
+    private var hasFilters = true
+    private var selected: EqTarget = EqTarget.Band(EQ_BAND_COUNT)
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -64,10 +71,9 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
     private var flushScheduled = false
     private val flushRunnable = Runnable { flushWrites() }
 
-    private val targets: List<EqTarget> =
-        listOf<EqTarget>(EqTarget.LoFilter) +
-            EqResponse.bandsLowToHigh.map { EqTarget.Band(it) } +
-            EqTarget.HiFilter
+    // Low to high across the screen: the high-pass, the bands, the
+    // low-pass - without the filters on a bus. Set in onCreate.
+    private var targets: List<EqTarget> = emptyList()
 
     private val chips = mutableMapOf<EqTarget, MaterialButton>()
 
@@ -78,13 +84,27 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
         enterFullScreen()
 
         channel = intent.getIntExtra(EXTRA_CHANNEL, 0)
-        eq = ChannelEq(channel)
+        bandCount = intent.getIntExtra(EXTRA_BANDS, EQ_BAND_COUNT)
+        hasFilters = intent.getBooleanExtra(EXTRA_FILTERS, true)
+        eq = ChannelEq(
+            channel,
+            bands = (1..bandCount).map { EqBand(it) },
+            hasFilters = hasFilters
+        )
 
-        savedInstanceState?.getString(STATE_SELECTED)?.let { decodeTarget(it) }?.let {
-            selected = it
+        val bands = EqResponse.bandsLowToHigh(bandCount).map { EqTarget.Band(it) }
+        targets = if (hasFilters) {
+            listOf<EqTarget>(EqTarget.LoFilter) + bands + EqTarget.HiFilter
+        } else {
+            bands
         }
+        selected = EqTarget.Band(EqResponse.lowBand(bandCount))
 
-        binding.channelNumber.text = channel.toString()
+        savedInstanceState?.getString(STATE_SELECTED)?.let { decodeTarget(it) }
+            ?.takeIf { it in targets }
+            ?.let { selected = it }
+
+        binding.channelNumber.text = intent.getStringExtra(EXTRA_LABEL) ?: channel.toString()
         binding.channelName.text = intent.getStringExtra(EXTRA_NAME) ?: "Ch $channel"
 
         binding.backButton.setOnClickListener { finish() }
@@ -324,6 +344,7 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
 
         eq = ChannelEq(
             channel = channel,
+            hasFilters = hasFilters,
             eqIn = if (isHeld(KEY_EQ_IN, now)) eq.eqIn else incoming.eqIn,
             bands = bands,
             loFilter = EqFilter(
@@ -363,15 +384,19 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
         binding.eqInButton.text = if (eq.eqIn == false) "EQ OUT" else "EQ IN"
 
         for ((target, chip) in chips) {
-            tint(chip, target == selected, eqTargetColor(this, target))
+            tint(chip, target == selected, eqTargetColor(this, target, bandCount))
         }
 
-        val color = eqTargetColor(this, selected)
+        val color = eqTargetColor(this, selected, bandCount)
 
         when (val target = selected) {
             is EqTarget.Band -> {
                 val band = eq.bands[target.band - 1]
-                binding.targetTitle.text = "${EqResponse.label(target.band)} - Band ${target.band}"
+                binding.targetTitle.text = if (bandCount == EQ_BAND_COUNT) {
+                    "${EqResponse.label(target.band)} - Band ${target.band}"
+                } else {
+                    "Band ${target.band}"
+                }
                 binding.targetOnButton.text = "ON"
                 tint(binding.targetOnButton, band.on == true, color)
 
@@ -430,7 +455,7 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun chipLabel(target: EqTarget): String = when (target) {
-        is EqTarget.Band -> EqResponse.label(target.band)
+        is EqTarget.Band -> EqResponse.label(target.band, bandCount)
         EqTarget.LoFilter -> "HPF"
         EqTarget.HiFilter -> "LPF"
     }
@@ -480,6 +505,10 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
                 Intent(context, EqActivity::class.java)
                     .putExtra(EXTRA_CHANNEL, channel.channel)
                     .putExtra(EXTRA_NAME, channel.name)
+                    // A bus: "GRP 1" over the name, eight bands, no filters.
+                    .putExtra(EXTRA_LABEL, channel.label)
+                    .putExtra(EXTRA_BANDS, channel.eqBandCount)
+                    .putExtra(EXTRA_FILTERS, channel.isInput)
             )
         }
 
@@ -501,7 +530,6 @@ class EqActivity : AppCompatActivity(), MixerClientListener {
             text == "lo" -> EqTarget.LoFilter
             text == "hi" -> EqTarget.HiFilter
             text.startsWith("band:") -> text.removePrefix("band:").toIntOrNull()
-                ?.takeIf { it in 1..EQ_BAND_COUNT }
                 ?.let { EqTarget.Band(it) }
             else -> null
         }

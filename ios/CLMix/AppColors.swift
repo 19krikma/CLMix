@@ -41,5 +41,11 @@ extension Color {
     static let clmixEqBandLMF = Color(red: 0xD9 / 255, green: 0xA4 / 255, blue: 0x00 / 255)
     static let clmixEqBandHMF = Color(red: 0x21 / 255, green: 0xA8 / 255, blue: 0x70 / 255)
     static let clmixEqBandHF = Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xF6 / 255)
+    // A bus's eight bands use the four above with these between them, low
+    // to high: LF, 2, LMF, 4, HMF, 6, HF, 8 (EqTarget.color).
+    static let clmixEqBand2 = Color(red: 0xE5 / 255, green: 0x56 / 255, blue: 0x6A / 255)
+    static let clmixEqBand4 = Color(red: 0x8D / 255, green: 0xB6 / 255, blue: 0x00 / 255)
+    static let clmixEqBand6 = Color(red: 0x14 / 255, green: 0xA3 / 255, blue: 0xB8 / 255)
+    static let clmixEqBand8 = Color(red: 0xD4 / 255, green: 0x5B / 255, blue: 0xC4 / 255)
     static let clmixEqFilter = Color(red: 0x9B / 255, green: 0x6C / 255, blue: 0xF0 / 255)
 }

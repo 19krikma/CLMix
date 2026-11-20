@@ -9,6 +9,27 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## Unreleased
+
+- **Strips sit where the mixer has them.** Empty faders on a bank show
+  as gaps in Mixer Control, so strips you separate on the desk stay
+  separated.
+- **DCA and multi faders run the full height** of the strip, since
+  those strips have no EQ, dynamics or inserts.
+- **Rename multis, DCAs and buses.** Tap the name of any strip that
+  isn't an input to rename it on the mixer. Multitrack returns show
+  with their fader, Mute and name.
+- **EQ, dynamics and Hard Mute on the Master** - and on every group, aux
+  and matrix strip in Mixer Control. The EQ screen shows a bus's eight
+  bands (no high- or low-pass on a bus), the Dynamics screen works as on
+  an input, HARD MUTE sits where an input's pan button is, and INS A /
+  INS B switch the bus's inserts in and out with a tap.
+- **Meters on Master, group, aux and matrix strips** in Mixer Control,
+  two bars on a stereo bus such as the master. DCAs have no meter, so
+  their strips still show none.
+- **The demo's DCA bank opens**, with a metered stereo master and four
+  DCAs to ride.
+
 ## 1.17.0
 
 - **DCA and Master faders.** Banks of DCAs, groups (the master among

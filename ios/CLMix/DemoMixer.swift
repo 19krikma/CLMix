@@ -35,6 +35,15 @@ final class DemoMixer: MixerBackend {
     // reported so the rename dialog reads exactly as it does for real.
     private(set) var liveSnapshot: String? = "Demo Show"
 
+    /// The selected desk bank fader by fader, nil for a gap - as
+    /// RemoteServer._bank_slots sends it.
+    var bankSlots: [Int?]? {
+        guard mixerMode, let bank = selectedBank,
+              let surfaceBank = Self.surface.first(where: { Self.layoutId($0.layer, $0.position) == bank })
+        else { return nil }
+        return surfaceBank.channels.map { $0 == 0 ? nil : $0 }
+    }
+
     // Personal labels, as the server's user record holds them - and like
     // that record, never written back into the catalog: the demo console
     // keeps its own names, and only this account's view of them changes.
@@ -123,8 +132,9 @@ final class DemoMixer: MixerBackend {
 
     /// The fake desk's surface layout, as Mixer Control lists it: the
     /// three banks above on layer 1, and a second layer cutting across
-    /// them - ending in a DCA bank with no inputs on it, so the dimmed
-    /// bank shows up in the demo too. Mirrors Android's DemoMixer.surface.
+    /// them - ending in a bank of the master, four DCAs and a multi (otherStrips),
+    /// so those strips show up in the demo too. Mirrors Android's
+    /// DemoMixer.surface.
     private static let surface: [(layer: Int, position: Int, name: String, channels: [Int])] = [
         (0, 0, "Drums", Array(1...9)),
         (0, 1, "Band", Array(10...16)),
@@ -132,8 +142,89 @@ final class DemoMixer: MixerBackend {
         (1, 0, "Rhythm", [1, 2, 3, 10, 11]),
         (1, 1, "Vox + Keys", [17, 18, 19, 14, 16]),
         (1, 2, "Playback", [15, 20]),
-        (1, 3, "DCA", []),
+        // Gaps (0) between the master, the DCAs and the multi, the way an
+        // operator separates groups of strips on the desk.
+        (1, 3, "DCA", [20001, 0, 10001, 10002, 10003, 10004, 0, 50001]),
     ]
+
+    /// The demo desk's non-input strips, by the id the real server gives
+    /// them (services/strips.py: DCA 3 is 10003, group 1 is 20001): kind,
+    /// label, name, fader and mute. A group has a meter, here the stereo
+    /// master's; a DCA has none, as on the console. Mirrors Android's
+    /// DemoMixer.otherStrips.
+    private struct DemoOtherStrip {
+        let kind: String
+        let label: String
+        var name: String
+        var level: Double
+        var muted = false
+        var stereo = false
+        var hardMuted = false
+        // A bus's insert points, in or out - it has no head amp on them.
+        var insertsIn: [String: Bool] = ["A": false, "B": false]
+
+        var metered: Bool { kind != "Control_Groups" && kind != "Multis" }
+
+        /// A bus - EQ, dynamics and a hard mute of its own (busEq, busDyn).
+        var processing: Bool { metered }
+    }
+
+    /// A bus's EQ and dynamics, by strip id: eight bands, no filters.
+    /// Its fader, mute and name stay in otherStrips. Mirrors Android's
+    /// DemoMixer.busStrips.
+    private var busEq: [Int: ChannelEq] = [:]
+    private var busDyn: [Int: ChannelDynamics] = [:]
+
+    /// A master bus's EQ: eight bands, band 1 highest, with a little air
+    /// and a little less mud. Its dynamics a gentle glue compressor, in.
+    private func seedBuses() {
+        busEq = [:]
+        busDyn = [:]
+        let shape: [(Double, Double)] = [
+            (16000, 1.5), (8000, 0), (4000, 0), (2000, -1),
+            (800, 0), (300, -1.5), (120, 0), (50, 1),
+        ]
+        for (id, other) in otherStrips where other.processing {
+            busEq[id] = ChannelEq(
+                channel: id,
+                eqIn: true,
+                bands: shape.enumerated().map { i, entry in
+                    EqBand(band: i + 1, on: true, freq: entry.0, gain: entry.1, q: 0.71,
+                           curve: i == 0 || i == shape.count - 1 ? 2 : 1)
+                },
+                hasFilters: false
+            )
+            var dyn = seededDynamics(for: DemoChannel(channel: id, name: other.name, bank: "Masters"))
+            dyn.comp.isIn = true
+            dyn.comp.values["thresh"] = -12
+            dyn.comp.values["ratio"] = 2
+            dyn.comp.values["gain"] = 2
+            busDyn[id] = dyn
+        }
+    }
+
+    private var otherStrips: [Int: DemoOtherStrip] = [
+        20001: DemoOtherStrip(kind: "Group_Outputs", label: "GRP 1", name: "MASTER",
+                              level: 0, stereo: true),
+        10001: DemoOtherStrip(kind: "Control_Groups", label: "DCA 1", name: "DRUMS", level: -3),
+        10002: DemoOtherStrip(kind: "Control_Groups", label: "DCA 2", name: "BAND", level: -5),
+        10003: DemoOtherStrip(kind: "Control_Groups", label: "DCA 3", name: "VOX", level: 0),
+        10004: DemoOtherStrip(kind: "Control_Groups", label: "DCA 4", name: "FX", level: -10),
+        // A multitrack return: fader, mute and name, no meter.
+        50001: DemoOtherStrip(kind: "Multis", label: "MULTI 1", name: "TRACKS", level: -6),
+    ]
+
+    /// The selected surface bank's non-input strips, in the bank's order.
+    private func visibleOtherStrips() -> [(id: Int, strip: DemoOtherStrip)] {
+        guard mixerMode, let bank = selectedBank,
+              let surfaceBank = Self.surface.first(where: {
+                  Self.layoutId($0.layer, $0.position) == bank
+              })
+        else { return [] }
+        return surfaceBank.channels.compactMap { id in
+            otherStrips[id].map { (id, $0) }
+        }
+    }
 
     /// The real server's id for a surface bank (_layout_bank_id).
     private static func layoutId(_ layer: Int, _ position: Int) -> String {
@@ -150,7 +241,7 @@ final class DemoMixer: MixerBackend {
                         LayoutBank(
                             id: layoutId($0.layer, $0.position),
                             name: $0.name,
-                            inputs: $0.channels.count
+                            inputs: $0.channels.filter { $0 != 0 }.count
                         )
                     }
                 )
@@ -255,6 +346,7 @@ final class DemoMixer: MixerBackend {
     /// wedge, and the talkback starts muted the way it usually would.
     private func seed() {
         sends = [:]
+        seedBuses()
 
         for aux in Self.auxes {
             var mix: [Int: Send] = [:]
@@ -730,6 +822,10 @@ final class DemoMixer: MixerBackend {
 
     func setLevel(channel: Int, db: Double) {
         if mixerMode {
+            if otherStrips[channel] != nil {
+                otherStrips[channel]?.level = min(max(db, -150), 10)
+                return
+            }
             console[channel]?.level = db
             return
         }
@@ -750,8 +846,17 @@ final class DemoMixer: MixerBackend {
         sends[aux]?[channel]?.pan = pan
     }
 
+    func setHardMute(channel: Int, muted: Bool) {
+        guard mixerMode, otherStrips[channel]?.processing == true else { return }
+        otherStrips[channel]?.hardMuted = muted
+    }
+
     func setMute(channel: Int, muted: Bool) {
         if mixerMode {
+            if otherStrips[channel] != nil {
+                otherStrips[channel]?.muted = muted
+                return
+            }
             console[channel]?.muted = muted
             return
         }
@@ -794,6 +899,13 @@ final class DemoMixer: MixerBackend {
     }
 
     func setInsert(channel: Int, slot: String, param: String, value: Any) {
+        // A bus's take in/out only, as on the real server.
+        if mixerMode, otherStrips[channel]?.processing == true {
+            if param == "in", ["A", "B"].contains(slot), let isIn = value as? Bool {
+                otherStrips[channel]?.insertsIn[slot] = isIn
+            }
+            return
+        }
         guard mixerMode, var insert = console[channel]?.inserts[slot] else { return }
         switch param {
         case "in": insert.inOn = value as? Bool
@@ -846,7 +958,7 @@ final class DemoMixer: MixerBackend {
 
     /// The real server's _set_eq, down to the clamping.
     func setEq(channel: Int, _ write: EqWrite) {
-        guard mixerMode, var eq = console[channel]?.eq else { return }
+        guard mixerMode, var eq = console[channel]?.eq ?? busEq[channel] else { return }
 
         func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
             min(range.upperBound, max(range.lowerBound, value))
@@ -864,8 +976,11 @@ final class DemoMixer: MixerBackend {
         case .gain(let n, let db): band(n) { $0.gain = clamp(db, EqRange.gain) }
         case .q(let n, let q): band(n) { $0.q = clamp(q, EqRange.q) }
         case .filterIn(let lo, let isIn):
+            // A bus has no filters; the server drops these.
+            guard eq.hasFilters else { return }
             if lo { eq.loFilter.isIn = isIn } else { eq.hiFilter.isIn = isIn }
         case .filterFreq(let lo, let hz):
+            guard eq.hasFilters else { return }
             if lo {
                 eq.loFilter.freq = clamp(hz, EqRange.freq)
             } else {
@@ -873,11 +988,11 @@ final class DemoMixer: MixerBackend {
             }
         }
 
-        console[channel]?.eq = eq
+        if busEq[channel] != nil { busEq[channel] = eq } else { console[channel]?.eq = eq }
     }
 
     private func pushEq() {
-        guard let channel = eqChannel, let eq = console[channel]?.eq else { return }
+        guard let channel = eqChannel, let eq = console[channel]?.eq ?? busEq[channel] else { return }
         Task { @MainActor in self.delegate?.mixerDidReceiveEq(eq) }
     }
 
@@ -889,7 +1004,7 @@ final class DemoMixer: MixerBackend {
 
     /// The real server's _set_dyn, down to the clamping.
     func setDynamics(channel: Int, _ write: DynWrite) {
-        guard mixerMode, var dyn = console[channel]?.dynamics else { return }
+        guard mixerMode, var dyn = console[channel]?.dynamics ?? busDyn[channel] else { return }
 
         switch write {
         case .compIn(let isIn): dyn.comp.isIn = isIn
@@ -904,18 +1019,22 @@ final class DemoMixer: MixerBackend {
             }
         }
 
-        console[channel]?.dynamics = dyn
+        if busDyn[channel] != nil { busDyn[channel] = dyn } else { console[channel]?.dynamics = dyn }
     }
 
     private func pushDynamics() {
-        guard let channel = dynChannel, let dyn = console[channel]?.dynamics else { return }
+        guard let channel = dynChannel,
+              let dyn = console[channel]?.dynamics ?? busDyn[channel] else { return }
         Task { @MainActor in self.delegate?.mixerDidReceiveDynamics(dyn) }
     }
 
     func setName(channel: Int, name: String) {
         guard mixerMode else { return }
         // The same cap the real server applies (MAX_CHANNEL_NAME).
-        console[channel]?.name = String(name.prefix(32))
+        let name = String(name.trimmingCharacters(in: .whitespaces).prefix(32))
+        guard !name.isEmpty else { return }
+        console[channel]?.name = name
+        otherStrips[channel]?.name = name
     }
 
     /// Every aux's presets, this one's first, as the real server lists
@@ -1063,8 +1182,33 @@ final class DemoMixer: MixerBackend {
     /// the sentinel aux the real server sends in mixer mode, since no bus
     /// is being ridden.
     private func pushMixerLevels() {
+        // The bank's DCA and master strips - see otherStrips. Ahead of its
+        // inputs, as the DCA bank is laid out.
+        let others = visibleOtherStrips().map { id, other in
+            ChannelState(
+                channel: id,
+                name: other.name,
+                level: other.level,
+                pan: nil,
+                muted: other.muted,
+                stereo: other.stereo,
+                insertA: other.processing ? InsertState(inOn: other.insertsIn["A"]) : nil,
+                insertB: other.processing ? InsertState(inOn: other.insertsIn["B"]) : nil,
+                kind: other.kind,
+                label: other.label,
+                metered: other.metered,
+                processing: other.processing,
+                hardMuted: other.processing ? other.hardMuted : nil,
+                eqIn: busEq[id]?.eqIn,
+                eq: busEq[id],
+                compIn: busDyn[id]?.comp.isIn,
+                gateIn: busDyn[id]?.gate.isIn,
+                dynamics: busDyn[id]
+            )
+        }
+
         let visible = visibleCatalog()
-        let channels = visible.compactMap { entry -> ChannelState? in
+        let inputs = visible.compactMap { entry -> ChannelState? in
             guard let strip = console[entry.channel] else { return nil }
             return ChannelState(
                 channel: entry.channel,
@@ -1093,6 +1237,7 @@ final class DemoMixer: MixerBackend {
                 dynamics: strip.dynamics
             )
         }
+        let channels = others + inputs
 
         Task { @MainActor in
             self.delegate?.mixerDidReceiveLevels(
@@ -1185,6 +1330,17 @@ final class DemoMixer: MixerBackend {
             )
         }
 
+        for (id, bus) in visibleOtherStrips() where bus.metered {
+            let left = busMeterDb(bus, at: now, leg: 0)
+            let right = bus.stereo ? busMeterDb(bus, at: now, leg: 1) : nil
+            frame[id] = MeterLevels(
+                leftPeak: left,
+                leftRms: left.map { $0 - 4 },
+                rightPeak: right,
+                rightRms: right.map { $0 - 4 }
+            )
+        }
+
         meterSequence += 1
         let sequence = meterSequence
 
@@ -1215,6 +1371,22 @@ final class DemoMixer: MixerBackend {
         let fader = max(-24, min(0, state.level + 6))
         let db = base + fader
 
+        return db <= Self.meterFloorDb ? nil : db
+    }
+
+    /// A bus strip's meter - the master, say: the loudest of every input
+    /// that is up and unmuted on the desk, then its own fader on top.
+    /// Mirrors Android's DemoMixer.busMeterDb.
+    private func busMeterDb(_ bus: DemoOtherStrip, at t: Double, leg: Int) -> Double? {
+        if bus.muted || bus.hardMuted { return nil }
+
+        let mix = Self.catalog.compactMap { entry -> Double? in
+            guard let strip = console[entry.channel] else { return nil }
+            return meterDb(entry, (strip.level, strip.muted), at: t, leg: leg)
+        }.max()
+        guard let mix else { return nil }
+
+        let db = mix + max(-24, min(0, bus.level))
         return db <= Self.meterFloorDb ? nil : db
     }
 

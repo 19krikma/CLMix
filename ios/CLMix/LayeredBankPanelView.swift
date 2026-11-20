@@ -8,10 +8,11 @@ import SwiftUI
 /// row; `inline` puts it at the start of the row instead, which keeps the
 /// iPad's top bar, where this lives there, from growing a line per layer.
 ///
-/// A bank with no input channels on it - DCAs, outputs - is shown dimmed
-/// and does nothing when tapped: it is on the surface, so it is listed,
-/// but Mixer Control only drives input channels and has no strips to show
-/// for it. Mirrors Android's LayeredBankPanel.
+/// A bank with no strip Mixer Control can show on it - an empty one, or
+/// one holding only what it has no strip for - is shown dimmed and does
+/// nothing when tapped: it is on the surface, so it is listed. Inputs,
+/// DCAs, groups, auxes, matrices and multis all count (see LayoutBank).
+/// Mirrors Android's LayeredBankPanel.
 struct LayeredBankPanelView: View {
     let layers: [BankLayer]
     let selectedId: String?
@@ -102,7 +103,7 @@ struct LayeredBankPanelView: View {
         .buttonStyle(.plain)
         .opacity(usable ? 1 : 0.4)
         .disabled(!usable)
-        .accessibilityLabel(usable ? bank.name : "\(bank.name), no input channels")
+        .accessibilityLabel(usable ? bank.name : "\(bank.name), no strips")
         .padding(5)
     }
 }

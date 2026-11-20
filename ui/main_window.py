@@ -35,6 +35,7 @@ from services.log_store import capture, log, log_store
 from services.network_info import list_ipv4_interfaces, source_ip_for
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
+from services.strips import STRIP_KINDS, is_stereo_mode, strip_of
 from services import sos_options
 
 # Before anything parses a datagram: the console does not always send
@@ -98,6 +99,7 @@ CACHEABLE_ADDRESSES = [
     re.compile(r"^/Console/Input_Channels$"),
     re.compile(r"^/Console/Input_Channels/modes$"),
     re.compile(r"^/Console/Aux_Outputs/modes$"),
+    re.compile(r"^/Console/Group_Outputs/modes$"),
     re.compile(r"^/Aux_Outputs/\d+/Buss_Trim/name$"),
     re.compile(r"^/Input_Channels/\d+/Channel_Input/name$"),
     re.compile(r"^/Input_Channels/\d+/Aux_Send/\d+/send_level$"),
@@ -139,18 +141,23 @@ CACHEABLE_ADDRESSES = [
 
     # Every other kind of strip a bank can put on a fader - DCAs,
     # groups (the master among them), auxes, matrices and multis - for
-    # Full Mixer Control: its fader and its name. See LAYOUT_STRIP_KINDS.
+    # Full Mixer Control: its fader, mute and name. See services/strips.py.
     re.compile(r"^/(Control_Groups|Group_Outputs|Aux_Outputs|Matrix_Outputs|Multis)/\d+/(fader|mute)$"),
     re.compile(r"^/(Control_Groups|Multis)/\d+/name$"),
     re.compile(r"^/(Group_Outputs|Matrix_Outputs)/\d+/Buss_Trim/name$"),
+
+    # A bus's EQ, dynamics, hard mute and insert in/outs - groups, auxes
+    # and matrices - for Full Mixer Control's thumbnails, strip buttons
+    # and its EQ and Dynamics screens, as the input ones above.
+    re.compile(r"^/(Group_Outputs|Aux_Outputs|Matrix_Outputs)/\d+/EQ/(?!GR_meter)[^/]+$"),
+    re.compile(r"^/(Group_Outputs|Aux_Outputs|Matrix_Outputs)/\d+/Dynamics/(?!GR_meter)[^/]+$"),
+    re.compile(r"^/(Group_Outputs|Aux_Outputs|Matrix_Outputs)/\d+/hard_mute$"),
+    re.compile(r"^/(Group_Outputs|Aux_Outputs|Matrix_Outputs)/\d+/Insert/insert_[AB]_in$"),
 ]
 
 # The strip kinds a bank can carry besides inputs that Full Mixer Control
 # shows. Kept in bank_layout as (kind, number) beside the input channels.
-LAYOUT_STRIP_KINDS = (
-    "Input_Channels", "Control_Groups", "Group_Outputs", "Aux_Outputs",
-    "Matrix_Outputs", "Multis",
-)
+LAYOUT_STRIP_KINDS = ("Input_Channels",) + tuple(STRIP_KINDS)
 
 RENAME_SNAPSHOT_PATTERN = re.compile(r"^/Snapshots/Rename_Snapshot/(\d+)$")
 
@@ -304,12 +311,13 @@ class MixerWorker(threading.Thread):
     # hold nothing else - the app's own parameter dictionary gives both a
     # range of 1..2 (docs/mixer_protocol/PROTOCOL.md, "Console topology").
     #
-    # That is not true of every modes list, so the equality test below
-    # must not be pointed at another one. /Console/Group_Outputs/modes,
+    # That is not true of every modes list. /Console/Group_Outputs/modes,
     # /Console/Monitoring/modes and /Console/Solo/modes all run 1..6:
     # a group output can be LCR or wider, and "== 2" would read those as
     # mono - i.e. as having no second leg at all, which is the one answer
-    # that is certainly wrong. Widen this to "> 1" before reusing it.
+    # that is certainly wrong. So _mode_is_stereo takes each list's range
+    # and services.strips.is_stereo_mode reads anything over 1 as having
+    # a right leg on the wider ones.
     #
     # For an input channel this decides metering: a stereo channel meters
     # as two independent legs, each on its own subscription slot, while a
@@ -323,7 +331,6 @@ class MixerWorker(threading.Thread):
     # The console accepts and echoes the write either way, which is
     # exactly why the mode has to be consulted rather than inferred from
     # how the bus responds.
-    MODE_STEREO = 2
     METER_LEGS_MONO = ("left",)
     METER_LEGS_STEREO = ("left", "right")
 
@@ -1225,25 +1232,32 @@ class MixerWorker(threading.Thread):
         # Every strip on the bank's faders, in order, as (kind, number) -
         # inputs and DCAs, groups, auxes, matrices and multis alike.
         strips = []
+        # The same, by fader: one entry per fader in order, None where the
+        # fader is empty ("", 0) or holds nothing Mixer Control shows - so
+        # the gaps an operator leaves between groups of strips survive.
+        slots = []
 
         for i in range(4, len(args) - 1, 2):
             kind = args[i]
             index = args[i + 1]
+            slot = None
 
             if kind == "Input_Channels":
                 channels.append(int(index))
             if kind in LAYOUT_STRIP_KINDS:
                 try:
-                    strips.append((kind, int(index)))
+                    slot = (kind, int(index))
+                    strips.append(slot)
                 except (TypeError, ValueError):
-                    pass
+                    slot = None
+            slots.append(slot)
 
         if channels:
             self.banks[name] = channels
 
-        self._store_layout_bank(args, channels, strips)
+        self._store_layout_bank(args, channels, strips, slots)
 
-    def _store_layout_bank(self, args, channels, strips=()):
+    def _store_layout_bank(self, args, channels, strips=(), slots=()):
         """File one reply into bank_layout, by layer and position.
 
         The console answers once per side, and the L and R halves of a
@@ -1253,6 +1267,11 @@ class MixerWorker(threading.Thread):
         that side, so a strip taken off the desk does not linger. Kept
         even with no inputs at all: a DCA or output bank is still a bank
         on the surface, and the phone lists every one.
+
+        "slots" is the bank fader by fader, None for an empty one, so a
+        phone can put each strip where the desk has it. The two sides are
+        laid over each other position by position, the left's strip
+        winning where both hold one (in every capture they held the same).
         """
         try:
             layer = int(args[2])
@@ -1266,7 +1285,7 @@ class MixerWorker(threading.Thread):
         if entry is None or entry["name"] != args[0]:
             entry = {"name": args[0], "layer": layer, "position": position,
                      "sides": {}, "channels": [], "strip_sides": {},
-                     "strips": []}
+                     "strips": [], "slot_sides": {}, "slots": []}
             self.bank_layout[key] = entry
 
         entry["sides"][str(args[1])] = list(channels)
@@ -1279,6 +1298,14 @@ class MixerWorker(threading.Thread):
                 if strip not in merged_strips:
                     merged_strips.append(strip)
         entry["strips"] = merged_strips
+
+        entry.setdefault("slot_sides", {})[str(args[1])] = list(slots)
+        sides = [entry["slot_sides"][side] for side in sorted(entry["slot_sides"])]
+        width = max((len(side) for side in sides), default=0)
+        entry["slots"] = [
+            next((side[i] for side in sides if i < len(side) and side[i]), None)
+            for i in range(width)
+        ]
 
         merged = []
         for side in sorted(entry["sides"]):
@@ -1344,9 +1371,14 @@ class MixerWorker(threading.Thread):
             return "/Console/Aux_Outputs/modes/?", "Aux layout"
 
         # Needed before the first meter subscription, since it decides how
-        # many slots each channel takes - see subscribe_meters().
+        # many slots each channel takes - see subscribe_meters(). The
+        # group list does the same for a group on a Mixer Control bank,
+        # the master among them.
         if self._missing("/Console/Input_Channels/modes"):
             return "/Console/Input_Channels/modes/?", "Channel layout"
+
+        if self._missing("/Console/Group_Outputs/modes"):
+            return "/Console/Group_Outputs/modes/?", "Group layout"
 
         aux_modes = self.cache["/Console/Aux_Outputs/modes"]
         total = len(aux_modes)
@@ -1456,11 +1488,23 @@ class MixerWorker(threading.Thread):
     def channel_is_stereo(self, channel):
         """Whether channel is a stereo pair, per /Console/Input_Channels/modes.
 
+        channel may also be a Mixer Control strip id (services/strips.py):
+        a group or aux reads its own modes list, and a strip whose kind
+        has none - a matrix, a DCA, a multi - is mono.
+
         Falls back to mono when the modes list is missing or too short:
         metering one leg of a stereo channel under-reads, while metering
         a mono channel's absent right leg would show a dead bar, so mono
         is the safer guess with incomplete information.
         """
+        strip = strip_of(channel)
+        if strip is not None:
+            kind, number = strip
+            info = STRIP_KINDS[kind]
+            if info.modes_address is None:
+                return False
+            return self._mode_is_stereo(info.modes_address, number, info.modes_max)
+
         return self._mode_is_stereo("/Console/Input_Channels/modes", channel)
 
     def aux_is_stereo(self, aux):
@@ -1474,16 +1518,20 @@ class MixerWorker(threading.Thread):
         """
         return self._mode_is_stereo("/Console/Aux_Outputs/modes", aux)
 
-    def _mode_is_stereo(self, address, index):
+    def _mode_is_stereo(self, address, index, modes_max=2):
         modes = self.cache.get(address, [])
 
         if not 1 <= index <= len(modes):
             return False
 
-        return int(modes[index - 1]) == self.MODE_STEREO
+        return is_stereo_mode(modes[index - 1], modes_max)
 
     def channel_legs(self, channel):
-        """The meter legs to subscribe and draw for channel."""
+        """The meter legs to subscribe and draw for channel - none at all
+        for a strip with no meter of its own, a DCA or a multi."""
+        strip = strip_of(channel)
+        if strip is not None and STRIP_KINDS[strip[0]].meter_address is None:
+            return ()
         return self.METER_LEGS_STEREO if self.channel_is_stereo(channel) \
             else self.METER_LEGS_MONO
 
@@ -1590,6 +1638,13 @@ class MixerWorker(threading.Thread):
 
     @staticmethod
     def channel_meter_address(channel, leg):
+        """An input's meter, or a group's, aux's or matrix's - see
+        services/strips.py. Only asked for legs channel_legs gave, so a
+        strip with no meter never reaches here."""
+        strip = strip_of(channel)
+        if strip is not None:
+            kind, number = strip
+            return STRIP_KINDS[kind].meter_address.format(n=number, leg=leg)
         return f"/Input_Channels/{channel}/Channel_Input/post_meter/{leg}"
 
     # What CLMix may still send in DiGiCo App mode, besides the heartbeat

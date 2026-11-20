@@ -12,7 +12,11 @@ import android.view.Gravity
 import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
+import android.text.InputFilter
+import android.text.InputType
 import android.view.animation.DecelerateInterpolator
+import android.widget.EditText
+import androidx.appcompat.app.AlertDialog
 import androidx.activity.OnBackPressedCallback
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -30,6 +34,10 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.clmix.databinding.ActivityMixerControlBinding
 
 private const val STATE_BANK = "bank"
+
+// The longest name the rename box takes, the server's own
+// MAX_CHANNEL_NAME (services/remote_server.py).
+private const val MAX_STRIP_NAME_LENGTH = 32
 
 // As MixerActivity: a panel animation short enough to read as a control
 // rather than a transition.
@@ -101,7 +109,8 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
             onChannelNumberClicked = { channel -> showChannelInputSheet(channel) },
             onEqClicked = { channel -> openEq(channel) },
             onDynamicsClicked = { channel, comp -> openDynamics(channel, comp) },
-            onInsertClicked = { channel, slot -> showInsertSheet(channel, slot) }
+            onInsertClicked = { channel, slot -> showInsertSheet(channel, slot) },
+            onHardMuteToggled = { channel, muted -> MixerClient.setHardMute(channel, muted) }
         )
 
         // Both are the console's own controls, and Full Mixer Control is
@@ -304,6 +313,12 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun showChannelInputSheet(channel: ChannelState) {
+        // A multi, DCA or bus has no input stage - its heading renames it.
+        if (!channel.isInput) {
+            showStripRenameDialog(channel)
+            return
+        }
+
         val sheet = ChannelInputBottomSheet(
             context = this,
             initial = channel,
@@ -328,6 +343,39 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
         inputSheet = sheet
         sheet.show()
+    }
+
+    /**
+     * Renames a multi, DCA or bus on the desk itself - its name is the
+     * console's, as an input's is, so every surface and the next snapshot
+     * store see it. No optimistic update: the desk echoes the new name
+     * and the next push carries it.
+     */
+    private fun showStripRenameDialog(channel: ChannelState) {
+        val field = EditText(this).apply {
+            setText(channel.name)
+            setSelection(text.length)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            filters = arrayOf(InputFilter.LengthFilter(MAX_STRIP_NAME_LENGTH))
+        }
+
+        // AlertDialog gives a custom view no padding of its own.
+        val padding = (resources.displayMetrics.density * 20).toInt()
+        val frame = FrameLayout(this).apply {
+            setPadding(padding, padding / 2, padding, 0)
+            addView(field)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Rename ${channel.label ?: channel.channel}")
+            .setMessage("Renames it on the mixer, for every surface.")
+            .setView(frame)
+            .setPositiveButton("Save") { _, _ ->
+                val name = field.text.toString().trim()
+                if (name.isNotEmpty()) MixerClient.setName(channel.channel, name)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // The EQ is its own landscape screen rather than a sheet: a frequency
@@ -360,6 +408,14 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
     }
 
     private fun showInsertSheet(channel: ChannelState, slot: String) {
+        // A bus's insert is in or out and nothing more - no head amp on
+        // the return - so its button flips it straight away instead.
+        if (!channel.isInput) {
+            val current = (if (slot == "A") channel.insertA else channel.insertB)?.inOn == true
+            MixerClient.setInsert(channel.channel, slot, "in", !current)
+            return
+        }
+
         val sheet = InsertBottomSheet(
             context = this,
             initial = channel,
@@ -795,7 +851,7 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         val usable = layers.flatMap { it.banks }.filter { it.inputs > 0 }
 
         if (usable.isEmpty()) {
-            // A console reporting no banks with inputs on: fall back to
+            // A console reporting no banks with strips on: fall back to
             // every channel, exactly as the aux screen does.
             if (selectedBank != null) {
                 selectedBank = null
@@ -827,7 +883,10 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         // console faders for one frame.
         if (aux != MixerClient.MIXER_AUX) return
 
-        adapter.updateChannels(channels, draggingChannels, dragReleasedAt)
+        // Each strip where the desk has it, empty faders left empty.
+        adapter.updateChannels(
+            withGaps(channels, MixerClient.bankSlots), draggingChannels, dragReleasedAt
+        )
 
         panSheet?.let { sheet ->
             channels.firstOrNull { it.channel == sheet.channel }?.pan?.let(sheet::updateIfIdle)

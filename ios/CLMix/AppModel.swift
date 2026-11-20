@@ -118,6 +118,12 @@ final class AppModel: NSObject, ObservableObject {
     // reports none at all - there is no "All" choice any more.
     @Published var selectedBank: String?
     @Published var channels: [ChannelState] = []
+    // Mixer Control's desk bank fader by fader - see MixerBackend.bankSlots.
+    @Published private(set) var bankSlots: [Int?]?
+
+    /// Mixer Control's strips where the desk has them, empty faders left
+    /// empty (ChannelState.isGap).
+    var mixerStrips: [ChannelState] { withGaps(channels, slots: bankSlots) }
     @Published var fineMode = false
     @Published var presetsAllowed = false
     // Gates whether the Mute button is offered at all, mirroring the
@@ -235,6 +241,9 @@ final class AppModel: NSObject, ObservableObject {
         let sentAt: Date
     }
     private var pendingMutes: [Int: PendingMute] = [:]
+    private var pendingHardMutes: [Int: PendingMute] = [:]
+    // A bus's insert in/outs, keyed "channel:slot" - see toggleBusInsert.
+    private var pendingInserts: [String: PendingMute] = [:]
     private let muteConfirmTimeout: TimeInterval = 2
 
     // The EQ screen's equivalent of pendingMutes, per value (see
@@ -517,6 +526,16 @@ final class AppModel: NSObject, ObservableObject {
         backend.setMute(channel: channel, muted: muted)
     }
 
+    /// A bus's HARD MUTE (the master, a group, an aux or a matrix), shown
+    /// straight away and held against stale pushes the same way as Mute.
+    func setHardMute(channel: Int, muted: Bool) {
+        pendingHardMutes[channel] = PendingMute(expected: muted, sentAt: Date())
+        if let index = channels.firstIndex(where: { $0.channel == channel }) {
+            channels[index].hardMuted = muted
+        }
+        backend.setHardMute(channel: channel, muted: muted)
+    }
+
     // MARK: - EQ
 
     /// Opens one channel's EQ full screen, on its side. The server
@@ -525,7 +544,9 @@ final class AppModel: NSObject, ObservableObject {
         guard isMixerMode else { return }
         eqHeldUntil = [:]
         pendingEqWrites = [:]
-        eq = ChannelEq(channel: channel)
+        // Shaped for the strip before anything arrives - eight bands and
+        // no filters on a bus - so the screen opens on the right chips.
+        eq = ChannelEq.empty(channel: channel, for: channels.first { $0.channel == channel })
         eqChannel = channel
         backend.selectEq(channel)
     }
@@ -696,6 +717,22 @@ final class AppModel: NSObject, ObservableObject {
 
     func setInsert(channel: Int, slot: String, param: String, value: Any) {
         backend.setInsert(channel: channel, slot: slot, param: param, value: value)
+    }
+
+    /// A bus's INS A / INS B ("A"/"B"): in or out and nothing more - no
+    /// head amp on the return - so a tap flips it on the spot, held
+    /// against stale pushes the same way as Mute.
+    func toggleBusInsert(channel: Int, slot: String) {
+        guard let index = channels.firstIndex(where: { $0.channel == channel }) else { return }
+        let current = (slot == "A" ? channels[index].insertA : channels[index].insertB)?.inOn == true
+        let target = !current
+        pendingInserts["\(channel):\(slot)"] = PendingMute(expected: target, sentAt: Date())
+        if slot == "A" {
+            channels[index].insertA = InsertState(inOn: target)
+        } else {
+            channels[index].insertB = InsertState(inOn: target)
+        }
+        backend.setInsert(channel: channel, slot: slot, param: "in", value: target)
     }
 
     func setFineDelay(channel: Int, samples: Int) {
@@ -1403,14 +1440,9 @@ extension AppModel: MixerClientDelegate {
         auxUsers = byAux
     }
 
-    /// No synthetic "All" entry: every channel at once is a whole
-    /// console's worth of strips, faders and meters for a phone that can
-    /// show a dozen - the same reason the desktop dropped its own All
-    /// button. The console's banks are the only choices. Mirrors
-    /// Android's MixerActivity.onBanks.
     /// Mixer Control's surface layout. Picks the opening bank among the
-    /// ones with input channels on - a DCA or output bank is listed but
-    /// has no strips to show. Mirrors Android's MixerControlActivity.
+    /// ones with strips on - a bank with none is listed but cannot be
+    /// opened. Mirrors Android's MixerControlActivity.
     func mixerDidReceiveBankLayers(_ layers: [BankLayer]) {
         gotBankLayout = true
         bankLayers = layers
@@ -1435,6 +1467,11 @@ extension AppModel: MixerClientDelegate {
         }
     }
 
+    /// No synthetic "All" entry: every channel at once is a whole
+    /// console's worth of strips, faders and meters for a phone that can
+    /// show a dozen - the same reason the desktop dropped its own All
+    /// button. The console's banks are the only choices. Mirrors
+    /// Android's MixerActivity.onBanks.
     func mixerDidReceiveBanks(_ banks: [String]) {
         // Taken before the check below, so a stale list cannot leave it
         // set for the next one, which may come without a layout.
@@ -1488,6 +1525,7 @@ extension AppModel: MixerClientDelegate {
             // levels onto these console faders for one frame.
             guard aux == MixerClient.mixerAux else { return }
             syncDataArrived(for: .mixerControl)
+            if bankSlots != backend.bankSlots { bankSlots = backend.bankSlots }
         case .mixer(let currentAux):
             guard currentAux.index == aux else { return }
         default:
@@ -1513,21 +1551,54 @@ extension AppModel: MixerClientDelegate {
         // came back. Mirrors Android's pendingMutes.retainAll.
         let newChannelSet = Set(channels.map(\.channel))
         pendingMutes = pendingMutes.filter { newChannelSet.contains($0.key) }
+        pendingHardMutes = pendingHardMutes.filter { newChannelSet.contains($0.key) }
+        pendingInserts = pendingInserts.filter {
+            guard let channel = Int($0.key.split(separator: ":")[0]) else { return false }
+            return newChannelSet.contains(channel)
+        }
 
         let now = Date()
         let resolved = channels.map { channel in
-            guard let pending = pendingMutes[channel.channel] else { return channel }
+            var held = channel
 
-            let confirmed = channel.muted == pending.expected
-            let timedOut = now.timeIntervalSince(pending.sentAt) >= muteConfirmTimeout
+            if let pending = pendingMutes[channel.channel] {
+                let confirmed = channel.muted == pending.expected
+                let timedOut = now.timeIntervalSince(pending.sentAt) >= muteConfirmTimeout
 
-            if confirmed || timedOut {
-                pendingMutes.removeValue(forKey: channel.channel)
-                return channel
+                if confirmed || timedOut {
+                    pendingMutes.removeValue(forKey: channel.channel)
+                } else {
+                    held.muted = pending.expected
+                }
             }
 
-            var held = channel
-            held.muted = pending.expected
+            // The same for a bus's HARD MUTE.
+            if let pending = pendingHardMutes[channel.channel] {
+                let confirmed = (channel.hardMuted == true) == pending.expected
+                let timedOut = now.timeIntervalSince(pending.sentAt) >= muteConfirmTimeout
+
+                if confirmed || timedOut {
+                    pendingHardMutes.removeValue(forKey: channel.channel)
+                } else {
+                    held.hardMuted = pending.expected
+                }
+            }
+
+            // And a bus's insert in/outs.
+            for slot in ["A", "B"] {
+                guard let pending = pendingInserts["\(channel.channel):\(slot)"] else { continue }
+                let reported = (slot == "A" ? channel.insertA : channel.insertB)?.inOn == true
+                let timedOut = now.timeIntervalSince(pending.sentAt) >= muteConfirmTimeout
+
+                if reported == pending.expected || timedOut {
+                    pendingInserts.removeValue(forKey: "\(channel.channel):\(slot)")
+                } else if slot == "A" {
+                    held.insertA = InsertState(inOn: pending.expected)
+                } else {
+                    held.insertB = InsertState(inOn: pending.expected)
+                }
+            }
+
             return held
         }
 

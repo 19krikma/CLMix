@@ -71,8 +71,10 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # iPad: landscape only, either way round - every screen, the
+        # login included (AppDelegate). UIRequiresFullScreen below keeps
+        # this allowed at upload.
         UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         # Stays true for two separate reasons. It opts out of iPad

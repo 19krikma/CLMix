@@ -163,6 +163,12 @@ object MixerClient {
     var liveSnapshot: String? = null
         private set
 
+    // Mixer Control's desk bank fader by fader - a strip id, or null for
+    // an empty fader - from the latest levels frame. Null when the frame
+    // carries none (an older server, or no desk bank). See withGaps.
+    var bankSlots: List<Int?>? = null
+        private set
+
     // Set from login_result - the range each head-amp dial sweeps, in dB,
     // as the desktop reads it off the console's own parameter table. Held
     // here rather than compiled into the sheet so a corrected range ships
@@ -445,6 +451,15 @@ object MixerClient {
     fun setMute(channel: Int, muted: Boolean) = send(
         JSONObject()
             .put("action", "set_mute")
+            .put("channel", channel)
+            .put("muted", muted)
+    )
+
+    // A bus's hard mute - the master, a group, an aux or a matrix. Mixer
+    // mode only, like the rest of a bus's processing.
+    fun setHardMute(channel: Int, muted: Boolean) = send(
+        JSONObject()
+            .put("action", "set_hard_mute")
             .put("channel", channel)
             .put("muted", muted)
     )
@@ -885,6 +900,9 @@ object MixerClient {
                 // whose snapshot has not been read yet - into "null".
                 liveSnapshot = if (json.isNull("snapshot")) null
                     else json.optString("snapshot").takeIf { it.isNotEmpty() }
+                bankSlots = json.optJSONArray("slots")?.let { slots ->
+                    (0 until slots.length()).map { if (slots.isNull(it)) null else slots.optInt(it) }
+                }
                 val arr = json.getJSONArray("channels")
                 val list = (0 until arr.length()).map {
                     val o = arr.getJSONObject(it)
@@ -902,6 +920,9 @@ object MixerClient {
                         insertA = o.optJSONObject("insert_a")?.let(::parseInsert),
                         kind = o.optString("kind").takeIf { !o.isNull("kind") && it.isNotEmpty() },
                         label = o.optString("label").takeIf { !o.isNull("label") && it.isNotEmpty() },
+                        metered = o.optBoolean("metered", false),
+                        processing = o.optBoolean("processing", false),
+                        hardMuted = o.optBoolOrNull("hard_mute"),
                         insertB = o.optJSONObject("insert_b")?.let(::parseInsert),
                         fineDelay = if (o.isNull("fine_delay")) null else o.optDouble("fine_delay").takeIf { !it.isNaN() },
                         phantom = o.optBoolean("phantom", false),
@@ -911,7 +932,11 @@ object MixerClient {
                         altAvailable = o.optBoolean("alt_available", false),
                         eqIn = o.optBoolOrNull("eq_in"),
                         eq = o.optJSONArray("eq_summary")?.let {
-                            parseEqSummary(o.getInt("channel"), it)
+                            parseEqSummary(
+                                o.getInt("channel"), it,
+                                isInput = o.isNull("kind") ||
+                                    o.optString("kind").let { k -> k.isEmpty() || k == "Input_Channels" }
+                            )
                         },
                         compIn = o.optBoolOrNull("comp_in"),
                         gateIn = o.optBoolOrNull("gate_in"),
@@ -1069,9 +1094,12 @@ object MixerClient {
         val byNumber = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
             .associateBy { it.optInt("band") }
 
-        // Always all four, in console order, whatever arrived - a band the
+        // Every band in console order, whatever arrived - a band the
         // server left out reads the same as one it has no values for.
-        val bands = (1..EQ_BAND_COUNT).map { band ->
+        // Four on an input; a bus sends eight, so the count is taken from
+        // what it sent.
+        val count = byNumber.keys.maxOrNull()?.coerceAtLeast(EQ_BAND_COUNT) ?: EQ_BAND_COUNT
+        val bands = (1..count).map { band ->
             val o = byNumber[band] ?: return@map EqBand(band)
             EqBand(
                 band = band,
@@ -1093,21 +1121,25 @@ object MixerClient {
             eqIn = json.optBoolOrNull("eq_in"),
             bands = bands,
             loFilter = filter("lo_filter"),
-            hiFilter = filter("hi_filter")
+            hiFilter = filter("hi_filter"),
+            hasFilters = json.optBoolean("filters", true)
         )
     }
 
     /**
      * A strip's EQ from the positional row RemoteServer._eq_summary sends:
      * [eq_in, lo_in, lo_freq, hi_in, hi_freq, then on, freq, gain, q,
-     * curve per band]. Null for a row too short to be one.
+     * curve per band]. Null for a row too short to be one. A bus's row
+     * carries eight bands and null filters, so the band count is read off
+     * the row's length, and a strip that is not an input has no filters.
      */
-    private fun parseEqSummary(channel: Int, row: JSONArray): ChannelEq? {
-        if (row.length() < EQ_SUMMARY_HEAD + EQ_BAND_COUNT * EQ_SUMMARY_BAND) return null
+    private fun parseEqSummary(channel: Int, row: JSONArray, isInput: Boolean = true): ChannelEq? {
+        val count = (row.length() - EQ_SUMMARY_HEAD) / EQ_SUMMARY_BAND
+        if (count < EQ_BAND_COUNT) return null
 
         fun flag(i: Int): Boolean? = if (row.isNull(i)) null else row.optInt(i) != 0
 
-        val bands = (1..EQ_BAND_COUNT).map { band ->
+        val bands = (1..count).map { band ->
             val at = EQ_SUMMARY_HEAD + (band - 1) * EQ_SUMMARY_BAND
             EqBand(
                 band = band,
@@ -1124,7 +1156,8 @@ object MixerClient {
             eqIn = flag(0),
             bands = bands,
             loFilter = EqFilter(flag(1), row.optDoubleOrNull(2)),
-            hiFilter = EqFilter(flag(3), row.optDoubleOrNull(4))
+            hiFilter = EqFilter(flag(3), row.optDoubleOrNull(4)),
+            hasFilters = isInput
         )
     }
 

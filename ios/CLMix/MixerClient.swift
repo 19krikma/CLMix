@@ -87,6 +87,9 @@ protocol MixerBackend: AnyObject {
     var mixerControlAllowed: Bool { get }
     var personalizationAllowed: Bool { get }
     var liveSnapshot: String? { get }
+    /// Mixer Control's desk bank fader by fader - a strip id, or nil for
+    /// an empty fader - from the latest levels frame. See withGaps.
+    var bankSlots: [Int?]? { get }
     var gainRange: ClosedRange<Double> { get }
     var trimRange: ClosedRange<Double> { get }
 
@@ -106,6 +109,7 @@ protocol MixerBackend: AnyObject {
     func setLevel(channel: Int, db: Double)
     func setPan(channel: Int, pan: Double)
     func setMute(channel: Int, muted: Bool)
+    func setHardMute(channel: Int, muted: Bool)
     func selectEq(_ channel: Int?)
     func setEq(channel: Int, _ write: EqWrite)
     func selectDynamics(_ channel: Int?)
@@ -216,6 +220,7 @@ final class MixerClient: NSObject, MixerBackend {
     // dialog can name the show the label will belong to. Nil until the
     // first frame, or against a server too old to send it.
     private(set) var liveSnapshot: String?
+    private(set) var bankSlots: [Int?]?
 
     // Set from login_result - the range each head-amp dial sweeps, in dB,
     // as the desktop reads it off the console's own parameter table. Held
@@ -285,6 +290,7 @@ final class MixerClient: NSObject, MixerBackend {
         mixerControlAllowed = false
         personalizationAllowed = false
         liveSnapshot = nil
+        bankSlots = nil
         gainRange = HeadAmpRange.gain
         trimRange = HeadAmpRange.trim
     }
@@ -400,6 +406,12 @@ final class MixerClient: NSObject, MixerBackend {
     /// writes the console's own channel mute.
     func setMute(channel: Int, muted: Bool) {
         send(["action": "set_mute", "channel": channel, "muted": muted])
+    }
+
+    /// A bus's hard mute - the master, a group, an aux or a matrix. Mixer
+    /// mode only, like the rest of a bus's processing.
+    func setHardMute(channel: Int, muted: Bool) {
+        send(["action": "set_hard_mute", "channel": channel, "muted": muted])
     }
 
     /// Opens (or, with nil, closes) one channel's EQ: from here on the
@@ -809,6 +821,9 @@ final class MixerClient: NSObject, MixerBackend {
 
                 liveSnapshot = (json["snapshot"] as? String)
                     .flatMap { $0.isEmpty ? nil : $0 }
+                // Where each strip sits on the desk bank, nil for an
+                // empty fader - RemoteServer._bank_slots.
+                bankSlots = (json["slots"] as? [Any]).map { $0.map { $0 as? Int } }
 
                 let entries = json["channels"] as? [[String: Any]] ?? []
                 let channels = entries.compactMap { entry -> ChannelState? in
@@ -832,6 +847,9 @@ final class MixerClient: NSObject, MixerBackend {
                         insertB: (entry["insert_b"] as? [String: Any]).map(InsertState.init(json:)),
                         kind: (entry["kind"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                         label: (entry["label"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                        metered: entry["metered"] as? Bool ?? false,
+                        processing: entry["processing"] as? Bool ?? false,
+                        hardMuted: entry["hard_mute"] as? Bool,
                         phantom: entry["phantom"] as? Bool ?? false,
                         // phase_state is the console's value, 0...3. An
                         // older server sends only the "phase" bool, which
@@ -847,7 +865,10 @@ final class MixerClient: NSObject, MixerBackend {
                         altAvailable: entry["alt_available"] as? Bool ?? false,
                         eqIn: entry["eq_in"] as? Bool,
                         eq: (entry["eq_summary"] as? [Any]).flatMap {
-                            Self.parseEqSummary(channel: channel, $0)
+                            Self.parseEqSummary(
+                                channel: channel, $0,
+                                isInput: Self.isInputKind(entry["kind"] as? String)
+                            )
                         },
                         compIn: entry["comp_in"] as? Bool,
                         gateIn: entry["gate_in"] as? Bool,
@@ -975,21 +996,29 @@ final class MixerClient: NSObject, MixerBackend {
 }
 
 extension MixerClient {
-    /// Always all four bands, in console order, whatever arrived - a band
-    /// the server left out reads the same as one it has no values for.
-    /// Shared with DemoMixer so the demo's frames go through the same
-    /// reading a real server's do.
+    /// Whether a levels entry's "kind" means an input channel - absent
+    /// from an older server, which only ever sent inputs.
+    static func isInputKind(_ kind: String?) -> Bool {
+        guard let kind, !kind.isEmpty else { return true }
+        return kind == "Input_Channels"
+    }
+
     /// A strip's EQ from the positional row RemoteServer._eq_summary
     /// sends: [eq_in, lo_in, lo_freq, hi_in, hi_freq, then on, freq, gain,
-    /// q, curve per band]. Nil for a row too short to be one.
-    static func parseEqSummary(channel: Int, _ row: [Any]) -> ChannelEq? {
+    /// q, curve per band]. Nil for a row too short to be one. A bus's row
+    /// carries eight bands and null filters, so the band count is read
+    /// off the row's length, and a strip that is not an input has no
+    /// filters. Shared with DemoMixer so the demo's frames go through the
+    /// same reading a real server's do.
+    static func parseEqSummary(channel: Int, _ row: [Any], isInput: Bool = true) -> ChannelEq? {
         let head = 5, perBand = 5
-        guard row.count >= head + EqRange.bandCount * perBand else { return nil }
+        let count = (row.count - head) / perBand
+        guard count >= EqRange.bandCount else { return nil }
 
         func flag(_ i: Int) -> Bool? { (row[i] as? Int).map { $0 != 0 } }
         func number(_ i: Int) -> Double? { row[i] as? Double }
 
-        let bands = (1...EqRange.bandCount).map { band -> EqBand in
+        let bands = (1...count).map { band -> EqBand in
             let at = head + (band - 1) * perBand
             return EqBand(
                 band: band, on: flag(at), freq: number(at + 1),
@@ -1002,7 +1031,8 @@ extension MixerClient {
             eqIn: flag(0),
             bands: bands,
             loFilter: EqFilter(isIn: flag(1), freq: number(2)),
-            hiFilter: EqFilter(isIn: flag(3), freq: number(4))
+            hiFilter: EqFilter(isIn: flag(3), freq: number(4)),
+            hasFilters: isInput
         )
     }
 
@@ -1062,7 +1092,11 @@ extension MixerClient {
             if let band = entry["band"] as? Int { byNumber[band] = entry }
         }
 
-        let bands = (1...EqRange.bandCount).map { number -> EqBand in
+        // Every band in console order, whatever arrived - a band the
+        // server left out reads the same as one it has no values for.
+        // Four on an input; a bus sends eight.
+        let count = max(EqRange.bandCount, byNumber.keys.max() ?? 0)
+        let bands = (1...count).map { number -> EqBand in
             guard let entry = byNumber[number] else { return EqBand(band: number) }
             return EqBand(
                 band: number,
@@ -1084,7 +1118,8 @@ extension MixerClient {
             eqIn: json["eq_in"] as? Bool,
             bands: bands,
             loFilter: filter("lo_filter"),
-            hiFilter: filter("hi_filter")
+            hiFilter: filter("hi_filter"),
+            hasFilters: json["filters"] as? Bool ?? true
         )
     }
 }

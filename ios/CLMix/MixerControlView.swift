@@ -31,6 +31,11 @@ struct MixerControlView: View {
     // value: the sheet has to read the live channel off the model on
     // every push, not a copy captured when it was opened.
     @State private var openInput: OpenChannel?
+    // A multi, DCA or bus being renamed on the desk - its heading opens
+    // this instead of an input sheet. Mirrors Android's
+    // MixerControlActivity.showStripRenameDialog.
+    @State private var renameStrip: ChannelState?
+    @State private var renameDraft = ""
     // Which channel's Inserts sheet is open - see insertSheet(for:).
     @State private var openInsert: OpenInsert?
 
@@ -68,6 +73,27 @@ struct MixerControlView: View {
         .sheet(isPresented: $showChat) { ChatView() }
         .sheet(item: $openInput) { open in inputSheet(for: open.id) }
         .sheet(item: $openInsert) { open in insertSheet(for: open.channel, slot: open.slot) }
+        .alert(
+            "Rename \(renameStrip?.label ?? "")",
+            isPresented: Binding(
+                get: { renameStrip != nil },
+                set: { if !$0 { renameStrip = nil } }
+            ),
+            presenting: renameStrip
+        ) { strip in
+            TextField("Name", text: $renameDraft)
+                .textInputAutocapitalization(.characters)
+            Button("Save") {
+                // The server's own MAX_CHANNEL_NAME cap.
+                let name = String(
+                    renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32)
+                )
+                if !name.isEmpty { model.setName(channel: strip.channel, name: name) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Renames it on the mixer, for every surface.")
+        }
         // The EQ is its own full-screen, landscape view rather than a
         // sheet: a frequency graph needs the width. AppModel turns the
         // screen on its side as it opens.
@@ -360,30 +386,52 @@ struct MixerControlView: View {
         // ChannelStripView.
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 0) {
-                ForEach(Array(model.channels.enumerated()), id: \.element.id) { index, channel in
-                    ChannelStripView(
-                        channel: channel,
-                        fineMode: model.fineMode,
-                        alternate: index % 2 == 1,
-                        // The console's own numbering, above each name -
-                        // the whole console is in reach here, and the
-                        // number is how the desk itself refers to a strip.
-                        showChannelNumber: true,
-                        // Small, beside the name, leaving the fader row to
-                        // the fader.
-                        meterBesideName: true,
-                        panSupported: model.panSupported,
-                        muteOffered: model.muteOffered,
-                        onLevel: { model.setLevel(channel: channel.channel, db: $0) },
-                        onPan: { model.setPan(channel: channel.channel, pan: $0) },
-                        onMute: { model.setMute(channel: channel.channel, muted: $0) },
-                        onOpenInput: { openInput = OpenChannel(id: $0.channel) },
-                        onOpenEq: { model.openEq(channel: $0.channel) },
-                        onOpenDynamics: { model.openDynamics(channel: $0.channel, comp: $1) },
-                        onOpenInsert: { openInsert = OpenInsert(channel: $0.channel, slot: $1) },
-                        sideControls: verticalSizeClass == .compact
-                    )
-                    .equatable()
+                // Each strip where the desk has it; an empty fader is a
+                // strip's width of nothing.
+                ForEach(Array(model.mixerStrips.enumerated()), id: \.element.id) { index, channel in
+                    if channel.isGap {
+                        Color.clear.frame(width: ChannelStripView.width)
+                    } else {
+                        ChannelStripView(
+                            channel: channel,
+                            fineMode: model.fineMode,
+                            alternate: index % 2 == 1,
+                            // The console's own numbering, above each name -
+                            // the whole console is in reach here, and the
+                            // number is how the desk itself refers to a strip.
+                            showChannelNumber: true,
+                            // Small, beside the name, leaving the fader row to
+                            // the fader.
+                            meterBesideName: true,
+                            panSupported: model.panSupported,
+                            muteOffered: model.muteOffered,
+                            onLevel: { model.setLevel(channel: channel.channel, db: $0) },
+                            onPan: { model.setPan(channel: channel.channel, pan: $0) },
+                            onMute: { model.setMute(channel: channel.channel, muted: $0) },
+                            onOpenInput: { strip in
+                                if strip.isInput {
+                                    openInput = OpenChannel(id: strip.channel)
+                                } else {
+                                    renameDraft = strip.name
+                                    renameStrip = strip
+                                }
+                            },
+                            onOpenEq: { model.openEq(channel: $0.channel) },
+                            onOpenDynamics: { model.openDynamics(channel: $0.channel, comp: $1) },
+                            // An input's opens the Inserts sheet; a bus's has
+                            // only in/out, so it flips on the spot.
+                            onOpenInsert: { strip, slot in
+                                if strip.isInput {
+                                    openInsert = OpenInsert(channel: strip.channel, slot: slot)
+                                } else {
+                                    model.toggleBusInsert(channel: strip.channel, slot: slot)
+                                }
+                            },
+                            onHardMute: { model.setHardMute(channel: channel.channel, muted: $0) },
+                            sideControls: verticalSizeClass == .compact
+                        )
+                        .equatable()
+                    }
                 }
             }
             .padding(10)

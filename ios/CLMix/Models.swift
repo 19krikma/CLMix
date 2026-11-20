@@ -98,12 +98,47 @@ struct ChannelState: Identifiable, Hashable {
     // Not an input channel: a DCA, group (the master among them), aux,
     // matrix or multi on a Mixer Control bank. "kind" is the console's
     // category, "label" what the strip shows above its name ("DCA 3").
-    // Its fader and mute are driven so far. Nil for an input.
+    // Its fader and mute are driven, and its meter drawn where it has one
+    // (metered). Nil for an input.
     var kind: String? = nil
     var label: String? = nil
 
+    // Whether such a strip has a meter: groups, auxes and matrices do,
+    // DCAs and multis have none on the console at all. False from a
+    // server too old to meter them. Unused for an input - see hasMeter.
+    var metered: Bool = false
+
+    // Such a strip that is a bus - the master, a group, an aux or a
+    // matrix - and so has an EQ and dynamics of its own, and a hard mute
+    // (hardMuted, nil until reported). False for DCAs and multis, and
+    // from a server too old to drive them. Unused for an input - see
+    // hasProcessing.
+    var processing: Bool = false
+    var hardMuted: Bool? = nil
+
     /// An input channel, with everything Mixer Control has for one.
     var isInput: Bool { kind == nil || kind == "Input_Channels" }
+
+    /// Whether the strip draws a meter: every input, and the other
+    /// strips the server says carry one.
+    var hasMeter: Bool { isInput || metered }
+
+    /// Whether the strip has EQ and dynamics: every input, and a bus.
+    var hasProcessing: Bool { isInput || processing }
+
+    /// An empty fader on a desk bank, drawn as a blank strip so the rest
+    /// sit where the desk has them - see withGaps.
+    var isGap: Bool { kind == ChannelState.gapKind }
+
+    // `kind` for an empty fader slot - never sent by a server.
+    static let gapKind = "_gap"
+
+    /// An empty fader at `slot` (0-based): a placeholder with an id no
+    /// real strip has, so it never collides with one.
+    static func gap(at slot: Int) -> ChannelState {
+        ChannelState(channel: -(slot + 1), name: "", level: nil, pan: nil, muted: false,
+                     kind: gapKind)
+    }
 
     // 48V on the channel's main input. False rather than nil when the
     // console has not answered yet: phantom off is the safe reading, and
@@ -236,7 +271,10 @@ struct BankChannel: Identifiable, Equatable {
 /// write to these too; they are here so the controls cannot sweep past
 /// them. Mirrors Android's EQ_* constants.
 enum EqRange {
+    /// An input's bands. A bus (the master, a group, an aux or a matrix)
+    /// has busBandCount and no filters - see ChannelEq.
     static let bandCount = 4
+    static let busBandCount = 8
     static let freq = 20.0...20000.0
     static let gain = -18.0...18.0
     static let q = 0.1...20.0
@@ -266,12 +304,29 @@ struct EqFilter: Hashable {
 }
 
 /// Everything the EQ screen shows for one input channel.
+/// Everything the EQ screen shows for one input channel or bus. An input
+/// has EqRange.bandCount bands and the two filters; a bus has
+/// EqRange.busBandCount bands and no filters, so `hasFilters` is false and
+/// the two filters stay empty. Mirrors Android's ChannelEq.
 struct ChannelEq: Hashable {
     let channel: Int
     var eqIn: Bool? = nil
     var bands: [EqBand] = (1...EqRange.bandCount).map { EqBand(band: $0) }
     var loFilter = EqFilter()
     var hiFilter = EqFilter()
+    var hasFilters = true
+
+    /// Nothing reported yet, shaped for `strip` - eight bands and no
+    /// filters on a bus.
+    static func empty(channel: Int, for strip: ChannelState?) -> ChannelEq {
+        let isInput = strip?.isInput ?? true
+        let count = isInput ? EqRange.bandCount : EqRange.busBandCount
+        return ChannelEq(
+            channel: channel,
+            bands: (1...count).map { EqBand(band: $0) },
+            hasFilters: isInput
+        )
+    }
 }
 
 /// One EQ write, as the set_eq action carries it. `lo` picks the
@@ -640,9 +695,10 @@ struct AccountProfile: Equatable {
 
 /// One bank of the console's surface layout, as Mixer Control lists it.
 /// `id` is what select_bank sends - its place on the surface, since two
-/// layers can hold banks of the same name. `inputs` is how many input
-/// channels it holds: none for a bank of DCAs or outputs, which is listed
-/// but has no strips to show. Mirrors Android's LayoutBank.
+/// layers can hold banks of the same name. `inputs` is how many strips
+/// Mixer Control can show it holds - inputs, DCAs, groups and outputs
+/// alike, despite the wire name it keeps for older apps. A bank with none
+/// is listed but cannot be opened. Mirrors Android's LayoutBank.
 struct LayoutBank: Equatable, Identifiable {
     let id: String
     let name: String
@@ -729,4 +785,21 @@ struct SosOption: Identifiable, Equatable {
         SosOption(id: "aux_not_working", text: "AUX NOT WORKING", hex: "#C62828"),
         SosOption(id: "need_assistance", text: "NEED ASSISTANCE", hex: "#C62828"),
     ]
+}
+
+/// The bank's strips put where the desk has them: `slots` is the server's
+/// fader order, a strip id per fader or nil for an empty one. Anything in
+/// `channels` the slots do not mention goes on the end, so nothing is lost
+/// to a slots list and a channel list from slightly different moments.
+/// Without slots - an older server, or no desk bank - the channels as they
+/// came. Mirrors Android's withGaps.
+func withGaps(_ channels: [ChannelState], slots: [Int?]?) -> [ChannelState] {
+    guard let slots, !slots.isEmpty else { return channels }
+    let byId = Dictionary(channels.map { ($0.channel, $0) }, uniquingKeysWith: { first, _ in first })
+    let placed = slots.enumerated().compactMap { i, id -> ChannelState? in
+        guard let id else { return .gap(at: i) }
+        return byId[id]
+    }
+    let named = Set(slots.compactMap { $0 })
+    return placed + channels.filter { !named.contains($0.channel) }
 }

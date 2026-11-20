@@ -61,6 +61,10 @@ struct ChannelStripView: View, Equatable {
     // Full Mixer Control only as well: INS A / INS B under the dynamics,
     // opening the Inserts sheet ("A" or "B").
     var onOpenInsert: ((ChannelState, String) -> Void)? = nil
+    // Full Mixer Control only: a bus strip's HARD MUTE, which takes the
+    // place an input's pan button has (a bus has no panner). Nil
+    // everywhere else, where a bus strip's slot stays blank.
+    var onHardMute: ((Bool) -> Void)? = nil
     // A phone on its side (MixerControlView sets it from the vertical
     // size class): the EQ, dynamics and insert buttons stacked above the
     // fader would leave it no length at all, so they go in a column
@@ -81,7 +85,7 @@ struct ChannelStripView: View, Equatable {
     /// is far wider than the track drawn down the middle of it, and the
     /// strip used to be sized around the band. Five full strips now fit
     /// on a phone that showed three and a half.
-    private static let width: CGFloat = 76
+    static let width: CGFloat = 76
 
     /// The strip with its side column beside the fader (see sideControls):
     /// the column and its 4pt gap beside the fader, without the spare
@@ -110,15 +114,17 @@ struct ChannelStripView: View, Equatable {
             && (lhs.onOpenEq == nil) == (rhs.onOpenEq == nil)
             && (lhs.onOpenDynamics == nil) == (rhs.onOpenDynamics == nil)
             && (lhs.onOpenInsert == nil) == (rhs.onOpenInsert == nil)
+            && (lhs.onHardMute == nil) == (rhs.onHardMute == nil)
             && lhs.sideControls == rhs.sideControls
     }
 
     /// Whether this strip draws its EQ, dynamics and insert buttons
     /// beside the fader rather than above it - see sideControls.
     private var hasSideColumn: Bool {
-        // A DCA or output strip has nothing to put there, so it stays
-        // narrow - its fader runs the full height either way.
-        sideControls && channel.isInput
+        // A DCA or multi has nothing to put there, so it stays narrow -
+        // its fader runs the full height either way. A bus has its EQ and
+        // dynamics there, as an input does.
+        sideControls && channel.hasProcessing
             && (onOpenEq != nil || onOpenDynamics != nil || onOpenInsert != nil)
     }
 
@@ -231,27 +237,37 @@ struct ChannelStripView: View, Equatable {
 
                     faderRow
                 }
-            } else if sideControls && !channel.isInput {
+            } else if sideControls && !channel.hasProcessing {
                 faderRow
             } else {
-                // A DCA or output strip (not an input) has only its fader
-                // and name so far: what it lacks is blanked rather than
-                // left out, so its fader lines up with the inputs' beside it.
-                controls(eq: 40, comp: 34, gate: 34, insert: 26, insertGap: 4,
-                         gaps: [6, 4, 6, 6])
-                    .opacity(channel.isInput ? 1 : 0)
-                    .allowsHitTesting(channel.isInput)
+                // A bus has the lot, its inserts in/out only (see
+                // onOpenInsert). A DCA or multi has only its fader, mute,
+                // name and meter, so the EQ, dynamics and insert buttons
+                // are left out and its fader stretches into their room.
+                if channel.hasProcessing {
+                    controls(eq: 40, comp: 34, gate: 34, insert: 26, insertGap: 4,
+                             gaps: [6, 4, 6, 6])
+                }
 
                 faderRow
             }
 
             if panSupported {
-                tonalButton(PanFormat.buttonLabel(channel.pan)) {
-                    showPanSheet = true
+                if showsHardMute, let onHardMute {
+                    // A bus has no panner; its slot carries HARD MUTE,
+                    // lit the same red as Mute - both cut the bus.
+                    tonalButton("HARD MUTE", active: channel.hardMuted == true, fontSize: 9.5) {
+                        onHardMute(channel.hardMuted != true)
+                    }
+                    .padding(.top, 4)
+                } else if channel.isInput {
+                    tonalButton(PanFormat.buttonLabel(channel.pan)) {
+                        showPanSheet = true
+                    }
+                    .padding(.top, 4)
                 }
-                .padding(.top, 4)
-                .opacity(channel.isInput ? 1 : 0)
-                .allowsHitTesting(channel.isInput)
+                // A DCA or multi has no pan slot at all - its fader takes
+                // the room, as above.
             }
 
             if muteOffered {
@@ -321,11 +337,12 @@ struct ChannelStripView: View, Equatable {
     /// The channel's number over its name. The two are one target
     /// together, of a comfortable size at the top of the strip, rather
     /// than two small digits on their own - and only a control at all
-    /// where there is an input stage behind it to open. Elsewhere it is
+    /// where there is something behind it to open: an input's input
+    /// stage, or a rename box for a multi, DCA or bus. Elsewhere it is
     /// plain text that swallows nothing.
     @ViewBuilder
     private var heading: some View {
-        if showChannelNumber, let onOpenInput, channel.isInput {
+        if showChannelNumber, let onOpenInput {
             Button { onOpenInput(channel) } label: { headingLabel }
                 .buttonStyle(.plain)
         } else {
@@ -381,7 +398,7 @@ struct ChannelStripView: View, Equatable {
 
             if meterBesideName {
                 ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
-                    .opacity(channel.isInput ? 1 : 0)
+                    .opacity(channel.hasMeter ? 1 : 0)
                     .frame(width: 7)
                     .frame(maxHeight: .infinity)
                     .padding(.top, 4)
@@ -432,6 +449,7 @@ struct ChannelStripView: View, Equatable {
             // -150..+10, and the two are not interchangeable.
             if !meterBesideName {
                 ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                    .opacity(channel.hasMeter ? 1 : 0)
                     .frame(width: 10)
                     .padding(.leading, -8)
                     .allowsHitTesting(false)
@@ -440,13 +458,19 @@ struct ChannelStripView: View, Equatable {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Whether the pan slot carries HARD MUTE - a bus, on Full Mixer
+    /// Control.
+    private var showsHardMute: Bool {
+        !channel.isInput && channel.processing && onHardMute != nil
+    }
+
     private func tonalButton(
-        _ title: String, active: Bool = false,
+        _ title: String, active: Bool = false, fontSize: CGFloat = 11,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11))
+                .font(.system(size: fontSize))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .frame(height: 34)

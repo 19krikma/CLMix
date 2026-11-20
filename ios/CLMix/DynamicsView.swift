@@ -54,9 +54,13 @@ struct DynamicsView: View {
     private var params: [DynParam] { shownPage.params }
     private var sectionColor: Color { compSelected ? .clmixEqBandLF : .clmixEqBandHMF }
 
-    private var channelName: String {
+    private var strip: ChannelState? {
         let number = dyn.channel
-        return model.channels.first { $0.channel == number }?.name ?? "Ch \(number)"
+        return model.channels.first { $0.channel == number }
+    }
+
+    private var channelName: String {
+        strip?.name ?? "Ch \(dyn.channel)"
     }
 
     var body: some View {
@@ -95,7 +99,8 @@ struct DynamicsView: View {
             }
             .accessibilityLabel("Back to the mixer")
 
-            Text("\(dyn.channel)")
+            // "GRP 1" on a bus, where the number alone is its id.
+            Text(strip?.label ?? "\(dyn.channel)")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.clmixOnSurfaceVariant)
 

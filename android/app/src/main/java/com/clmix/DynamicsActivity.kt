@@ -23,11 +23,13 @@ import kotlin.math.pow
 private const val EXTRA_CHANNEL = "channel"
 private const val EXTRA_NAME = "name"
 private const val EXTRA_COMP = "comp"
+private const val EXTRA_LABEL = "label"
 private const val STATE_PAGE = "page"
 
 /**
  * One input channel's Dynamics 1 or Dynamics 2, full screen and on its
- * side.
+ * side - or a bus's (the master, a group, an aux or a matrix), which has
+ * the same two sections at its own addresses.
  *
  * The EQ screen's twin (EqActivity), opened from a strip's COMP button
  * for Dynamics 1 or its GATE button for Dynamics 2. The socket stays in
@@ -88,7 +90,7 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
         compSelected = intent.getBooleanExtra(EXTRA_COMP, true)
         page = savedInstanceState?.getInt(STATE_PAGE) ?: 0
 
-        binding.channelNumber.text = channel.toString()
+        binding.channelNumber.text = intent.getStringExtra(EXTRA_LABEL) ?: channel.toString()
         binding.channelName.text = intent.getStringExtra(EXTRA_NAME) ?: "Ch $channel"
 
         binding.backButton.setOnClickListener { finish() }
@@ -430,6 +432,8 @@ class DynamicsActivity : AppCompatActivity(), MixerClientListener {
                     .putExtra(EXTRA_CHANNEL, channel.channel)
                     .putExtra(EXTRA_NAME, channel.name)
                     .putExtra(EXTRA_COMP, comp)
+                    // "GRP 1" on a bus, where the number alone is its id.
+                    .putExtra(EXTRA_LABEL, channel.label)
             )
         }
 

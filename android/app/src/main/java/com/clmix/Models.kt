@@ -133,14 +133,42 @@ data class ChannelState(
     // Not an input channel: a DCA, group (the master among them), aux,
     // matrix or multi on a Mixer Control bank. "kind" is the console's
     // category for it and "label" what the strip shows above its name,
-    // e.g. "DCA 3". Its fader and mute are driven so far. Null for an input.
+    // e.g. "DCA 3". Its fader and mute are driven, and its meter drawn
+    // where it has one (metered). Null for an input.
     val kind: String? = null,
     val label: String? = null,
+
+    // Whether such a strip has a meter: groups, auxes and matrices do,
+    // DCAs and multis have none on the console at all. False from a
+    // server too old to meter them. Unused for an input - see hasMeter.
+    val metered: Boolean = false,
+
+    // Such a strip that is a bus - the master, a group, an aux or a
+    // matrix - and so has an EQ and dynamics of its own, and a hard mute
+    // (hardMuted, null until reported). False for DCAs and multis, and
+    // from a server too old to drive them. Unused for an input - see
+    // hasProcessing.
+    val processing: Boolean = false,
+    val hardMuted: Boolean? = null,
 ) {
     val phaseInverted: Boolean get() = phase != PHASE_NORMAL
 
     /** An input channel, with everything Mixer Control has for one. */
     val isInput: Boolean get() = kind == null || kind == "Input_Channels"
+
+    /** Whether the strip draws a meter: every input, and the other
+     *  strips the server says carry one. */
+    val hasMeter: Boolean get() = isInput || metered
+
+    /** An empty fader on a desk bank, drawn as a blank strip so the rest
+     *  sit where the desk has them - see ChannelState.gap. */
+    val isGap: Boolean get() = kind == GAP_KIND
+
+    /** Whether the strip has EQ and dynamics: every input, and a bus. */
+    val hasProcessing: Boolean get() = isInput || processing
+
+    /** How many EQ bands the strip's EQ has - see ChannelEq. */
+    val eqBandCount: Int get() = if (isInput) EQ_BAND_COUNT else BUS_EQ_BAND_COUNT
 }
 
 // Polarity states. Only the two named ones are ever written by this app;
@@ -173,20 +201,52 @@ data class EqFilter(
     val freq: Double? = null
 )
 
-/** Everything the EQ screen shows for one input channel. */
+/**
+ * Everything the EQ screen shows for one input channel or bus. An input
+ * has EQ_BAND_COUNT bands and the two filters; a bus (the master, a group,
+ * an aux or a matrix) has BUS_EQ_BAND_COUNT bands and no filters at all,
+ * so [hasFilters] is false and the two filters stay empty.
+ */
 data class ChannelEq(
     val channel: Int,
     val eqIn: Boolean? = null,
     val bands: List<EqBand> = (1..EQ_BAND_COUNT).map { EqBand(it) },
     val loFilter: EqFilter = EqFilter(),
-    val hiFilter: EqFilter = EqFilter()
+    val hiFilter: EqFilter = EqFilter(),
+    val hasFilters: Boolean = true
 )
 
 // The channel EQ's shape and ranges, as the console's own parameter table
 // states them (docs/mixer_protocol/PROTOCOL.md). Frequencies are Hz on the
 // wire even where the desk's dial reads kHz. The server clamps every write
 // to these too; they are here so the controls cannot sweep past them.
+// ChannelState.kind for an empty fader slot - never sent by a server.
+const val GAP_KIND = "_gap"
+
+/** An empty fader at [slot] (0-based) on a desk bank: a placeholder
+ *  with an id no real strip has, so it never collides with one. */
+fun gapAt(slot: Int) = ChannelState(
+    channel = -(slot + 1), name = "", level = null, pan = null, muted = false, kind = GAP_KIND
+)
+
+/**
+ * The bank's strips put where the desk has them: [slots] is the server's
+ * fader order, a strip id per fader or null for an empty one. Anything in
+ * [channels] the slots do not mention goes on the end, so nothing is lost
+ * to a slots list and a channel list from slightly different moments.
+ * Without slots - an older server, or no desk bank - the channels as they
+ * came.
+ */
+fun withGaps(channels: List<ChannelState>, slots: List<Int?>?): List<ChannelState> {
+    if (slots.isNullOrEmpty()) return channels
+    val byId = channels.associateBy { it.channel }
+    val placed = slots.mapIndexedNotNull { i, id -> if (id == null) gapAt(i) else byId[id] }
+    val named = slots.filterNotNull().toSet()
+    return placed + channels.filter { it.channel !in named }
+}
+
 const val EQ_BAND_COUNT = 4
+const val BUS_EQ_BAND_COUNT = 8
 val EQ_FREQ_RANGE = 20.0..20000.0
 val EQ_GAIN_RANGE = -18.0..18.0
 val EQ_Q_RANGE = 0.1..20.0
@@ -472,9 +532,10 @@ data class Preset(
 /**
  * One bank of the console's surface layout, as Mixer Control lists it.
  * [id] is what select_bank sends - its place on the surface, since two
- * layers can hold banks of the same name. [inputs] is how many input
- * channels it holds: none for a bank of DCAs or outputs, which is listed
- * but has no strips to show.
+ * layers can hold banks of the same name. [inputs] is how many strips
+ * Mixer Control can show it holds - inputs, DCAs, groups and outputs
+ * alike, despite the wire name it keeps for older apps. A bank with none
+ * is listed but cannot be opened.
  */
 data class LayoutBank(val id: String, val name: String, val inputs: Int)
 

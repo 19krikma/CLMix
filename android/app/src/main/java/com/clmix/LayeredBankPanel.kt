@@ -21,10 +21,10 @@ import com.clmix.databinding.ItemBankBinding
  * tablet's top bar, where this lives there, from growing a line per
  * layer.
  *
- * A bank with no input channels on it - DCAs, outputs - is shown dimmed
- * and does nothing when tapped: it is on the surface, so it is listed,
- * but Mixer Control only drives input channels and has no strips to show
- * for it.
+ * A bank with no strip Mixer Control can show on it - an empty one, or
+ * one holding only what it has no strip for - is shown dimmed and does
+ * nothing when tapped: it is on the surface, so it is listed. Inputs,
+ * DCAs, groups, auxes, matrices and multis all count (see LayoutBank).
  *
  * A server too old to send the layout gives only bank names; those come
  * in as one layer numbered 0, which is drawn without a label.
@@ -138,7 +138,7 @@ class LayeredBankPanel @JvmOverloads constructor(
         binding.root.alpha = if (usable) 1f else DIMMED_ALPHA
         binding.root.isEnabled = usable
         binding.root.contentDescription =
-            if (usable) bank.name else "${bank.name}, no input channels"
+            if (usable) bank.name else "${bank.name}, no strips"
         binding.root.setOnClickListener { if (usable) onPick(bank) }
 
         cards[bank.id] = binding

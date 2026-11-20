@@ -399,11 +399,17 @@ def build_layout(banks):
             layout.append([bank_name, side, layer, position] + slots)
 
     # A bank of the desk's other strips, as a real surface has: the
-    # groups (the first is the master) and the DCAs - so Full Mixer
-    # Control's faders for them have something to drive.
+    # groups (the first is the master), the DCAs and a multitrack return
+    # - so Full Mixer Control's faders for them have something to drive.
+    # An empty fader between each group of them, the way an operator
+    # separates them on the desk, so the gaps reach the phones too.
     layer, position = divmod(len(banks), LAYOUT_BANKS_PER_LAYER)
+    empty = ("", 0)
     masters = [("Group_Outputs", n) for n in range(1, MOCK_BUS_COUNTS["Group_Outputs"] + 1)]
+    masters += [empty]
     masters += [("Control_Groups", n) for n in range(1, MOCK_BUS_COUNTS["Control_Groups"] + 1)]
+    masters += [empty, ("Multis", 1)]
+    masters = masters[:LAYOUT_FADERS]
     slots = []
     for fader in range(LAYOUT_FADERS):
         if fader < len(masters):
@@ -928,7 +934,10 @@ class MockMixer:
             self.send("/Console/Input_Channels/modes", list(CHANNEL_MODES))
 
         elif address == "/Console/Group_Outputs/modes":
-            self.send(address, [MODE_MONO] * self.counts["Group_Outputs"])
+            # A stereo master and mono groups after it, as on the real
+            # desk ([2, 1, 1] - PROTOCOL.md, "Console").
+            count = self.counts["Group_Outputs"]
+            self.send(address, ([MODE_STEREO] + [MODE_MONO] * count)[:count])
 
         elif address == "/Console/Name":
             self.send(address, [CONSOLE_NAME])

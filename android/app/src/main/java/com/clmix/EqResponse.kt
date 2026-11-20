@@ -21,23 +21,28 @@ object EqResponse {
     enum class Shape { BELL, LOW_SHELF, HIGH_SHELF }
 
     // Console band numbers by role. On every channel ever captured band 1
-    // sat highest and band 4 lowest, and a freshly reset bus seeds them
-    // that way round too (PROTOCOL.md's input and aux EQ tables), so the
-    // labels follow it. Only the labels and the shelf choice below lean on
-    // this - the graph places every band by its own frequency.
+    // sat highest and the last band (4 on an input, 8 on a bus) lowest,
+    // and a freshly reset bus seeds them that way round too (PROTOCOL.md's
+    // input and aux EQ tables), so the labels follow it. Only the labels
+    // and the shelf choice below lean on this - the graph places every
+    // band by its own frequency.
     const val HIGH_BAND = 1
-    const val LOW_BAND = EQ_BAND_COUNT
+
+    /** The lowest band of an EQ with [count] bands. */
+    fun lowBand(count: Int): Int = count
 
     /** Low to high, the order the screen lays the bands out in. */
-    val bandsLowToHigh: List<Int> = (EQ_BAND_COUNT downTo 1).toList()
+    fun bandsLowToHigh(count: Int): List<Int> = (count downTo 1).toList()
 
-    fun label(band: Int): String = when (band) {
-        4 -> "LF"
-        3 -> "LMF"
-        2 -> "HMF"
-        1 -> "HF"
-        else -> "B$band"
-    }
+    /** An input's four bands by role; a bus's eight by number. */
+    fun label(band: Int, count: Int = EQ_BAND_COUNT): String =
+        if (count != EQ_BAND_COUNT) "B$band" else when (band) {
+            4 -> "LF"
+            3 -> "LMF"
+            2 -> "HMF"
+            1 -> "HF"
+            else -> "B$band"
+        }
 
     /**
      * eq_curve is an enum over 1..4 and only 1 has ever been seen on a
@@ -46,18 +51,19 @@ object EqResponse {
      * outer band on a console almost always has - and as a bell on a mid
      * band. A guess about the picture only: the value is never written.
      */
-    fun shape(band: EqBand): Shape {
+    fun shape(band: EqBand, count: Int = EQ_BAND_COUNT): Shape {
         if (band.curve == null || band.curve == 1) return Shape.BELL
 
         return when (band.band) {
-            LOW_BAND -> Shape.LOW_SHELF
+            lowBand(count) -> Shape.LOW_SHELF
             HIGH_BAND -> Shape.HIGH_SHELF
             else -> Shape.BELL
         }
     }
 
-    /** One band's own contribution at [hz], ignoring whether it is on. */
-    fun bandDb(band: EqBand, hz: Double): Double {
+    /** One band's own contribution at [hz], ignoring whether it is on.
+     *  [count] is how many bands its EQ has, for the shelf choice. */
+    fun bandDb(band: EqBand, hz: Double, count: Int = EQ_BAND_COUNT): Double {
         val f0 = band.freq ?: return 0.0
         val gain = band.gain ?: return 0.0
         if (gain == 0.0) return 0.0
@@ -67,7 +73,7 @@ object EqResponse {
         val w = hz / f0
         val w2 = w * w
 
-        val magnitude = when (shape(band)) {
+        val magnitude = when (shape(band, count)) {
             Shape.BELL -> {
                 val num = hypot(1 - w2, w * a / q)
                 val den = hypot(1 - w2, w / (a * q))
@@ -113,7 +119,7 @@ object EqResponse {
 
         if (eq.eqIn != false) {
             for (band in eq.bands) {
-                if (band.on != false) db += bandDb(band, hz)
+                if (band.on != false) db += bandDb(band, hz, eq.bands.size)
             }
         }
 

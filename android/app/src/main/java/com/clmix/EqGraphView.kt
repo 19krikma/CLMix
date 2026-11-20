@@ -218,9 +218,11 @@ class EqGraphView @JvmOverloads constructor(
         }
     }
 
-    private fun allTargets(): List<EqTarget> =
-        listOf(EqTarget.LoFilter, EqTarget.HiFilter) +
-            EqResponse.bandsLowToHigh.map { EqTarget.Band(it) }
+    private fun allTargets(): List<EqTarget> {
+        val eq = eq ?: return emptyList()
+        val filters = if (eq.hasFilters) listOf(EqTarget.LoFilter, EqTarget.HiFilter) else emptyList()
+        return filters + EqResponse.bandsLowToHigh(eq.bands.size).map { EqTarget.Band(it) }
+    }
 
     // MARK: - Drawing
 
@@ -236,7 +238,7 @@ class EqGraphView @JvmOverloads constructor(
         (selected as? EqTarget.Band)?.let { target ->
             val band = eq.bands.getOrNull(target.band - 1)
             if (band?.freq != null) {
-                tracePath(bandPath) { hz -> EqResponse.bandDb(band, hz) }
+                tracePath(bandPath) { hz -> EqResponse.bandDb(band, hz, eq.bands.size) }
                 bandCurvePaint.color = withAlpha(colorFor(target), 200)
                 canvas.drawPath(bandPath, bandCurvePaint)
             }
@@ -339,7 +341,7 @@ class EqGraphView @JvmOverloads constructor(
     }
 
     private fun shortLabel(target: EqTarget): String = when (target) {
-        is EqTarget.Band -> when (target.band) {
+        is EqTarget.Band -> if (bandCount != EQ_BAND_COUNT) target.band.toString() else when (target.band) {
             4 -> "LF"
             3 -> "LM"
             2 -> "HM"
@@ -350,7 +352,9 @@ class EqGraphView @JvmOverloads constructor(
         EqTarget.HiFilter -> "LP"
     }
 
-    fun colorFor(target: EqTarget): Int = eqTargetColor(context, target)
+    fun colorFor(target: EqTarget): Int = eqTargetColor(context, target, bandCount)
+
+    private val bandCount: Int get() = eq?.bands?.size ?: EQ_BAND_COUNT
 
     // MARK: - Touch
 
@@ -455,15 +459,24 @@ class EqGraphView @JvmOverloads constructor(
 }
 
 /** Each band and filter keeps one colour across the graph and the chips. */
-fun eqTargetColor(context: Context, target: EqTarget): Int = ContextCompat.getColor(
-    context,
-    when (target) {
-        is EqTarget.Band -> when (target.band) {
-            4 -> R.color.eq_band_lf
-            3 -> R.color.eq_band_lmf
-            2 -> R.color.eq_band_hmf
-            else -> R.color.eq_band_hf
+fun eqTargetColor(context: Context, target: EqTarget, bandCount: Int = EQ_BAND_COUNT): Int =
+    ContextCompat.getColor(
+        context,
+        when (target) {
+            // A bus's eight bands, low (band 8) to high (band 1).
+            is EqTarget.Band -> if (bandCount != EQ_BAND_COUNT) {
+                BUS_BAND_COLORS.getOrElse(bandCount - target.band) { R.color.eq_band_hf }
+            } else when (target.band) {
+                4 -> R.color.eq_band_lf
+                3 -> R.color.eq_band_lmf
+                2 -> R.color.eq_band_hmf
+                else -> R.color.eq_band_hf
+            }
+            EqTarget.LoFilter, EqTarget.HiFilter -> R.color.eq_filter
         }
-        EqTarget.LoFilter, EqTarget.HiFilter -> R.color.eq_filter
-    }
+    )
+
+private val BUS_BAND_COLORS = listOf(
+    R.color.eq_band_lf, R.color.eq_band_2, R.color.eq_band_lmf, R.color.eq_band_4,
+    R.color.eq_band_hmf, R.color.eq_band_6, R.color.eq_band_hf, R.color.eq_band_8,
 )

@@ -49,5 +49,11 @@
     <color name="eq_band_lmf">#D9A400</color>
     <color name="eq_band_hmf">#21A870</color>
     <color name="eq_band_hf">#3B82F6</color>
+    <!-- A bus's eight bands use the four above with these between them,
+         low to high: LF, 2, LMF, 4, HMF, 6, HF, 8 (eqTargetColor). -->
+    <color name="eq_band_2">#E5566A</color>
+    <color name="eq_band_4">#8DB600</color>
+    <color name="eq_band_6">#14A3B8</color>
+    <color name="eq_band_8">#D45BC4</color>
     <color name="eq_filter">#9B6CF0</color>
 </resources>

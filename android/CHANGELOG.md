@@ -3,6 +3,31 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## Unreleased
+
+Needs a desktop with output metering; with an older one these strips
+simply stay without a meter.
+
+- **Strips sit where the mixer has them.** Empty faders on a bank show
+  as gaps in Mixer Control, so strips you separate on the desk stay
+  separated.
+- **DCA and multi faders run the full height** of the strip, since
+  those strips have no EQ, dynamics or inserts.
+- **Rename multis, DCAs and buses.** Tap the name of any strip that
+  isn't an input to rename it on the mixer. Multitrack returns show
+  with their fader, Mute and name.
+- **EQ, dynamics and Hard Mute on the Master** - and on every group, aux
+  and matrix strip in Mixer Control. The EQ screen shows a bus's eight
+  bands (no high- or low-pass on a bus), the Dynamics screen works as on
+  an input, HARD MUTE sits where an input's pan button is, and INS A /
+  INS B switch the bus's inserts in and out with a tap.
+- **Meters on Master, group, aux and matrix strips** in Mixer Control,
+  two bars on a stereo bus such as the master. DCAs have no meter on the
+  console, so their strips still show none.
+- The demo's DCA bank now opens, with a metered stereo master.
+- A bank with nothing Mixer Control can show is read out as "no strips"
+  rather than "no input channels".
+
 ## 2.22.0
 
 Needs desktop 1.29.0 or later for the new Mixer Control controls, SOS

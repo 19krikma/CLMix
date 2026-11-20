@@ -13,6 +13,9 @@ from zeroconf.asyncio import AsyncZeroconf
 from services.chat_log import KIND_SOS, KIND_USER, TECH_NAME, clean_text
 from services import sos_options
 from services.log_store import log
+from services.strips import (
+    STRIP_KINDS, eq_band_count, has_filters, processing_prefix, strip_id, strip_of,
+)
 from services.user_store import ALL_AUX, ALL_SNAPSHOTS
 
 PUSH_INTERVAL_SECONDS = 0.15
@@ -54,6 +57,12 @@ HEAD_AMP_RANGES = {
 # 1000 out. fine_delay is in samples. There is one delay per channel,
 # after the main/alt switch, so it serves whichever input is live.
 DELAY_MS_RANGE = (0.0, 1300.0)
+FINE_DELAY_RANGE = (-127.0, 127.0)
+
+# What a bus strip (a group, aux or matrix) takes besides its fader and
+# mute - see services/strips.py, "Processing".
+BUS_ACTIONS = ("select_eq", "set_eq", "select_dyn", "set_dyn", "set_hard_mute",
+               "set_insert")
 
 # The channel's two insert points (DiGiCo's Send A / Send B). Each has its
 # own in/out, and a head amp of its own for the return - 48V, gain and
@@ -68,52 +77,13 @@ INSERT_PARAMS = {
 }
 INSERT_GAIN_RANGE = (-20.0, 60.0)
 
-# Strips a Mixer Control bank can carry besides input channels, and how
-# a phone tells them apart: each is sent as a "channel" number of its
-# kind's base plus its own number (DCA 3 is 10003), so it can never be
-# taken for an input. Its fader and mute are driven so far. Every one of these
-# faders is dB on the same -150..+10 scale as an input's (the official
-# app's parameter dictionary - PROTOCOL.md), DCAs included.
-#   kind: (base, short label, name address)
-STRIP_KINDS = {
-    "Control_Groups": (10000, "DCA", "/Control_Groups/{n}/name"),
-    "Group_Outputs": (20000, "GRP", "/Group_Outputs/{n}/Buss_Trim/name"),
-    "Aux_Outputs": (30000, "AUX", "/Aux_Outputs/{n}/Buss_Trim/name"),
-    "Matrix_Outputs": (40000, "MTX", "/Matrix_Outputs/{n}/Buss_Trim/name"),
-    "Multis": (50000, "MULTI", "/Multis/{n}/name"),
-}
-STRIP_BASE = 10000
-
-
-def strip_id(kind, number):
-    """The id a phone knows a strip by: an input's own number, or its
-    kind's base plus its number for anything else - see STRIP_KINDS."""
-    if kind == "Input_Channels":
-        return int(number)
-    return STRIP_KINDS[kind][0] + int(number)
-
-
-def strip_of(channel):
-    """(kind, number) for a strip id, or None for an input channel."""
-    try:
-        channel = int(channel)
-    except (TypeError, ValueError):
-        return None
-    if channel < STRIP_BASE:
-        return None
-    for kind, (base, _, _) in STRIP_KINDS.items():
-        if base < channel < base + STRIP_BASE:
-            return kind, channel - base
-    return None
-FINE_DELAY_RANGE = (-127.0, 127.0)
-
 # The channel EQ Full Mixer Control's EQ screen edits: four parametric
 # bands plus the high- and low-pass filters ahead of them. Ranges are the
 # official app's parameter dictionary (docs/mixer_protocol/PROTOCOL.md,
 # "The iPad app's parameter dictionary"); writes are clamped to them here
 # so a phone can never put a value on the desk its own dial could not.
 # Frequencies are Hz on the wire even where the desk's dial reads kHz.
-EQ_BANDS = 4
+# Band counts are per strip: an input's four, a bus's eight (strips.py).
 EQ_RANGES = {
     "freq": (20.0, 20000.0),
     "gain": (-18.0, 18.0),
@@ -771,9 +741,15 @@ class RemoteServer:
             return
 
         # A DCA, group or output strip (see STRIP_KINDS) has only its
-        # fader driven so far; anything else aimed at one would land on an
-        # input channel address that does not exist.
-        if action not in ("set_level", "set_mute") \
+        # fader, mute and name driven so far - plus, on a bus (a group, aux or
+        # matrix), its EQ, dynamics and hard mute. Anything else aimed at
+        # one would land on an input channel address that does not exist.
+        # Every strip's own name can be written too (a multi's, a DCA's,
+        # a bus's) - see _set_name.
+        strip_actions = ("set_level", "set_mute", "set_name")
+        if processing_prefix(msg.get("channel")) is not None:
+            strip_actions += BUS_ACTIONS
+        if action not in strip_actions \
                 and strip_of(msg.get("channel")) is not None:
             await self._send(
                 websocket, {"type": "error", "message": "Not available on this strip yet"}
@@ -952,6 +928,25 @@ class RemoteServer:
             else:
                 self._set_name(state, msg.get("channel"), msg.get("name"))
 
+        elif action == "set_hard_mute":
+            # A bus's hard mute: its output cut whatever its own mute and
+            # the DCAs say. Mixer mode only, like everything on a bus.
+            if not self._in_mixer_mode(state):
+                await self._send(
+                    websocket,
+                    {"type": "error", "message": "Not permitted for mixer control"}
+                )
+                return
+
+            if await self._reject_write(websocket, worker, state, entry):
+                return
+
+            prefix = processing_prefix(msg.get("channel"))
+            muted = msg.get("muted")
+            if prefix is not None and strip_of(msg.get("channel")) is not None \
+                    and isinstance(muted, bool):
+                self.command_queue.put(f"{prefix}/hard_mute {1.0 if muted else 0.0}")
+
         elif action in ("select_dyn", "set_dyn"):
             # The channel's dynamics, behind the same gate as its EQ.
             if not self._in_mixer_mode(state):
@@ -962,7 +957,7 @@ class RemoteServer:
                 return
 
             if action == "select_dyn":
-                channel = self._valid_channel(worker, msg.get("channel"))
+                channel = self._processing_channel(worker, msg.get("channel"))
                 state["dyn_channel"] = channel
 
                 if channel is not None:
@@ -988,7 +983,7 @@ class RemoteServer:
                 return
 
             if action == "select_eq":
-                channel = self._valid_channel(worker, msg.get("channel"))
+                channel = self._processing_channel(worker, msg.get("channel"))
                 state["eq_channel"] = channel
 
                 if channel is not None:
@@ -1469,6 +1464,9 @@ class RemoteServer:
                     "aux": -1,
                     "mode": "mixer",
                     "channels": self._mixer_channel_states(worker, channels),
+                    # Where each strip sits on the bank, gaps included -
+                    # see _bank_slots. Absent off a surface bank.
+                    **self._bank_slots(worker, state),
                     # The live snapshot, as the aux frames carry it - for
                     # the "Snapshot: NAME" strip along the bottom of the
                     # phone's Mixer Control.
@@ -1634,11 +1632,11 @@ class RemoteServer:
         if not self._has_selection(state):
             return
 
-        # Inputs only: the meter slots are bound to input channels, and
-        # the other strips carry no meter yet.
+        # Inputs and every other strip with a meter of its own - groups,
+        # auxes and matrices. DCAs and multis have none, so the worker
+        # gives them no slot (MixerWorker.channel_legs).
         worker.subscribe_meters(
-            [c for c in self._channels_for(worker, state) if strip_of(c) is None],
-            source=state["meter_source"],
+            self._channels_for(worker, state), source=state["meter_source"],
         )
 
     def _request_channel_states(self, worker, state):
@@ -1649,8 +1647,9 @@ class RemoteServer:
             # no mute at all until someone moved it on the desk.
             channels = self._channels_for(worker, state)
 
-            # DCAs, groups and the other non-input strips: their fader and
-            # name, all they show for now.
+            # DCAs, groups and the other non-input strips: their fader,
+            # mute and name, all they show for now. Their meters need no
+            # query - see _claim_meters.
             for channel in channels:
                 strip = strip_of(channel)
                 if strip is None:
@@ -1658,7 +1657,18 @@ class RemoteServer:
                 kind, number = strip
                 self.command_queue.put(f"/{kind}/{number}/fader/?")
                 self.command_queue.put(f"/{kind}/{number}/mute/?")
-                self.command_queue.put(STRIP_KINDS[kind][2].format(n=number) + "/?")
+                self.command_queue.put(
+                    STRIP_KINDS[kind].name_address.format(n=number) + "/?"
+                )
+                # A bus: its hard mute, and what its EQ and dynamics
+                # thumbnails draw, as an input's below.
+                if processing_prefix(channel) is not None:
+                    self.command_queue.put(f"/{kind}/{number}/hard_mute/?")
+                    for slot in INSERT_SLOTS:
+                        self.command_queue.put(f"/{kind}/{number}/Insert/insert_{slot}_in/?")
+                    self._request_eq_state(channel)
+                    for leaf in DYN_SUMMARY_LEAVES:
+                        self.command_queue.put(f"/{kind}/{number}/Dynamics/{leaf}/?")
 
             for channel in channels:
                 if strip_of(channel) is not None:
@@ -1842,9 +1852,14 @@ class RemoteServer:
 
     def _set_insert(self, channel, slot, param, value):
         """One setting of one insert point: "in", "phantom" and "pad" are
-        switches, "gain" is the return's head amp in dB."""
-        if channel is None or slot not in INSERT_SLOTS \
+        switches, "gain" is the return's head amp in dB. A bus's inserts
+        (the master, a group, an aux or a matrix) are in/out and nothing
+        else - no head amp on the return - so "in" is all a bus takes."""
+        prefix = processing_prefix(channel)
+        if prefix is None or slot not in INSERT_SLOTS \
                 or param not in INSERT_PARAMS or value is None:
+            return
+        if strip_of(channel) is not None and param != "in":
             return
 
         if param == "gain":
@@ -1857,14 +1872,15 @@ class RemoteServer:
             value = 1.0 if value else 0.0
 
         self.command_queue.put(
-            f"/Input_Channels/{channel}/Insert/insert_{slot}_{INSERT_PARAMS[param]} {value}"
+            f"{prefix}/Insert/insert_{slot}_{INSERT_PARAMS[param]} {value}"
         )
 
     @classmethod
     def _insert_state(cls, worker, channel, slot):
         """One insert point as phones get it. Each value is null until the
-        console has answered for it."""
-        base = f"/Input_Channels/{channel}/Insert/insert_{slot}_"
+        console has answered for it - and the head amp always null on a
+        bus, whose inserts have none."""
+        base = f"{processing_prefix(channel)}/Insert/insert_{slot}_"
         gain_key = base + "analog_gain"
         return {
             "in": cls._cached_flag(worker, base + "in"),
@@ -2005,6 +2021,17 @@ class RemoteServer:
         if not name:
             return
 
+        # A multi, DCA or bus: its name lives at its own address
+        # (strips.py) - the bare /name on a multi or DCA, Buss_Trim/name
+        # on a bus. Names are snapshot state on this desk, as an input's.
+        strip = strip_of(channel)
+        if strip is not None:
+            kind, number = strip
+            self.command_queue.put((
+                STRIP_KINDS[kind].name_address.format(n=number), [name]
+            ))
+            return
+
         self.command_queue.put((
             f"/Input_Channels/{channel}/Channel_Input/name", [name]
         ))
@@ -2104,6 +2131,14 @@ class RemoteServer:
 
         return channel
 
+    @classmethod
+    def _processing_channel(cls, worker, channel):
+        """channel as an int if it is an input the console has, or a bus
+        strip with an EQ and dynamics of its own (strips.py)."""
+        if strip_of(channel) is None:
+            return cls._valid_channel(worker, channel)
+        return int(channel) if processing_prefix(channel) else None
+
     def _request_eq_state(self, channel):
         """Primes the cache for everything _eq_state reports.
 
@@ -2114,12 +2149,17 @@ class RemoteServer:
         whole channel - dynamics, sends and all - across the link for
         one panel.
         """
-        prefix = f"/Input_Channels/{channel}"
+        prefix = processing_prefix(channel)
+        if prefix is None:
+            return
         self.command_queue.put(f"{prefix}/EQ/eq_in/?")
 
-        for band in range(1, EQ_BANDS + 1):
+        for band in range(1, eq_band_count(channel) + 1):
             for leaf in ("eq_on", "eq_freq", "eq_gain", "eq_Q", "eq_curve"):
                 self.command_queue.put(f"{prefix}/EQ/{leaf}_{band}/?")
+
+        if not has_filters(channel):
+            return
 
         for side in ("lo", "hi"):
             self.command_queue.put(f"{prefix}/Filters/{side}_filter_in/?")
@@ -2132,7 +2172,10 @@ class RemoteServer:
         strip dump leaves out (PROTOCOL.md, "Parameters a strip dump
         leaves out"), which is one more reason to ask leaf by leaf.
         """
-        prefix = f"/Input_Channels/{channel}/Dynamics"
+        prefix = processing_prefix(channel)
+        if prefix is None:
+            return
+        prefix += "/Dynamics"
 
         for leaf in ("comp_in", "gate_in", "comp-multiband-desser",
                      "gate-duck-comp", "comp_knee_1", "comp_knee_4",
@@ -2144,13 +2187,14 @@ class RemoteServer:
 
     def _set_dyn(self, worker, channel, param, value):
         """Writes one dynamics parameter: comp_in, gate_in, a multiband
-        band switch (DYN_BAND_FLAGS), or a DYN_PARAMS key."""
-        channel = self._valid_channel(worker, channel)
+        band switch (DYN_BAND_FLAGS), or a DYN_PARAMS key - on an input
+        or a bus."""
+        channel = self._processing_channel(worker, channel)
 
         if channel is None or value is None:
             return
 
-        prefix = f"/Input_Channels/{channel}/Dynamics"
+        prefix = processing_prefix(channel) + "/Dynamics"
 
         if param in ("comp_in", "gate_in", *DYN_BAND_FLAGS):
             self.command_queue.put(f"{prefix}/{param} {1.0 if value else 0.0}")
@@ -2183,27 +2227,29 @@ class RemoteServer:
     }
 
     def _set_eq(self, worker, channel, param, band, value):
-        """Writes one EQ or filter parameter on an input channel.
+        """Writes one EQ or filter parameter on an input or a bus.
 
         param is one of eq_in, band_on, freq, gain, q (those four with
-        band 1..EQ_BANDS), lo_filter_in, lo_filter_freq, hi_filter_in,
-        hi_filter_freq. Flags go out as 0.0/1.0 and numbers are clamped to
+        band 1 up to the strip's band count), lo_filter_in,
+        lo_filter_freq, hi_filter_in, hi_filter_freq (inputs only). Flags go out as 0.0/1.0 and numbers are clamped to
         EQ_RANGES - the console itself clamps nothing it is sent. Nothing
         is written to the cache; the console's echo is what the next push
         reports, as with every other write here.
         """
-        channel = self._valid_channel(worker, channel)
+        channel = self._processing_channel(worker, channel)
 
         if channel is None or value is None:
             return
 
-        prefix = f"/Input_Channels/{channel}"
+        prefix = processing_prefix(channel)
 
         if param == "eq_in":
             self.command_queue.put(f"{prefix}/EQ/eq_in {1.0 if value else 0.0}")
             return
 
         if param in self._EQ_FILTER_LEAVES:
+            if not has_filters(channel):
+                return
             leaf = self._EQ_FILTER_LEAVES[param]
 
             if param.endswith("_in"):
@@ -2222,7 +2268,7 @@ class RemoteServer:
         except (TypeError, ValueError):
             return
 
-        if leaf is None or not 1 <= band <= EQ_BANDS:
+        if leaf is None or not 1 <= band <= eq_band_count(channel):
             return
 
         if param == "band_on":
@@ -3053,6 +3099,25 @@ class RemoteServer:
     def _layout_bank_id(cls, layer, position):
         return f"{cls.LAYOUT_BANK_PREFIX}{layer}/{position}"
 
+    def _bank_slots(self, worker, state):
+        """{"slots": [...]} for a surface bank in Mixer Control: its
+        faders in order, each the strip id on it or None for an empty
+        one, trailing empties dropped. An operator leaves gaps between
+        groups of strips on purpose, and "channels" alone packs them
+        together. Empty for anything else, which has no fader order."""
+        layout_bank = self._layout_bank(worker, state.get("bank"))
+        if layout_bank is None:
+            return {}
+
+        slots = [
+            strip_id(*slot)
+            if slot and (slot[0] == "Input_Channels" or slot[0] in STRIP_KINDS) else None
+            for slot in layout_bank.get("slots") or []
+        ]
+        while slots and slots[-1] is None:
+            slots.pop()
+        return {"slots": slots} if slots else {}
+
     def _layout_bank(self, worker, bank_id):
         """The layout bank select_bank named by its id, or None."""
         if not isinstance(bank_id, str) or \
@@ -3075,8 +3140,9 @@ class RemoteServer:
 
         One entry per layer that has any banks, numbered from 1 the way
         the surface labels them, each bank with its id, name and how many
-        input channels it holds - none, for a bank of DCAs or outputs,
-        which the phone still lists but has no strips to show for.
+        strips Mixer Control can show it holds, under the older name
+        "inputs": inputs, DCAs, groups and outputs alike. A bank with none
+        is still listed, dimmed.
         """
         layout = getattr(worker, "bank_layout", None) or {}
         layers = {}
@@ -3086,8 +3152,8 @@ class RemoteServer:
                 "id": self._layout_bank_id(layer, position),
                 "name": entry["name"],
                 # Strips Mixer Control can show - inputs, and the DCAs,
-                # groups and outputs it now drives the faders of. A bank
-                # with none is listed dimmed.
+                # groups and outputs it drives the faders of. A bank with
+                # none is listed dimmed. "inputs" for the apps that read it.
                 "inputs": len(entry.get("strips") or entry["channels"]),
             })
 
@@ -3206,12 +3272,13 @@ class RemoteServer:
     @classmethod
     def _other_strip_state(cls, worker, channel, kind, number):
         """A DCA, group, aux, matrix or multi strip, for Mixer Control:
-        its name and fader - see STRIP_KINDS. "kind" and "label" tell the
-        phone it is not an input, so it draws the fader and name alone."""
-        _, short, name_address = STRIP_KINDS[kind]
-        label = f"{short} {number}"
+        its name, fader, mute and meter - see services/strips.py. "kind"
+        and "label" tell the phone it is not an input, so it draws those
+        alone; "metered" says whether it has a meter to draw at all."""
+        info = STRIP_KINDS[kind]
+        label = f"{info.label} {number}"
 
-        name_key = name_address.format(n=number)
+        name_key = info.name_address.format(n=number)
         name = worker.cache[name_key][0] if name_key in worker.cache else label
         if not isinstance(name, str) or not name.strip():
             name = label
@@ -3223,16 +3290,36 @@ class RemoteServer:
         mute_key = f"/{kind}/{number}/mute"
         muted = bool(worker.cache[mute_key][0]) if mute_key in worker.cache else False
 
-        return {
+        state = {
             "channel": channel,
             "name": name.strip(),
             "level": level,
             "pan": None,
             "muted": muted,
-            "stereo": False,
+            "stereo": worker.channel_is_stereo(channel),
+            "metered": info.meter_address is not None,
             "kind": kind,
             "label": label,
         }
+
+        # A bus also has an EQ, dynamics and a hard mute ("processing"),
+        # in the same fields as an input's EQ and dynamics.
+        prefix = processing_prefix(channel)
+        if prefix is not None:
+            state.update({
+                "processing": True,
+                "hard_mute": cls._cached_flag(worker, f"{prefix}/hard_mute"),
+                # In/out only: a bus's inserts have no head amp.
+                "insert_a": cls._insert_state(worker, channel, "A"),
+                "insert_b": cls._insert_state(worker, channel, "B"),
+                "eq_in": cls._cached_flag(worker, f"{prefix}/EQ/eq_in"),
+                "eq_summary": cls._eq_summary(worker, channel),
+                "comp_in": cls._cached_flag(worker, f"{prefix}/Dynamics/comp_in"),
+                "gate_in": cls._cached_flag(worker, f"{prefix}/Dynamics/gate_in"),
+                "dyn_summary": cls._dyn_summary(worker, channel),
+            })
+
+        return state
 
     @classmethod
     def _mixer_channel_states(cls, worker, channels):
@@ -3398,7 +3485,7 @@ class RemoteServer:
         gate_mode is gate-duck-comp (0 gate, 1 duck, 2 compressor). Flags
         are 0/1, and anything unreported is null.
         """
-        prefix = f"/Input_Channels/{channel}/Dynamics"
+        prefix = processing_prefix(channel) + "/Dynamics"
         row = []
 
         for leaf in DYN_SUMMARY_LEAVES:
@@ -3412,14 +3499,14 @@ class RemoteServer:
 
     @classmethod
     def _dyn_state(cls, worker, channel):
-        """One input channel's compressor and gate, as the Dynamics screen
+        """One input's or bus's compressor and gate, as the Dynamics screen
         shows them. None for anything the console has not reported.
 
         The two mode enums and the knee are sent as the console's own
         numbers, for the screen to name but never to write - see
         DYN_PARAMS.
         """
-        prefix = f"/Input_Channels/{channel}/Dynamics"
+        prefix = processing_prefix(channel) + "/Dynamics"
 
         def enum(leaf):
             args = worker.cache.get(f"{prefix}/{leaf}")
@@ -3459,10 +3546,12 @@ class RemoteServer:
         most of the payload:
 
             [eq_in, lo_in, lo_freq, hi_in, hi_freq,
-             then per band 1..EQ_BAND_COUNT: on, freq, gain, q, curve]
+             then per band 1..the strip's band count: on, freq, gain, q, curve]
 
-        Flags are 0/1, and anything the console has not reported is null,
-        exactly as in _eq_state.
+        A bus has eight bands and no filters, so its row is longer and its
+        four filter fields null; an app reads the band count off the
+        row's length. Flags are 0/1, and anything the console has not
+        reported is null, exactly as in _eq_state.
         """
         eq = cls._eq_state(worker, channel)
 
@@ -3483,7 +3572,9 @@ class RemoteServer:
 
     @classmethod
     def _eq_state(cls, worker, channel):
-        """One input channel's EQ and filters, as the EQ screen draws them.
+        """One input's EQ and filters, or a bus's EQ, as the EQ screen
+        draws them. "filters" says whether lo_filter and hi_filter mean
+        anything - false on a bus, which has none and sends them empty.
 
         Every value is None until the console has answered for it, which
         the phone reads as "nothing to show yet" - a band with no
@@ -3501,10 +3592,11 @@ class RemoteServer:
         "curve"): the wrong number on a live desk would reshape a band
         nobody asked to touch.
         """
-        prefix = f"/Input_Channels/{channel}"
+        prefix = processing_prefix(channel)
+        filters = has_filters(channel)
         bands = []
 
-        for band in range(1, EQ_BANDS + 1):
+        for band in range(1, eq_band_count(channel) + 1):
             curve_args = worker.cache.get(f"{prefix}/EQ/eq_curve_{band}")
 
             try:
@@ -3522,6 +3614,8 @@ class RemoteServer:
             })
 
         def side(name):
+            if not filters:
+                return {"in": None, "freq": None}
             return {
                 "in": cls._cached_flag(worker, f"{prefix}/Filters/{name}_filter_in"),
                 "freq": cls._cached_number(
@@ -3532,6 +3626,7 @@ class RemoteServer:
         return {
             "channel": channel,
             "eq_in": cls._cached_flag(worker, f"{prefix}/EQ/eq_in"),
+            "filters": filters,
             "bands": bands,
             "lo_filter": side("lo"),
             "hi_filter": side("hi"),

@@ -40,7 +40,11 @@ class ChannelAdapter(
     private val onDynamicsClicked: ((ChannelState, Boolean) -> Unit)? = null,
     // Full Mixer Control only as well: INS A / INS B under the dynamics,
     // opening the Inserts sheet ("A" or "B").
-    private val onInsertClicked: ((ChannelState, String) -> Unit)? = null
+    private val onInsertClicked: ((ChannelState, String) -> Unit)? = null,
+    // Full Mixer Control only: a bus strip's HARD MUTE, which takes the
+    // place an input's pan button has (a bus has no panner). Null
+    // everywhere else, where a bus strip's slot stays blank.
+    private val onHardMuteToggled: ((Int, Boolean) -> Unit)? = null
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     // "Fine" mode (toggled from MixerActivity's top bar): while on, the
@@ -161,6 +165,7 @@ class ChannelAdapter(
     private val displayedEq = mutableMapOf<Int, ChannelEq?>()
     private val displayedDyn = mutableMapOf<Int, ChannelDynamics?>()
     private val displayedInserts = mutableMapOf<Int, Pair<Boolean, Boolean>>()
+    private val displayedHardMuted = mutableMapOf<Int, Boolean>()
 
     // A mute tap flips the button straight away rather than waiting for
     // the console's echo to travel back through the desktop app's cache
@@ -175,6 +180,11 @@ class ChannelAdapter(
 
     private val pendingMutes = mutableMapOf<Int, PendingMute>()
 
+    // The same for a bus's HARD MUTE, and its INS A / INS B ("A"/"B"),
+    // which a bus toggles in place - see onInsertClicked's listener.
+    private val pendingHardMutes = mutableMapOf<Int, PendingMute>()
+    private val pendingInserts = mutableMapOf<Pair<Int, String>, PendingMute>()
+
     fun updateMeters(sequence: Long, frame: Map<Int, MeterLevels>, recycler: RecyclerView) {
         meters = frame
         meterSequence = sequence
@@ -188,6 +198,7 @@ class ChannelAdapter(
             val position = holder.bindingAdapterPosition
 
             if (position == RecyclerView.NO_POSITION || position >= channels.size) continue
+            if (channels[position].isGap) continue
 
             applyMeter(holder, channels[position])
         }
@@ -224,6 +235,8 @@ class ChannelAdapter(
             // would otherwise sit here suppressing that channel's real
             // state for the next couple of seconds if it came back.
             pendingMutes.keys.retainAll(newChannels.map { it.channel }.toSet())
+            pendingHardMutes.keys.retainAll(newChannels.map { it.channel }.toSet())
+            pendingInserts.keys.retainAll { it.first in newChannels.map { c -> c.channel }.toSet() }
             notifyDataSetChanged()
             return
         }
@@ -251,7 +264,8 @@ class ChannelAdapter(
 
             val panChanged = displayedPan[channel.channel] != channel.pan
 
-            val muteChanged = displayedMuted[channel.channel] != effectiveMuted(channel)
+            val muteChanged = displayedMuted[channel.channel] != effectiveMuted(channel) ||
+                displayedHardMuted[channel.channel] != effectiveHardMuted(channel)
 
             val nameChanged = displayedName[channel.channel] != channel.name
 
@@ -267,10 +281,23 @@ class ChannelAdapter(
 
     inner class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root)
 
+    // An empty fader (ChannelState.isGap) is its own view type, so a
+    // blanked strip is never recycled into a real one or back.
+    override fun getItemViewType(position: Int): Int =
+        if (channels[position].isGap) VIEW_TYPE_GAP else VIEW_TYPE_STRIP
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemChannelBinding.inflate(
             LayoutInflater.from(parent.context), parent, false
         )
+
+        if (viewType == VIEW_TYPE_GAP) {
+            // A strip's width and nothing in it.
+            for (i in 0 until binding.root.childCount) {
+                binding.root.getChildAt(i).visibility = View.INVISIBLE
+            }
+            return ViewHolder(binding)
+        }
 
         // The level fader is a SeekBar rotated 270° - its layout width
         // becomes its visual length once rotated, but XML has no way to
@@ -281,6 +308,11 @@ class ChannelAdapter(
         // space when more is available and clipping the ruler drawn
         // beside it (LevelRulerView, which does size itself off the
         // row's real height) when less is.
+        if (panTextColors == null) {
+            panTint = binding.panButton.backgroundTintList
+            panTextColors = binding.panButton.textColors
+        }
+
         binding.faderRow.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
             syncFaderWidth(binding, bottom - top)
         }
@@ -290,8 +322,9 @@ class ChannelAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = channels[position]
+        if (channel.isGap) return
 
-        arrangeControls(holder.binding, channel.isInput)
+        arrangeControls(holder.binding, channel.hasProcessing)
 
         holder.binding.channelName.text = channel.name
 
@@ -376,19 +409,8 @@ class ChannelAdapter(
             }
         }
 
-        holder.binding.insertAButton.setOnClickListener {
-            val adapterPosition = holder.bindingAdapterPosition
-            if (adapterPosition != RecyclerView.NO_POSITION) {
-                onInsertClicked?.invoke(channels[adapterPosition], "A")
-            }
-        }
-
-        holder.binding.insertBButton.setOnClickListener {
-            val adapterPosition = holder.bindingAdapterPosition
-            if (adapterPosition != RecyclerView.NO_POSITION) {
-                onInsertClicked?.invoke(channels[adapterPosition], "B")
-            }
-        }
+        holder.binding.insertAButton.setOnClickListener { insertTapped(holder, "A") }
+        holder.binding.insertBButton.setOnClickListener { insertTapped(holder, "B") }
 
         holder.binding.gateButton.setOnClickListener {
             val adapterPosition = holder.bindingAdapterPosition
@@ -397,11 +419,24 @@ class ChannelAdapter(
             }
         }
 
+        // Pan on an input; HARD MUTE on a bus, toggled against what is
+        // on screen the same way as Mute below.
         holder.binding.panButton.setOnClickListener {
             val adapterPosition = holder.bindingAdapterPosition
-            if (adapterPosition != RecyclerView.NO_POSITION) {
-                onPanButtonClicked(channels[adapterPosition])
+            if (adapterPosition == RecyclerView.NO_POSITION) return@setOnClickListener
+
+            val tapped = channels[adapterPosition]
+            if (tapped.isInput) {
+                onPanButtonClicked(tapped)
+                return@setOnClickListener
             }
+
+            val toggle = onHardMuteToggled ?: return@setOnClickListener
+            val target = !(displayedHardMuted[tapped.channel] ?: (tapped.hardMuted == true))
+            pendingHardMutes[tapped.channel] = PendingMute(target, System.currentTimeMillis())
+            displayedHardMuted[tapped.channel] = target
+            applyHardMuteAppearance(holder, target)
+            toggle(tapped.channel, target)
         }
 
         // Toggles against what's on screen rather than against the last
@@ -427,6 +462,7 @@ class ChannelAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.contains(PAYLOAD_UPDATE)) {
+            if (channels[position].isGap) return
             bindChannelState(holder, channels[position], position)
             return
         }
@@ -466,13 +502,18 @@ class ChannelAdapter(
         holder.binding.channelName.text = channel.name
         displayedName[channel.channel] = channel.name
 
-        // A DCA, group or output strip (not an input) has only its fader
-        // and name so far. What it lacks is blanked rather than removed,
-        // so its fader starts and ends level with the inputs' beside it.
-        val blank = if (channel.isInput) View.VISIBLE else View.INVISIBLE
+        // A bus (the master, a group, an aux or a matrix) has everything
+        // an input has bar pan, and its slot carries HARD MUTE. A DCA or
+        // multi has only its fader, mute and name, so the EQ, dynamics,
+        // insert and pan slots are removed rather than blanked and its
+        // fader stretches into the room they leave. A meter is blanked,
+        // not removed, so the name sits where the others' do.
+        val blank = if (channel.isInput) View.VISIBLE else View.GONE
+        val meter = if (channel.hasMeter) View.VISIBLE else View.INVISIBLE
+        val processing = if (channel.hasProcessing) View.VISIBLE else View.GONE
 
-        holder.binding.nameMeter.visibility = if (meterBesideName) blank else View.GONE
-        holder.binding.channelMeter.visibility = if (meterBesideName) View.GONE else View.VISIBLE
+        holder.binding.nameMeter.visibility = if (meterBesideName) meter else View.GONE
+        holder.binding.channelMeter.visibility = if (meterBesideName) View.GONE else meter
         meterOf(holder).setStereo(channel.stereo)
 
         holder.binding.channelNumber.text = channel.label ?: channel.channel.toString()
@@ -484,7 +525,9 @@ class ChannelAdapter(
         // strip, rather than two small digits on their own. Resolved
         // through the holder rather than captured, so a recycled strip
         // opens the channel it is currently showing.
-        val openInput = if (showChannelNumber && onChannelNumberClicked != null && channel.isInput) {
+        // On any strip: an input opens its input sheet, anything else
+        // (a multi, a DCA, a bus) a box to rename it on the desk.
+        val openInput = if (showChannelNumber && onChannelNumberClicked != null) {
             View.OnClickListener {
                 val adapterPosition = holder.bindingAdapterPosition
                 if (adapterPosition != RecyclerView.NO_POSITION) {
@@ -530,25 +573,49 @@ class ChannelAdapter(
         // the view long-clickable and eating the gesture.
         holder.binding.channelName.isLongClickable = onNameLongPressed != null
 
-        holder.binding.panButton.visibility =
-            if (panSupported) blank else View.GONE
+        // A bus has no panner; its slot carries HARD MUTE instead, where
+        // Full Mixer Control offers it. A DCA or multi has neither.
+        val hardMute = !channel.isInput && channel.processing && onHardMuteToggled != null
+        holder.binding.panButton.visibility = when {
+            !panSupported -> View.GONE
+            hardMute -> View.VISIBLE
+            else -> blank
+        }
         // Mute is on every strip, DCAs and outputs included.
         holder.binding.muteButton.visibility =
             if (muteSupported) View.VISIBLE else View.GONE
 
-        holder.binding.panButton.text = PanFormat.buttonLabel(channel.pan)
         displayedPan[channel.channel] = channel.pan
+        // One line either way; HARD MUTE a little smaller than a pan
+        // reading so it fits the strip's width.
+        holder.binding.panButton.maxLines = 1
+        holder.binding.panButton.setTextSize(
+            android.util.TypedValue.COMPLEX_UNIT_SP, if (hardMute) HARD_MUTE_TEXT_SP else PAN_TEXT_SP
+        )
+        if (hardMute) {
+            holder.binding.panButton.text = "HARD MUTE"
+            val hardMuted = effectiveHardMuted(channel)
+            displayedHardMuted[channel.channel] = hardMuted
+            applyHardMuteAppearance(holder, hardMuted)
+        } else {
+            holder.binding.panButton.text = PanFormat.buttonLabel(channel.pan)
+            displayedHardMuted.remove(channel.channel)
+            // The tonal button's own colours, which a bus strip recycled
+            // into an input's place would otherwise keep.
+            holder.binding.panButton.backgroundTintList = panTint
+            panTextColors?.let { holder.binding.panButton.setTextColor(it) }
+        }
 
         val muted = effectiveMuted(channel)
         displayedMuted[channel.channel] = muted
         applyMuteAppearance(holder, muted)
 
         holder.binding.eqButton.visibility =
-            if (onEqClicked != null) blank else View.GONE
+            if (onEqClicked != null) processing else View.GONE
         displayedEq[channel.channel] = channel.eq
         holder.binding.eqButton.eq = channel.eq
 
-        val dynVisibility = if (onDynamicsClicked != null) blank else View.GONE
+        val dynVisibility = if (onDynamicsClicked != null) processing else View.GONE
         holder.binding.compButton.visibility = dynVisibility
         holder.binding.gateButton.visibility = dynVisibility
         displayedDyn[channel.channel] = channel.dynamics
@@ -558,7 +625,7 @@ class ChannelAdapter(
         holder.binding.gateButton.section = channel.dynamics?.gate
 
         holder.binding.insertRow.visibility =
-            if (onInsertClicked != null) blank else View.GONE
+            if (onInsertClicked != null) processing else View.GONE
         val (aIn, bIn) = insertsIn(channel)
         displayedInserts[channel.channel] = aIn to bIn
         applyInsertButton(holder.binding.insertAButton, aIn)
@@ -571,17 +638,18 @@ class ChannelAdapter(
      * and forth rather than there being two sets, so everything bound to
      * them keeps working; each gets layout params for where it lands.
      */
-    private fun arrangeControls(b: ItemChannelBinding, isInput: Boolean = true) {
+    private fun arrangeControls(b: ItemChannelBinding, hasProcessing: Boolean = true) {
         val side = sideControls && onEqClicked != null
         val density = b.root.resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
 
-        // A DCA or output strip has nothing to put in the side column, so
-        // it stays narrow - its fader runs the full height either way.
+        // A DCA or multi has nothing to put in the side column, so it
+        // stays narrow - its fader runs the full height either way. A bus
+        // has its EQ and dynamics there, as an input does.
         b.root.layoutParams = b.root.layoutParams.apply {
-            width = dp(if (side && isInput) SIDE_STRIP_WIDTH_DP else STRIP_WIDTH_DP)
+            width = dp(if (side && hasProcessing) SIDE_STRIP_WIDTH_DP else STRIP_WIDTH_DP)
         }
-        b.sideColumn.visibility = if (side && isInput) View.VISIBLE else View.GONE
+        b.sideColumn.visibility = if (side && hasProcessing) View.VISIBLE else View.GONE
 
         if ((b.eqButton.parent === b.sideColumn) == side) return
 
@@ -620,8 +688,48 @@ class ChannelAdapter(
         }
     }
 
-    private fun insertsIn(channel: ChannelState) =
-        (channel.insertA?.inOn == true) to (channel.insertB?.inOn == true)
+    /**
+     * INS A / INS B. An input's opens the Inserts sheet, which has its
+     * return's head amp; a bus's has nothing but in/out, so a tap flips
+     * it on the spot, held against stale pushes the way Mute is.
+     */
+    private fun insertTapped(holder: ViewHolder, slot: String) {
+        val adapterPosition = holder.bindingAdapterPosition
+        if (adapterPosition == RecyclerView.NO_POSITION) return
+        val channel = channels[adapterPosition]
+
+        if (!channel.isInput) {
+            val (aIn, bIn) = insertsIn(channel)
+            val target = !(if (slot == "A") aIn else bIn)
+            pendingInserts[channel.channel to slot] = PendingMute(target, System.currentTimeMillis())
+            applyInsertButton(
+                if (slot == "A") holder.binding.insertAButton else holder.binding.insertBButton,
+                target
+            )
+            displayedInserts[channel.channel] = insertsIn(channel)
+        }
+
+        onInsertClicked?.invoke(channel, slot)
+    }
+
+    /** Each insert's in/out as the strip should show it - the pushed
+     *  state, unless a bus's tap on it is still awaiting confirmation. */
+    private fun insertsIn(channel: ChannelState): Pair<Boolean, Boolean> {
+        fun resolve(slot: String, reported: Boolean): Boolean {
+            val key = channel.channel to slot
+            val pending = pendingInserts[key] ?: return reported
+            val confirmed = reported == pending.expected
+            val timedOut = System.currentTimeMillis() - pending.sentAt >= MUTE_CONFIRM_TIMEOUT_MS
+            if (confirmed || timedOut) {
+                pendingInserts.remove(key)
+                return reported
+            }
+            return pending.expected
+        }
+
+        return resolve("A", channel.insertA?.inOn == true) to
+            resolve("B", channel.insertB?.inOn == true)
+    }
 
     /** In: the accent fill. Out: the strip's grey. */
     private fun applyInsertButton(button: com.google.android.material.button.MaterialButton, on: Boolean) {
@@ -656,6 +764,42 @@ class ChannelAdapter(
 
         return pending.expected
     }
+
+    /** effectiveMuted's twin for a bus's HARD MUTE. */
+    private fun effectiveHardMuted(channel: ChannelState): Boolean {
+        val reported = channel.hardMuted == true
+        val pending = pendingHardMutes[channel.channel] ?: return reported
+
+        val confirmed = reported == pending.expected
+        val timedOut = System.currentTimeMillis() - pending.sentAt >= MUTE_CONFIRM_TIMEOUT_MS
+
+        if (confirmed || timedOut) {
+            pendingHardMutes.remove(channel.channel)
+            return reported
+        }
+
+        return pending.expected
+    }
+
+    /** Lit the same red as Mute: both cut the bus. */
+    private fun applyHardMuteAppearance(holder: ViewHolder, muted: Boolean) {
+        val context = holder.binding.root.context
+        holder.binding.panButton.backgroundTintList = ColorStateList.valueOf(
+            ContextCompat.getColor(
+                context, if (muted) R.color.mute_active else R.color.mute_inactive
+            )
+        )
+        holder.binding.panButton.setTextColor(
+            ContextCompat.getColor(
+                context, if (muted) R.color.on_primary else R.color.on_mute_inactive
+            )
+        )
+    }
+
+    // The pan button's own colours as inflated, put back when a strip
+    // that showed HARD MUTE is recycled into an input's place.
+    private var panTint: ColorStateList? = null
+    private var panTextColors: ColorStateList? = null
 
     private fun applyMuteAppearance(holder: ViewHolder, muted: Boolean) {
         val binding = holder.binding
@@ -746,6 +890,14 @@ class ChannelAdapter(
         // strip carries to the right of the fader, which here only pushed
         // the strips apart.
         private const val STRIP_WIDTH_DP = 76
+
+        private const val VIEW_TYPE_STRIP = 0
+        private const val VIEW_TYPE_GAP = 1
+
+        // The pan button's own size (item_channel.xml), and HARD MUTE's
+        // in its place on a bus strip.
+        private const val PAN_TEXT_SP = 11f
+        private const val HARD_MUTE_TEXT_SP = 9.5f
         private const val SIDE_STRIP_WIDTH_DP = 118
 
         private const val SEEK_MAX = 1000

@@ -24,6 +24,14 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.CLMix">
 
+        <!-- Lets TabletLandscape keep tablets in landscape on Android 16,
+             which otherwise ignores orientation requests on large screens
+             for apps targeting API 36. Honoured only while targeting 36:
+             from API 37 the OS no longer offers the opt-out. -->
+        <property
+            android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+            android:value="true" />
+
         <!-- uiMode is deliberately absent from every configChanges list
              below: these screens colour a lot of their views from code
              (mute/pan tints, the Fine button, discovered-server rows),

@@ -100,10 +100,14 @@ object DemoMixer {
 
     private val banks = listOf("Drums", "Band", "Vocals")
 
+    // A fader left empty on a demo bank, as "", 0 is on the desk's.
+    private val GAP = 0
+
     private class DemoLayoutBank(
         val layer: Int,
         val position: Int,
         val name: String,
+        // Strip ids fader by fader; GAP for an empty fader.
         val channels: List<Int>
     ) {
         // The real server's id for a surface bank (_layout_bank_id).
@@ -112,8 +116,8 @@ object DemoMixer {
 
     /** The fake desk's surface layout, as Mixer Control lists it: the
      *  three banks above on layer 1, and a second layer cutting across
-     *  them - ending in a DCA bank with no inputs on it, so the dimmed
-     *  bank shows up in the demo too. */
+     *  them - ending in a bank of the master, four DCAs and a multi (otherStrips),
+     *  so those strips show up in the demo too. */
     private val surface = listOf(
         DemoLayoutBank(0, 0, "Drums", (1..9).toList()),
         DemoLayoutBank(0, 1, "Band", (10..16).toList()),
@@ -121,23 +125,43 @@ object DemoMixer {
         DemoLayoutBank(1, 0, "Rhythm", listOf(1, 2, 3, 10, 11)),
         DemoLayoutBank(1, 1, "Vox + Keys", listOf(17, 18, 19, 14, 16)),
         DemoLayoutBank(1, 2, "Playback", listOf(15, 20)),
-        DemoLayoutBank(1, 3, "DCA", listOf(20001, 10001, 10002, 10003, 10004))
+        // Gaps between the master, the DCAs and the multi, the way an
+        // operator separates groups of strips on the desk.
+        DemoLayoutBank(1, 3, "DCA", listOf(20001, GAP, 10001, 10002, 10003, 10004, GAP, 50001))
     )
 
     /** The demo desk's non-input strips, by the id the real server gives
-     *  them (RemoteServer.STRIP_KINDS: DCA 3 is 10003, group 1 is 20001):
-     *  kind, label, name and fader level. Only the fader is driven. */
+     *  them (services/strips.py: DCA 3 is 10003, group 1 is 20001): kind,
+     *  label, name, fader and mute. A group has a meter, here the stereo
+     *  master's; a DCA has none, as on the console. */
     private class DemoOtherStrip(
-        val kind: String, val label: String, val name: String, var level: Double,
-        var muted: Boolean = false,
-    )
+        val kind: String, val label: String, var name: String, var level: Double,
+        var muted: Boolean = false, val stereo: Boolean = false,
+        var hardMuted: Boolean = false,
+    ) {
+        val metered: Boolean get() = kind != "Control_Groups" && kind != "Multis"
+
+        /** A bus - EQ, dynamics and a hard mute of its own (busStrips). */
+        val processing: Boolean get() = metered
+    }
+
+    /** A bus's EQ and dynamics, by strip id: the same Strip an input has,
+     *  with eight bands and no filters. Its fader, mute and name stay in
+     *  otherStrips. Seeded in seed(). */
+    private val busStrips = mutableMapOf<Int, Strip>()
+
+    /** The strip whose EQ and dynamics a channel id means - an input's,
+     *  or a bus's. */
+    private fun dspStrip(channel: Int): Strip? = console[channel] ?: busStrips[channel]
 
     private val otherStrips = mutableMapOf(
-        20001 to DemoOtherStrip("Group_Outputs", "GRP 1", "MASTER", 0.0),
+        20001 to DemoOtherStrip("Group_Outputs", "GRP 1", "MASTER", 0.0, stereo = true),
         10001 to DemoOtherStrip("Control_Groups", "DCA 1", "DRUMS", -3.0),
         10002 to DemoOtherStrip("Control_Groups", "DCA 2", "BAND", -5.0),
         10003 to DemoOtherStrip("Control_Groups", "DCA 3", "VOX", 0.0),
         10004 to DemoOtherStrip("Control_Groups", "DCA 4", "FX", -10.0),
+        // A multitrack return: fader, mute and name, no meter.
+        50001 to DemoOtherStrip("Multis", "MULTI 1", "TRACKS", -6.0),
     )
 
     /** What each wedge's owner most wants to hear, seeded loudest in
@@ -371,6 +395,15 @@ object DemoMixer {
             }
         }
 
+        busStrips.clear()
+        for ((id, other) in otherStrips) {
+            if (!other.processing) continue
+            busStrips[id] = Strip(
+                name = other.name, level = other.level, pan = null, muted = false,
+                gain = null, trim = null, phantom = false, phase = 0
+            ).apply { seedBus(this) }
+        }
+
         // Two presets to load straight away, so the Load sheet is not
         // empty the first time it is opened.
         presets.clear()
@@ -421,6 +454,26 @@ object DemoMixer {
         strip.hiFilterIn = entry.name.startsWith("Kick")
         strip.hiFilterFreq = if (entry.name.startsWith("Kick")) 9000.0 else 18000.0
         strip.eqIn = entry.voice != Voice.SILENT
+    }
+
+    /** A master bus's EQ and dynamics: eight bands, band 1 highest, with a
+     *  little air and a little less mud; and a gentle glue compressor in. */
+    private fun seedBus(strip: Strip) {
+        val shape = listOf(
+            16000.0 to 1.5, 8000.0 to 0.0, 4000.0 to 0.0, 2000.0 to -1.0,
+            800.0 to 0.0, 300.0 to -1.5, 120.0 to 0.0, 50.0 to 1.0
+        )
+        strip.bands.clear()
+        shape.forEachIndexed { i, (freq, gain) ->
+            strip.bands.add(DemoBand(true, freq, gain, 0.71, if (i == 0 || i == 7) 2 else 1))
+        }
+        strip.eqIn = true
+
+        seedDynamics(strip, DemoChannel(0, strip.name, "Masters"))
+        strip.compIn = true
+        strip.comp["thresh"] = -12.0
+        strip.comp["ratio"] = 2.0
+        strip.comp["gain"] = 2.0
     }
 
     /** Compression on the vocals and bass, a gate on the drums - what a
@@ -636,7 +689,10 @@ object DemoMixer {
             }
 
             "set_insert" -> if (mixerMode) {
-                val strip = console[message.optInt("channel")]
+                val channel = message.optInt("channel")
+                val strip = dspStrip(channel)
+                // A bus's inserts take in/out only, as on the real server.
+                if (channel !in console && message.optString("param") != "in") return
                 val slot = message.optString("slot")
                 val current = strip?.inserts?.get(slot)
                 if (strip != null && current != null) {
@@ -699,17 +755,27 @@ object DemoMixer {
             }
 
             "set_dyn" -> if (mixerMode) {
-                console[message.optInt("channel")]?.let { setDynamics(it, message) }
+                dspStrip(message.optInt("channel"))?.let { setDynamics(it, message) }
             }
 
             "set_eq" -> if (mixerMode) {
-                console[message.optInt("channel")]?.let { setEq(it, message) }
+                val channel = message.optInt("channel")
+                dspStrip(channel)?.let { setEq(it, message, filters = channel in console) }
+            }
+
+            "set_hard_mute" -> if (mixerMode) {
+                otherStrips[message.optInt("channel")]
+                    ?.takeIf { it.processing }
+                    ?.hardMuted = message.optBoolean("muted")
             }
 
             "set_name" -> if (mixerMode) {
                 // The same cap the real server applies (MAX_CHANNEL_NAME).
-                console[message.optInt("channel")]?.name =
-                    message.optString("name").take(32)
+                val name = message.optString("name").trim().take(32)
+                if (name.isNotEmpty()) {
+                    console[message.optInt("channel")]?.name = name
+                    otherStrips[message.optInt("channel")]?.name = name
+                }
             }
 
             "list_custom_banks" -> deliver(customBanksMessage())
@@ -825,12 +891,15 @@ object DemoMixer {
     }
 
     /** The real server's _set_eq, down to the clamping. */
-    private fun setEq(strip: Strip, message: JSONObject) {
+    private fun setEq(strip: Strip, message: JSONObject, filters: Boolean = true) {
         val param = message.optString("param")
         val flag = message.optBoolean("value")
         val number = message.optDouble("value")
 
         fun freq() = number.coerceIn(EQ_FREQ_RANGE)
+
+        // A bus has no filters, so the server drops writes to them.
+        if (!filters && param.contains("filter")) return
 
         when (param) {
             "eq_in" -> strip.eqIn = flag
@@ -852,14 +921,17 @@ object DemoMixer {
         }
     }
 
-    /** RemoteServer._eq_summary's positional row. */
-    private fun eqSummary(strip: Strip): JSONArray {
+    /** RemoteServer._eq_summary's positional row - null filters on a bus. */
+    private fun eqSummary(strip: Strip, filters: Boolean = true): JSONArray {
         fun flag(on: Boolean) = if (on) 1 else 0
 
-        val row = JSONArray()
-            .put(flag(strip.eqIn))
-            .put(flag(strip.loFilterIn)).put(strip.loFilterFreq)
-            .put(flag(strip.hiFilterIn)).put(strip.hiFilterFreq)
+        val row = JSONArray().put(flag(strip.eqIn))
+        if (filters) {
+            row.put(flag(strip.loFilterIn)).put(strip.loFilterFreq)
+                .put(flag(strip.hiFilterIn)).put(strip.hiFilterFreq)
+        } else {
+            repeat(4) { row.put(JSONObject.NULL) }
+        }
 
         for (band in strip.bands) {
             row.put(flag(band.on)).put(band.freq).put(band.gain).put(band.q).put(band.curve)
@@ -867,6 +939,16 @@ object DemoMixer {
 
         return row
     }
+
+    /** RemoteServer._dyn_summary's positional row. */
+    private fun dynSummary(strip: Strip): JSONArray = JSONArray()
+        .put(if (strip.compIn) 1 else 0)
+        .put(strip.comp["thresh"]).put(strip.comp["ratio"])
+        .put(strip.comp["gain"])
+        .put(if (strip.gateIn) 1 else 0)
+        .put(strip.gate["thresh"]).put(strip.gate["range"])
+        .put(strip.gateMode)
+        .put(strip.gate["ratio"]).put(strip.gate["gain"])
 
     /** The real server's _set_dyn, down to the clamping. */
     private fun setDynamics(strip: Strip, message: JSONObject) {
@@ -889,7 +971,7 @@ object DemoMixer {
 
     private fun pushDynamics() {
         val channel = dynChannel ?: return
-        val strip = console[channel] ?: return
+        val strip = dspStrip(channel) ?: return
 
         fun section(isIn: Boolean, values: Map<String, Double>, mode: Int = 0): JSONObject {
             val o = JSONObject().put("in", isIn).put("mode", mode)
@@ -908,7 +990,8 @@ object DemoMixer {
 
     private fun pushEq() {
         val channel = eqChannel ?: return
-        val strip = console[channel] ?: return
+        val strip = dspStrip(channel) ?: return
+        val filters = channel in console
 
         val bands = JSONArray()
         strip.bands.forEachIndexed { index, band ->
@@ -929,14 +1012,13 @@ object DemoMixer {
                 .put("channel", channel)
                 .put("eq_in", strip.eqIn)
                 .put("bands", bands)
-                .put(
-                    "lo_filter",
-                    JSONObject().put("in", strip.loFilterIn).put("freq", strip.loFilterFreq)
-                )
-                .put(
-                    "hi_filter",
-                    JSONObject().put("in", strip.hiFilterIn).put("freq", strip.hiFilterFreq)
-                )
+                .put("filters", filters)
+                .apply {
+                    if (filters) {
+                        put("lo_filter", JSONObject().put("in", strip.loFilterIn).put("freq", strip.loFilterFreq))
+                        put("hi_filter", JSONObject().put("in", strip.hiFilterIn).put("freq", strip.hiFilterFreq))
+                    }
+                }
         )
     }
 
@@ -1129,7 +1211,7 @@ object DemoMixer {
                 banks.sortedBy { it.position }.forEach {
                     arr.put(
                         JSONObject().put("id", it.id).put("name", it.name)
-                            .put("inputs", it.channels.size)
+                            .put("inputs", it.channels.count { id -> id != GAP })
                     )
                 }
                 layers.put(JSONObject().put("layer", layer + 1).put("banks", arr))
@@ -1232,8 +1314,8 @@ object DemoMixer {
         val channels = JSONArray()
 
         if (mixerMode) {
-            // The bank's DCA and master strips, fader and name only - see
-            // otherStrips. Ahead of its inputs, as the DCA bank is laid out.
+            // The bank's DCA and master strips - see otherStrips. Ahead of
+            // its inputs, as the DCA bank is laid out.
             surface.firstOrNull { it.id == selectedBank }?.channels?.forEach { id ->
                 val other = otherStrips[id] ?: return@forEach
                 channels.put(
@@ -1243,9 +1325,22 @@ object DemoMixer {
                         .put("level", other.level)
                         .put("pan", JSONObject.NULL)
                         .put("muted", other.muted)
-                        .put("stereo", false)
+                        .put("stereo", other.stereo)
+                        .put("metered", other.metered)
                         .put("kind", other.kind)
                         .put("label", other.label)
+                        .apply {
+                            val bus = busStrips[id] ?: return@apply
+                            put("processing", true)
+                            put("hard_mute", other.hardMuted)
+                            put("insert_a", demoInsertJson(bus.inserts["A"]))
+                            put("insert_b", demoInsertJson(bus.inserts["B"]))
+                            put("eq_in", bus.eqIn)
+                            put("eq_summary", eqSummary(bus, filters = false))
+                            put("comp_in", bus.compIn)
+                            put("gate_in", bus.gateIn)
+                            put("dyn_summary", dynSummary(bus))
+                        }
                 )
             }
 
@@ -1280,20 +1375,18 @@ object DemoMixer {
                         .put("eq_summary", eqSummary(strip))
                         .put("comp_in", strip.compIn)
                         .put("gate_in", strip.gateIn)
-                        .put(
-                            "dyn_summary",
-                            JSONArray()
-                                .put(if (strip.compIn) 1 else 0)
-                                .put(strip.comp["thresh"]).put(strip.comp["ratio"])
-                                .put(strip.comp["gain"])
-                                .put(if (strip.gateIn) 1 else 0)
-                                .put(strip.gate["thresh"]).put(strip.gate["range"])
-                                .put(strip.gateMode)
-                                .put(strip.gate["ratio"]).put(strip.gate["gain"])
-                        )
+                        .put("dyn_summary", dynSummary(strip))
                 )
             }
-            deliver(levelsMessage(MixerClient.MIXER_AUX, channels))
+            deliver(levelsMessage(MixerClient.MIXER_AUX, channels).apply {
+                // Where each strip sits, empty faders included - as
+                // RemoteServer._bank_slots sends it.
+                surface.firstOrNull { it.id == selectedBank }?.let { bank ->
+                    val slots = JSONArray()
+                    bank.channels.forEach { slots.put(if (it == GAP) JSONObject.NULL else it) }
+                    put("slots", slots)
+                }
+            })
 
             // Follows the levels frame, as the real push loop sends it.
             pushEq()
@@ -1378,6 +1471,22 @@ object DemoMixer {
             meters.put(row)
         }
 
+        if (mixerMode) {
+            surface.firstOrNull { it.id == selectedBank }?.channels?.forEach { id ->
+                val other = otherStrips[id]?.takeIf { it.metered } ?: return@forEach
+                val left = busMeterDb(other, now, leg = 0)
+                val right = if (other.stereo) busMeterDb(other, now, leg = 1) else null
+                meters.put(
+                    JSONArray()
+                        .put(id)
+                        .put(left ?: JSONObject.NULL)
+                        .put(left?.minus(4) ?: JSONObject.NULL)
+                        .put(right ?: JSONObject.NULL)
+                        .put(right?.minus(4) ?: JSONObject.NULL)
+                )
+            }
+        }
+
         deliver(JSONObject().put("type", "meters").put("meters", meters))
     }
 
@@ -1406,6 +1515,20 @@ object DemoMixer {
         val fader = max(-24.0, min(0.0, level + 6))
         val db = base + fader
 
+        return if (db <= METER_FLOOR_DB) null else db
+    }
+
+    /** A bus strip's meter - the master, say: the loudest of every input
+     *  that is up and unmuted on the desk, then its own fader on top. */
+    private fun busMeterDb(bus: DemoOtherStrip, t: Double, leg: Int): Double? {
+        if (bus.muted || bus.hardMuted) return null
+
+        val mix = catalog.mapNotNull { entry ->
+            val strip = console[entry.channel] ?: return@mapNotNull null
+            meterDb(entry, strip.level, strip.muted, t, leg)
+        }.maxOrNull() ?: return null
+
+        val db = mix + max(-24.0, min(0.0, bus.level))
         return if (db <= METER_FLOOR_DB) null else db
     }
 
