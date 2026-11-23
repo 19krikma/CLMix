@@ -3,11 +3,16 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
-## Unreleased
+## 2.23.0
 
-Needs a desktop with output metering; with an older one these strips
-simply stay without a meter.
+Needs desktop 1.30.0 or later for output meters and Voice to Text; with
+an older one these strips simply stay without a meter.
 
+- **Voice to Text in the chat.** When the desktop listens to your mic
+  channel, what you say shows up in the chat under your name, marked
+  with the channel it came in on. Song-section words such as Chorus,
+  Bridge and Verse 2 are highlighted in the colours the sound engineer
+  picked. Older apps show these messages as ordinary text.
 - **Strips sit where the mixer has them.** Empty faders on a bank show
   as gaps in Mixer Control, so strips you separate on the desk stay
   separated.

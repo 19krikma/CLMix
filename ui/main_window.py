@@ -25,7 +25,7 @@ from pythonosc.parsing import osc_types
 from services import autostart, osc_text, updater
 from services.backup_store import BackupStore
 from services.chat_log import (
-    KIND_USER, KIND_TECH, ChatLog, normalize_tech_names, tech_name_for,
+    KIND_USER, KIND_TECH, KIND_VOICE, ChatLog, normalize_tech_names, tech_name_for,
 )
 from services.companion_bridge import (
     COMPANION_TIMEOUT_SECONDS, CompanionBridge, normalize_settings,
@@ -37,6 +37,7 @@ from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
 from services.strips import STRIP_KINDS, is_stereo_mode, strip_of
 from services import sos_options
+from services import voice_highlights, voice_to_text
 
 # Before anything parses a datagram: the console does not always send
 # UTF-8, and python-osc's UnicodeDecodeError is not a ParseError, so
@@ -62,6 +63,7 @@ from ui.chat_window import ChatWindow
 from ui.startup_section import StartupSection
 from ui.sos_section import SosSection
 from ui.chat_name_section import ChatNameSection
+from ui.voice_section import VoiceSection
 from ui.chat_toast import ChatToast, DesktopNotifier
 from ui.companion_window import CompanionPanel
 from version import VERSION
@@ -3939,6 +3941,11 @@ class MainWindow:
         self._chat_badge_shown = None
 
         self.settings = self.load_settings()
+
+        # Voice to Text - see services/voice_to_text.py. Runs whether or
+        # not the console is connected; what it hears goes into the chat.
+        self.voice_engine = voice_to_text.VoiceEngine(on_text=self._on_voice_text)
+
         self.user_store = UserStore()
         self.preset_store = PresetStore()
         self.backup_store = BackupStore(backups_dir=self.settings.get("backup_dir"))
@@ -3948,6 +3955,7 @@ class MainWindow:
         self.build_ui()
         self._fit_window_size()
         self._apply_companion()
+        self.voice_engine.apply(self.settings["voice"])
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         # Escape backs out of a page the same as the sidebar's Back, and
@@ -4750,6 +4758,7 @@ class MainWindow:
             "AUX Setup": ttk.Frame(self.settings_page),
             "DiGiCo": ttk.Frame(self.settings_page),
             "BitFocus": ttk.Frame(self.settings_page),
+            "Voice to Text": ttk.Frame(self.settings_page),
         }
 
         # The sidebar groups these under headings - see
@@ -4757,13 +4766,23 @@ class MainWindow:
         # console and the phones; Add-ins are the optional links to other
         # gear and software, kept apart from CLMix's own settings.
         self.settings_groups = (
-            (None, ("General", "AUX Setup")),
+            (None, ("General", "AUX Setup", "Voice to Text")),
             ("Connections", ("DiGiCo",)),
             ("Add-ins", ("BitFocus",)),
         )
 
         self.build_config_tab(self.settings_sections["General"])
         self.build_digico_section(self.settings_sections["DiGiCo"])
+
+        self.voice_section = VoiceSection(
+            self.settings_sections["Voice to Text"],
+            get_config=lambda: self.settings["voice"],
+            set_config=self._set_voice_config,
+            get_snapshots=self._known_snapshot_names,
+            get_users=lambda: [(name, self.user_store.display_name(name))
+                               for name, _record in self.user_store.list_users()],
+            engine=self.voice_engine,
+        )
 
         self.access_panel = AccessPanel(
             self.accounts_page, self.user_store, lambda: self.worker,
@@ -5098,6 +5117,57 @@ class MainWindow:
         # Swapped whole: the phone server reads it from its own thread.
         self.settings["sos"] = config
         self.save_settings()
+
+    def _set_voice_config(self, config):
+        # Swapped whole: the voice threads read it from their own.
+        self.settings["voice"] = config
+        self.save_settings()
+        self.voice_engine.apply(config)
+
+    def _on_voice_text(self, number, text):
+        """One utterance Voice to Text heard on input channel `number`.
+        Called from that channel's thread: the chat log takes its own
+        lock and the phone server hands it to its own loop, and the Chat
+        window catches up from process_messages."""
+        config = self.settings.get("voice") or voice_to_text.default_config()
+        item = voice_to_text.channel(config, number)
+        user = item["user"]
+        if user is not None and self.user_store.get(user) is None:
+            user = None
+
+        worker = self.worker
+        snapshot = worker.snapshot_name if worker is not None else None
+        # Matched against the live snapshot's words as it is heard, and
+        # stamped on the message, as the Leader badge is.
+        text, highlights = voice_highlights.highlight(
+            text, voice_highlights.options_for(config["highlights"], snapshot)
+        )
+
+        name = (self.user_store.display_name(user) if user else None) \
+            or item["label"] or f"Ch {number}"
+        message = self.chat_log.add(
+            KIND_VOICE, text, user=user, name=name,
+            extra={"channel": number, "highlights": highlights},
+        )
+        log("info", f"Voice to Text, channel {number} ({name}): {text}")
+
+        server = self.remote_server
+        if server is not None:
+            server.send_tech_chat(message)
+
+    def _follow_user_rename(self, old, new):
+        """Keeps a channel tied to its account through a rename made on a
+        phone. On the Tkinter thread - see process_messages."""
+        config = self.settings.get("voice")
+        if not config or not any(item["user"] == old
+                                 for item in config["channels"].values()):
+            return
+        config = json.loads(json.dumps(config))
+        for item in config["channels"].values():
+            if item["user"] == old:
+                item["user"] = new
+        self._set_voice_config(voice_to_text.normalize(config))
+        self.voice_section.refresh()
 
     def _known_snapshot_names(self):
         worker = self.worker
@@ -5593,6 +5663,10 @@ class MainWindow:
             # out from the aux list and colored with values read at build
             # time, so there is nothing to update in place.
             self.aux_visibility_panel.rebuild()
+        elif name == "Voice to Text":
+            # Accounts and audio devices come and go while it is hidden.
+            self.voice_section.refresh_devices()
+            self.voice_section.refresh()
 
         for section_name, frame in self.settings_sections.items():
             if section_name == name:
@@ -5666,6 +5740,8 @@ class MainWindow:
             # The name the desktop chats under, per snapshot - see
             # services/chat_log.py's normalize_tech_names.
             "tech_name": normalize_tech_names(None),
+            # Voice to Text - see services/voice_to_text.py's normalize.
+            "voice": voice_to_text.default_config(),
         }
 
         try:
@@ -5676,6 +5752,7 @@ class MainWindow:
 
         defaults["sos"] = sos_options.normalize(defaults.get("sos"))
         defaults["tech_name"] = normalize_tech_names(defaults.get("tech_name"))
+        defaults["voice"] = voice_to_text.normalize(defaults.get("voice"))
         return defaults
 
     def save_settings(self):
@@ -6100,6 +6177,9 @@ class MainWindow:
             get_sos_config=lambda: self.settings.get("sos")
             or sos_options.default_config(),
             get_tech_name=self.tech_name,
+            on_user_renamed=lambda old, new: self.message_queue.put(
+                ("user_renamed", (old, new))
+            ),
         )
 
         if self.settings.get("digico_capture") and \
@@ -6495,6 +6575,9 @@ class MainWindow:
         self.chat_name_section.refresh()
         self._refresh_chat_name()
 
+        self.voice_section.refresh()
+        self.voice_engine.apply(self.settings["voice"])
+
     def _apply_companion(self, restart=False):
         """Start, reconfigure or stop the Companion bridge to match
         settings["companion"]. restart replaces a running bridge - needed
@@ -6820,6 +6903,9 @@ class MainWindow:
             elif msg_type == "sos_cleared":
                 self.clear_sos_window(*value)
 
+            elif msg_type == "user_renamed":
+                self._follow_user_rename(*value)
+
         self._refresh_chat()
 
         # A phone saving, sharing or deleting a preset changes the store
@@ -6922,6 +7008,7 @@ class MainWindow:
             self.chat_toast.close()
         self.disconnect()
         self._stop_companion()
+        self.voice_engine.stop()
         self.root.destroy()
 
 

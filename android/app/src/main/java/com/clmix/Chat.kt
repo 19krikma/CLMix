@@ -8,10 +8,15 @@ import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** A word Voice to Text picked out of a transcript, to draw in its
+ *  colour: [start, end) in code points, as the server counts them. */
+data class ChatHighlight(val start: Int, val end: Int, val color: Int)
+
 /** One line of the shared chat - see services/chat_log.py. */
 data class ChatMessage(
     val id: Long,
-    /** "user", "tech" (the sound engineer at the desktop) or "sos". */
+    /** "user", "tech" (the sound engineer at the desktop), "sos", or
+     *  "voice" - speech the desktop heard on an input channel. */
     val kind: String,
     val name: String,
     val text: String,
@@ -25,9 +30,13 @@ data class ChatMessage(
     val leader: Boolean = false,
     /** The badge's colour, as the leader chose it. */
     val leaderColor: Int = LeaderBadge.DEFAULT_COLOR,
+    /** The input channel a voice message was heard on. */
+    val channel: Int? = null,
+    val highlights: List<ChatHighlight> = emptyList(),
 ) {
     val isTech get() = kind == "tech"
     val isSos get() = kind == "sos"
+    val isVoice get() = kind == "voice"
 }
 
 /**
@@ -139,5 +148,20 @@ object Chat {
         user = o.optString("user").takeIf { !o.isNull("user") && it.isNotEmpty() },
         leader = o.optBoolean("leader", false),
         leaderColor = LeaderBadge.parse(o.optString("leader_color")),
+        channel = o.optInt("channel", 0).takeIf { it > 0 },
+        highlights = parseHighlights(o.optJSONArray("highlights")),
     )
+
+    private fun parseHighlights(items: JSONArray?): List<ChatHighlight> {
+        if (items == null) return emptyList()
+        return (0 until items.length()).mapNotNull { i ->
+            val o = items.optJSONObject(i) ?: return@mapNotNull null
+            val color = try {
+                android.graphics.Color.parseColor(o.optString("color"))
+            } catch (e: IllegalArgumentException) {
+                return@mapNotNull null
+            }
+            ChatHighlight(o.optInt("start", -1), o.optInt("end", -1), color)
+        }
+    }
 }

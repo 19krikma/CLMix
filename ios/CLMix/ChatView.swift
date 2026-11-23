@@ -110,11 +110,18 @@ struct ChatView: View {
                     if message.leader {
                         LeaderBadge(hex: message.leaderColor)
                     }
+                    if message.isVoice, let channel = message.channel {
+                        // Speech the desk heard says which channel it came in on.
+                        Label("Ch \(channel)", systemImage: "mic.fill")
+                            .font(.system(size: 12))
+                            .labelStyle(.titleAndIcon)
+                            .opacity(0.7)
+                    }
                     Text(message.time, style: .time)
                         .font(.system(size: 12))
                         .opacity(0.7)
                 }
-                Text(message.text)
+                Text(Self.highlighted(message))
                     .font(.system(size: 16))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -127,6 +134,25 @@ struct ChatView: View {
             if message.mine { avatar(message) }
             if !message.mine { Spacer(minLength: 48) }
         }
+    }
+
+    /// The message's text with its highlight words in their colours -
+    /// bold, on a fill of the colour, in ink that reads on it.
+    static func highlighted(_ message: ChatMessage) -> AttributedString {
+        var result = AttributedString(message.text)
+        let scalars = message.text.unicodeScalars
+        let count = scalars.count
+        for h in message.highlights where h.start >= 0 && h.start < h.end && h.end <= count {
+            let lower = scalars.index(scalars.startIndex, offsetBy: h.start)
+            let upper = scalars.index(scalars.startIndex, offsetBy: h.end)
+            guard let from = AttributedString.Index(lower, within: result),
+                  let to = AttributedString.Index(upper, within: result) else { continue }
+            let (fill, ink) = LeaderBadge.colors(h.color)
+            result[from..<to].backgroundColor = fill
+            result[from..<to].foregroundColor = ink
+            result[from..<to].font = .system(size: 16, weight: .bold)
+        }
+        return result
     }
 
     /// The sender's picture on the outside edge: theirs on the left,

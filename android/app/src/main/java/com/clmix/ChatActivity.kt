@@ -1,7 +1,14 @@
 package com.clmix
 
+import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
@@ -164,7 +171,29 @@ class ChatActivity : AppCompatActivity(), MixerClientListener {
             LayoutInflater.from(parent.context).inflate(R.layout.item_chat_message, parent, false)
         )
 
-        override fun onBindViewHolder(holder: Holder, position: Int) {
+        /** The message's text with its highlight words in their colours -
+     *  bold, on a fill of the colour, in ink that reads on it. */
+    private fun highlighted(message: ChatMessage): CharSequence {
+        if (message.highlights.isEmpty()) return message.text
+        val text = message.text
+        val codePoints = text.codePointCount(0, text.length)
+        val spannable = SpannableString(text)
+        for (h in message.highlights) {
+            if (h.start < 0 || h.start >= h.end || h.end > codePoints) continue
+            val start = text.offsetByCodePoints(0, h.start)
+            val end = text.offsetByCodePoints(0, h.end)
+            val luma = 0.299 * Color.red(h.color) + 0.587 * Color.green(h.color) +
+                0.114 * Color.blue(h.color)
+            val ink = if (luma > 150) Color.parseColor("#1A1A1A") else Color.WHITE
+            val flags = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            spannable.setSpan(BackgroundColorSpan(h.color), start, end, flags)
+            spannable.setSpan(ForegroundColorSpan(ink), start, end, flags)
+            spannable.setSpan(StyleSpan(Typeface.BOLD), start, end, flags)
+        }
+        return spannable
+    }
+
+    override fun onBindViewHolder(holder: Holder, position: Int) {
             val message = items[position]
             val context = holder.itemView.context
 
@@ -209,8 +238,11 @@ class ChatActivity : AppCompatActivity(), MixerClientListener {
             holder.name.text = message.name
             holder.leaderBadge.isVisible = message.leader
             if (message.leader) LeaderBadge.style(holder.leaderBadge, message.leaderColor)
-            holder.time.text = timeFormat.format(Date((message.time * 1000).toLong()))
-            holder.text.text = message.text
+            val time = timeFormat.format(Date((message.time * 1000).toLong()))
+            // Speech the desk heard says which channel it came in on.
+            holder.time.text = if (message.isVoice && message.channel != null)
+                "\uD83C\uDF99 Ch ${message.channel} \u00B7 $time" else time
+            holder.text.text = highlighted(message)
             holder.name.setTextColor(inkColor)
             holder.time.setTextColor(inkColor)
             holder.text.setTextColor(inkColor)

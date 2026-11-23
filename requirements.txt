@@ -4,3 +4,9 @@ sv-ttk==2.6.1
 certifi
 zeroconf
 ifaddr
+# Voice to Text (services/voice_to_text.py) - optional at runtime: without
+# them the feature says so in Settings and the rest of CLMix is unaffected.
+# On Linux sounddevice also needs the system PortAudio (libportaudio2).
+sounddevice
+numpy
+vosk

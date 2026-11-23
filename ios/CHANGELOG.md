@@ -9,8 +9,13 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
-## Unreleased
+## 1.18.0
 
+- **Voice to Text in the chat.** When the desktop listens to your mic
+  channel, what you say shows up in the chat under your name, marked
+  with the channel it came in on. Song-section words such as Chorus,
+  Bridge and Verse 2 are highlighted in the colours the sound engineer
+  picked.
 - **Strips sit where the mixer has them.** Empty faders on a bank show
   as gaps in Mixer Control, so strips you separate on the desk stay
   separated.

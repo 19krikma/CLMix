@@ -12,7 +12,7 @@
 
 import os
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 SPEC_DIR = os.path.abspath(SPECPATH)  # SPECPATH is the spec's directory, not the file itself
 PROJECT_ROOT = os.path.abspath(os.path.join(SPEC_DIR, "..", ".."))
@@ -34,12 +34,29 @@ datas += [
     for name in ("clmix-feature-graphic.png", "clmix-logo-round.png")
 ]
 
+# Voice to Text (services/voice_to_text.py). Vosk loads its native
+# library from its own package folder by path, and sounddevice's Windows
+# wheel keeps PortAudio - both builds, the ASIO one included - as package
+# data; neither is an import PyInstaller would follow. All optional: a
+# build without them still runs, with the feature reporting itself
+# unavailable.
+voice_binaries = []
+for package in ("vosk",):
+    try:
+        voice_binaries += collect_dynamic_libs(package)
+    except Exception:
+        pass
+try:
+    datas += collect_data_files("_sounddevice_data")
+except Exception:
+    pass
+
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "main.py")],
     pathex=[PROJECT_ROOT],
-    binaries=[],
+    binaries=voice_binaries,
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=["sounddevice", "numpy", "vosk"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

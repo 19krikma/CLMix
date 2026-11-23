@@ -266,7 +266,8 @@ class RemoteServer:
     def __init__(self, get_worker, command_queue, port, user_store,
                  preset_store, get_hidden_auxes=None, bind_ip=None,
                  on_sos=None, chat_log=None, get_sos_config=None,
-                 get_tech_name=None, on_sos_cleared=None):
+                 get_tech_name=None, on_sos_cleared=None,
+                 on_user_renamed=None):
         self.get_worker = get_worker
         self.command_queue = command_queue
         self.port = port
@@ -282,6 +283,11 @@ class RemoteServer:
         # it) when a phone clears an SOS, so the desktop can close its
         # window for it - see clear_sos.
         self.on_sos_cleared = on_sos_cleared
+
+        # Called on the event loop's thread with (old, new) when a phone
+        # renames its account, for what the desktop keeps by username -
+        # Voice to Text's channel ties.
+        self.on_user_renamed = on_user_renamed
 
         # SOS calls nobody has dealt with yet, by id, oldest first. One
         # per account, as the desktop's windows are: asking again updates
@@ -2555,6 +2561,9 @@ class RemoteServer:
                 session["username"] = new
 
         self.preset_store.rename_user(old, new)
+
+        if self.on_user_renamed is not None:
+            self.on_user_renamed(old, new)
 
     def _picture_message(self, user):
         """One account's chat picture: base64 JPEG/PNG, or null for none."""

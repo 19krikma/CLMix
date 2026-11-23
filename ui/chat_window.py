@@ -3,13 +3,17 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
-from services.chat_log import KIND_SOS, KIND_TECH, MAX_TEXT, clean_text
+from services.chat_log import (
+    KIND_SOS, KIND_TECH, KIND_VOICE, MAX_TEXT, clean_text,
+)
 
 # Backgrounds per kind of message. The sound engineer's own stand out in
 # the theme's blue, the way they do on the phones; an SOS is red.
 BUBBLE_BG = "#2a2d33"
 TECH_BG = "#1f4a8a"
 SOS_BG = "#8e1f1f"
+# Speech Voice to Text heard - set a little apart from what was typed.
+VOICE_BG = "#23302c"
 TEXT_FG = "#ececec"
 META_FG = "#a9acb4"
 LOG_BG = "#161616"
@@ -66,7 +70,8 @@ class ChatWindow:
 
         # A message is two lines - who and when, then what - sharing one
         # tag so the background runs behind both as a single block.
-        for kind, bg in (("user", BUBBLE_BG), (KIND_TECH, TECH_BG), (KIND_SOS, SOS_BG)):
+        for kind, bg in (("user", BUBBLE_BG), (KIND_TECH, TECH_BG),
+                         (KIND_SOS, SOS_BG), (KIND_VOICE, VOICE_BG)):
             self.text.tag_configure(
                 kind, background=bg, lmargin1=10, lmargin2=10, rmargin=10,
                 spacing1=2, spacing3=2,
@@ -81,6 +86,9 @@ class ChatWindow:
         self.pill_images = {}
         self.text.tag_configure("meta", foreground=META_FG, font=(family, 9))
         self.text.tag_configure("gap", font=(family, 4))
+        # Highlight words (services/voice_highlights.py), a tag per colour
+        # made as each is first seen - see _highlight_tag.
+        self.highlight_font = (family, 11, "bold")
 
         entry_row = tk.Frame(body, bg=window_bg)
         entry_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
@@ -146,7 +154,7 @@ class ChatWindow:
 
     def _append(self, message):
         kind = message["kind"]
-        tag = kind if kind in (KIND_TECH, KIND_SOS) else "user"
+        tag = kind if kind in (KIND_TECH, KIND_SOS, KIND_VOICE) else "user"
         at = time.strftime("%H:%M", time.localtime(message["time"]))
 
         self.text.insert("end", message["name"] or "?", (tag, "name"))
@@ -157,9 +165,42 @@ class ChatWindow:
             self.text.window_create("end", window=self._leader_badge(message),
                                     align="center")
             self.text.tag_add(tag, "end-2c")
+        if kind == KIND_VOICE and message.get("channel"):
+            at = f"Voice \u00b7 Ch {message['channel']}   {at}"
         self.text.insert("end", f"   {at}\n", (tag, "meta"))
-        self.text.insert("end", message["text"] + "\n", (tag,))
+        self._insert_text(message, tag)
+        self.text.insert("end", "\n", (tag,))
         self.text.insert("end", "\n", ("gap",))
+
+    def _insert_text(self, message, tag):
+        """The message, with any highlight words in their colours."""
+        text = message["text"]
+        at = 0
+        for span in message.get("highlights") or ():
+            start, end = span.get("start"), span.get("end")
+            if not (isinstance(start, int) and isinstance(end, int)
+                    and at <= start < end <= len(text)):
+                continue
+            self.text.insert("end", text[at:start], (tag,))
+            self.text.insert("end", text[start:end],
+                             (tag, self._highlight_tag(span.get("color"))))
+            at = end
+        self.text.insert("end", text[at:], (tag,))
+
+    def _highlight_tag(self, color):
+        try:
+            rgb = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+        except (ValueError, TypeError):
+            color, rgb = "#f9a825", (0xF9, 0xA8, 0x25)
+        name = f"hl{color.lower()}"
+        luma = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+        self.text.tag_configure(
+            name, background=color, font=self.highlight_font,
+            foreground="#1a1a1a" if luma > 150 else "#ffffff",
+        )
+        # Over the bubble's own background.
+        self.text.tag_raise(name)
+        return name
 
     def _leader_badge(self, message):
         """The "★ Leader" pill, drawn to match the phones' (LeaderBadge on

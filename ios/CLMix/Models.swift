@@ -209,10 +209,20 @@ struct MeterLevels {
 /// put under it. Nothing to do with the console's own banks beyond the
 /// fact that a new account's set is seeded from them - see
 /// RemoteServer._stored_banks.
+/// A word Voice to Text picked out of a transcript, to draw in its
+/// colour: [start, end) in Unicode scalars, as the server counts them.
+struct ChatHighlight: Equatable {
+    let start: Int
+    let end: Int
+    /// "#RRGGBB".
+    let color: String
+}
+
 /// One line of the shared chat - see services/chat_log.py.
 struct ChatMessage: Identifiable, Equatable {
     let id: Int
-    /// "user", "tech" (the sound engineer at the desktop) or "sos".
+    /// "user", "tech" (the sound engineer at the desktop), "sos", or
+    /// "voice" - speech the desktop heard on an input channel.
     let kind: String
     let name: String
     let text: String
@@ -225,9 +235,13 @@ struct ChatMessage: Identifiable, Equatable {
     let leader: Bool
     /// The badge's colour, "#RRGGBB", as the leader chose it.
     let leaderColor: String
+    /// The input channel a voice message was heard on.
+    let channel: Int?
+    let highlights: [ChatHighlight]
 
     var isTech: Bool { kind == "tech" }
     var isSos: Bool { kind == "sos" }
+    var isVoice: Bool { kind == "voice" }
 
     init?(json: [String: Any]) {
         guard let id = json["id"] as? Int else { return nil }
@@ -240,6 +254,12 @@ struct ChatMessage: Identifiable, Equatable {
         user = (json["user"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         leader = json["leader"] as? Bool ?? false
         leaderColor = json["leader_color"] as? String ?? LeaderBadge.defaultHex
+        channel = (json["channel"] as? Int).flatMap { $0 > 0 ? $0 : nil }
+        highlights = (json["highlights"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let start = item["start"] as? Int, let end = item["end"] as? Int,
+                  let color = item["color"] as? String else { return nil }
+            return ChatHighlight(start: start, end: end, color: color)
+        }
     }
 }
 

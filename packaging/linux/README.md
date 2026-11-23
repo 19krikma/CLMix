@@ -6,7 +6,10 @@ desktop entry and icons so it appears in the applications menu with the
 right icon in the dock and the app switcher.
 
 Python and every dependency are bundled by PyInstaller, so the target
-machine needs no Python, no `pip`, and no virtualenv.
+machine needs no Python, no `pip`, and no virtualenv. The one exception is
+PortAudio (`libportaudio2`), which Settings > Voice to Text needs to reach
+an audio interface: the package recommends it rather than bundling it, and
+without it that one feature says so and the rest of CLMix is unaffected.
 
 **Build on the oldest distribution you intend to support.** PyInstaller
 bundles the interpreter and libraries of whatever machine it runs on, and

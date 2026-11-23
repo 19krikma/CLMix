@@ -2,11 +2,16 @@ import threading
 import time
 
 # Who a message is from, as phones and the desktop's Chat window tell
-# them apart: a logged-in account, the sound engineer at the desktop, or
-# an SOS a phone sent.
+# them apart: a logged-in account, the sound engineer at the desktop, an
+# SOS a phone sent, or speech Voice to Text heard on an input channel
+# (services/voice_to_text.py). A voice message carries "channel", and
+# "highlights" - [{"start", "end", "color"}], code-point offsets into
+# its text - and "user" is the account tied to that channel, if any.
+# Older apps draw it as an ordinary message from that name.
 KIND_USER = "user"
 KIND_TECH = "tech"
 KIND_SOS = "sos"
+KIND_VOICE = "voice"
 
 # The name the desktop's own messages go out under, unless Settings >
 # General gives it another - see tech_name_for.

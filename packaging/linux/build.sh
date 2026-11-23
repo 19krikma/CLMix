@@ -98,6 +98,7 @@ Architecture: $ARCH
 Maintainer: $MAINTAINER
 Installed-Size: $INSTALLED_KB
 Depends: libc6, libx11-6, libxext6, libxft2, libfontconfig1
+Recommends: libportaudio2
 Description: Aux-send mixing for the DiGiCo Q225 Quantum
  CLMix hands each performer their own monitor mix on their own phone. This
  desktop app talks to the console over OSC and re-serves the parts each

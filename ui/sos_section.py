@@ -9,6 +9,25 @@ MUTED_FG = "#888888"
 
 DEFAULT_LIST = "Default"
 
+# What the section is called and says, for the SOS lists. Another list of
+# coloured words kept the same way (services/voice_highlights.py) passes
+# its own - see SosSection's `texts`.
+SOS_TEXTS = {
+    "title": "SOS Messages",
+    "blurb": "The choices a phone's SOS button offers. A custom list "
+             "replaces the default while the console is on one of its "
+             "snapshots.",
+    "add": "Add SOS Message",
+    "edit": "Edit SOS Message",
+    "label": "Message",
+    "color_label": "Button colour",
+    "preview": "SOS",
+    "restore": "Put the default list back to DEAD BATTERY, AUX NOT WORKING "
+               "and NEED ASSISTANCE?",
+    "default_used": "Used on every snapshot without a custom list.",
+    "unused": "Not tied to any snapshot yet, so phones never see it.",
+}
+
 
 def text_color_for(background):
     """White or black, whichever reads on this "#rrggbb"."""
@@ -30,23 +49,29 @@ class SosSection:
     returns the snapshot names the console has told us of.
     """
 
-    def __init__(self, parent, get_config, set_config, get_snapshots):
+    def __init__(self, parent, get_config, set_config, get_snapshots,
+                 model=sos_options, texts=SOS_TEXTS, color=None):
+        """`model` is the module that keeps the lists - sos_options, or
+        one with the same normalize, new_option_id, default_options,
+        clean_text, clean_color and MAX_OPTIONS. `color` is a new item's
+        colour, the SOS red unless given."""
         self.get_config = get_config
         self.set_config = set_config
         self.get_snapshots = get_snapshots
+        self.model = model
+        self.texts = texts
+        self.new_color = color or sos_options.SOS_RED
 
         self.frame = ttk.Frame(parent, padding=15)
         self.frame.pack(fill="x")
 
         ttk.Label(
-            self.frame, text="SOS Messages", font=("TkDefaultFont", 10, "bold")
+            self.frame, text=texts["title"], font=("TkDefaultFont", 10, "bold")
         ).pack(anchor="w")
 
         ttk.Label(
             self.frame,
-            text="The choices a phone's SOS button offers. A custom list "
-                 "replaces the default while the console is on one of its "
-                 "snapshots.",
+            text=texts["blurb"],
             foreground=MUTED_FG, wraplength=600, justify="left"
         ).pack(anchor="w", pady=(2, 8))
 
@@ -174,14 +199,14 @@ class SosSection:
 
         if index is None:
             self.snapshots_label.configure(
-                text="Used on every snapshot without a custom list."
+                text=self.texts["default_used"]
             )
             self.snapshots_button.state(["disabled"])
         else:
             snapshots = config["custom"][index]["snapshots"]
             self.snapshots_label.configure(
                 text="Used on: " + ", ".join(snapshots) if snapshots
-                else "Not tied to any snapshot yet, so phones never see it."
+                else self.texts["unused"]
             )
             self.snapshots_button.state(["!disabled"])
 
@@ -203,11 +228,16 @@ class SosSection:
         def enable(widget, on):
             widget.state(["!disabled"] if on else ["disabled"])
 
-        enable(self.add_button, count < sos_options.MAX_OPTIONS)
+        enable(self.add_button, count < self.model.MAX_OPTIONS)
         enable(self.edit_button, row is not None)
         enable(self.remove_button, row is not None)
         enable(self.up_button, row is not None and row > 0)
         enable(self.down_button, row is not None and row < count - 1)
+
+    def _dialog_texts(self):
+        return {"label": self.texts["label"],
+                "color_label": self.texts["color_label"],
+                "preview": self.texts["preview"], "model": self.model}
 
     # --- Changing it ---
 
@@ -217,7 +247,7 @@ class SosSection:
         ever sees the old config or the new one, never one mid-edit."""
         config = copy.deepcopy(self.get_config())
         edit(config)
-        self.set_config(sos_options.normalize(config))
+        self.set_config(self.model.normalize(config))
 
         if select_list is not None:
             self.refresh(select_list=select_list)
@@ -229,14 +259,14 @@ class SosSection:
             options_count = len(self.tree.get_children())
             self._change(
                 lambda config: self._options(config).append({
-                    "id": sos_options.new_option_id(),
+                    "id": self.model.new_option_id(),
                     "text": text, "color": color,
                 }),
                 select_option=options_count
             )
 
-        OptionDialog(self.frame, "Add SOS Message", "", sos_options.SOS_RED,
-                     on_saved=save)
+        OptionDialog(self.frame, self.texts["add"], "", self.new_color,
+                     on_saved=save, **self._dialog_texts())
 
     def _edit_option(self):
         row = self._selected_option()
@@ -250,8 +280,8 @@ class SosSection:
                 self._options(config)[row].update(text=text, color=color)
             self._change(edit, select_option=row)
 
-        OptionDialog(self.frame, "Edit SOS Message", option["text"],
-                     option["color"], on_saved=save)
+        OptionDialog(self.frame, self.texts["edit"], option["text"],
+                     option["color"], on_saved=save, **self._dialog_texts())
 
     def _remove_option(self):
         row = self._selected_option()
@@ -274,14 +304,12 @@ class SosSection:
 
     def _restore_defaults(self):
         if not messagebox.askyesno(
-            "SOS Messages",
-            "Put the default list back to DEAD BATTERY, AUX NOT WORKING "
-            "and NEED ASSISTANCE?", parent=self.frame
+            self.texts["title"], self.texts["restore"], parent=self.frame
         ):
             return
 
         def edit(config):
-            config["default"] = sos_options.default_options()
+            config["default"] = self.model.default_options()
 
         self._change(edit)
 
@@ -291,7 +319,7 @@ class SosSection:
         def save(name, _color):
             if name in taken:
                 messagebox.showerror(
-                    "SOS Messages", f"There is already a list called {name}.",
+                    self.texts["title"], f"There is already a list called {name}.",
                     parent=self.frame
                 )
                 return False
@@ -302,7 +330,7 @@ class SosSection:
                 config["custom"].append({
                     "name": name, "snapshots": [],
                     "options": [
-                        dict(option, id=sos_options.new_option_id())
+                        dict(option, id=self.model.new_option_id())
                         for option in config["default"]
                     ],
                 })
@@ -311,7 +339,7 @@ class SosSection:
             return True
 
         OptionDialog(self.frame, "New Custom List", "", None,
-                     on_saved=save, label="List name")
+                     on_saved=save, label="List name", model=self.model)
 
     def _rename_list(self):
         index = self._selected_index()
@@ -324,7 +352,7 @@ class SosSection:
         def save(name, _color):
             if name in taken:
                 messagebox.showerror(
-                    "SOS Messages", f"There is already a list called {name}.",
+                    self.texts["title"], f"There is already a list called {name}.",
                     parent=self.frame
                 )
                 return False
@@ -336,7 +364,7 @@ class SosSection:
             return True
 
         OptionDialog(self.frame, "Rename List", old, None,
-                     on_saved=save, label="List name")
+                     on_saved=save, label="List name", model=self.model)
 
     def _delete_list(self):
         index = self._selected_index()
@@ -345,7 +373,7 @@ class SosSection:
 
         name = self.get_config()["custom"][index]["name"]
         if not messagebox.askyesno(
-            "SOS Messages",
+            self.texts["title"],
             f"Delete the {name} list? Its snapshots go back to the default "
             "list.", parent=self.frame
         ):
@@ -392,9 +420,13 @@ class OptionDialog:
     message, or a list's name. on_saved(text, color) may return False to
     keep the dialog open."""
 
-    def __init__(self, master, title, text, color, on_saved, label="Message"):
+    def __init__(self, master, title, text, color, on_saved, label="Message",
+                 color_label="Button colour", preview="SOS", model=sos_options):
         self.on_saved = on_saved
         self.color = color
+        self.color_label = color_label
+        self.preview_text = preview
+        self.model = model
 
         self.window = tk.Toplevel(master)
         self.window.title(title)
@@ -412,7 +444,7 @@ class OptionDialog:
         self.entry.select_range(0, "end")
 
         if color is not None:
-            ttk.Label(frame, text="Button colour").grid(
+            ttk.Label(frame, text=color_label).grid(
                 row=1, column=0, sticky="w", pady=(10, 0)
             )
             color_row = ttk.Frame(frame)
@@ -444,20 +476,20 @@ class OptionDialog:
         self.window.grab_set()
 
     def _draw_preview(self):
-        text = sos_options.clean_text(self.entry.get()) or "SOS"
+        text = self.model.clean_text(self.entry.get()) or self.preview_text
         self.preview.configure(text=text, bg=self.color,
                                fg=text_color_for(self.color))
 
     def _pick_color(self):
         _rgb, chosen = colorchooser.askcolor(
-            self.color, parent=self.window, title="Button colour"
+            self.color, parent=self.window, title=self.color_label
         )
         if chosen:
-            self.color = sos_options.clean_color(chosen)
+            self.color = self.model.clean_color(chosen)
             self._draw_preview()
 
     def save(self):
-        text = sos_options.clean_text(self.entry.get())
+        text = self.model.clean_text(self.entry.get())
 
         if text is None:
             self.entry.focus_set()
