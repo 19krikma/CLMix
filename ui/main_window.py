@@ -64,6 +64,7 @@ from ui.startup_section import StartupSection
 from ui.sos_section import SosSection
 from ui.chat_name_section import ChatNameSection
 from ui.voice_section import VoiceSection
+from ui.voice_live_window import VoiceLiveWindow
 from ui.chat_toast import ChatToast, DesktopNotifier
 from ui.companion_window import CompanionPanel
 from version import VERSION
@@ -3945,6 +3946,15 @@ class MainWindow:
         # Voice to Text - see services/voice_to_text.py. Runs whether or
         # not the console is connected; what it hears goes into the chat.
         self.voice_engine = voice_to_text.VoiceEngine(on_text=self._on_voice_text)
+        # The snapshot the console last recalled, for its speech model.
+        # Kept through a disconnect: nothing has been recalled since, so
+        # the model stays as it was.
+        self._voice_snapshot = None
+        # The input device of a Settings mic test while one runs - see
+        # set_voice_test. It stands in for the interface setup until
+        # stopped.
+        self._voice_test_device = None
+        self.voice_live_window = None
 
         self.user_store = UserStore()
         self.preset_store = PresetStore()
@@ -3955,7 +3965,7 @@ class MainWindow:
         self.build_ui()
         self._fit_window_size()
         self._apply_companion()
-        self.voice_engine.apply(self.settings["voice"])
+        self._apply_voice()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         # Escape backs out of a page the same as the sidebar's Back, and
@@ -4043,6 +4053,8 @@ class MainWindow:
         entry("Presets", self.open_presets_window)
         # Relabelled with an unread count - see _refresh_chat.
         self.chat_button = entry("Chat", self.open_chat_window)
+        # Voice to Text as it is heard - see ui/voice_live_window.py.
+        entry("Live Text", self.open_voice_live)
         divider()
         entry("Settings", self.open_settings_window)
         entry("Accounts", self.open_accounts_window)
@@ -4782,6 +4794,8 @@ class MainWindow:
             get_users=lambda: [(name, self.user_store.display_name(name))
                                for name, _record in self.user_store.list_users()],
             engine=self.voice_engine,
+            get_live_snapshot=self.voice_snapshot,
+            set_test=self.set_voice_test,
         )
 
         self.access_panel = AccessPanel(
@@ -5122,29 +5136,80 @@ class MainWindow:
         # Swapped whole: the voice threads read it from their own.
         self.settings["voice"] = config
         self.save_settings()
-        self.voice_engine.apply(config)
+        self._apply_voice()
+
+    def _apply_voice(self):
+        """Voice to Text on the settings, with the live snapshot's model -
+        which, if it is the one already loaded, changes nothing."""
+        config = self.settings["voice"]
+        if self._voice_test_device is not None:
+            config = voice_to_text.mic_test_config(config,
+                                                   self._voice_test_device)
+        self.voice_engine.apply(config, self._voice_snapshot)
+
+    def set_voice_test(self, device):
+        """Starts a mic test on `device` (from voice_to_text's
+        input_devices), or stops one with None and goes back to the
+        interface setup in Settings."""
+        self._voice_test_device = device
+        self.voice_engine.last_text = ""
+        self._apply_voice()
+
+    def voice_snapshot(self):
+        return self._voice_snapshot
+
+    def _voice_config(self):
+        """The voice config running now - a mic test's, while one is."""
+        config = self.settings.get("voice") or voice_to_text.default_config()
+        config = voice_to_text.for_snapshot(config, self._voice_snapshot)
+        test = self._voice_test_device
+        if test is not None:
+            config = voice_to_text.mic_test_config(config, test)
+        return config
+
+    def voice_speaker(self, number):
+        """(name, username or None) that channel `number`'s speech goes
+        out under: its account, else its label, else "Ch N"."""
+        item = voice_to_text.channel(self._voice_config(), number)
+        user = item["user"]
+        if user is not None and self.user_store.get(user) is None:
+            user = None
+        name = (self.user_store.display_name(user) if user else None) \
+            or item["label"] or f"Ch {number}"
+        return name, user
+
+    def voice_highlight_words(self):
+        """The highlight words for the snapshot live on the console."""
+        worker = self.worker
+        snapshot = worker.snapshot_name if worker is not None else None
+        return voice_highlights.options_for(
+            self._voice_config()["highlights"], snapshot)
+
+    def open_voice_live(self):
+        window = self.voice_live_window
+        if window is not None and window.window.winfo_exists():
+            window.show()
+            return
+
+        def closed():
+            self.voice_live_window = None
+
+        self.voice_live_window = VoiceLiveWindow(
+            self.root, self.voice_engine, get_speaker=self.voice_speaker,
+            get_words=self.voice_highlight_words, on_closed=closed,
+        )
 
     def _on_voice_text(self, number, text):
         """One utterance Voice to Text heard on input channel `number`.
         Called from that channel's thread: the chat log takes its own
         lock and the phone server hands it to its own loop, and the Chat
         window catches up from process_messages."""
-        config = self.settings.get("voice") or voice_to_text.default_config()
-        item = voice_to_text.channel(config, number)
-        user = item["user"]
-        if user is not None and self.user_store.get(user) is None:
-            user = None
-
-        worker = self.worker
-        snapshot = worker.snapshot_name if worker is not None else None
+        name, user = self.voice_speaker(number)
         # Matched against the live snapshot's words as it is heard, and
         # stamped on the message, as the Leader badge is.
         text, highlights = voice_highlights.highlight(
-            text, voice_highlights.options_for(config["highlights"], snapshot)
-        )
+            text, self.voice_highlight_words())
 
-        name = (self.user_store.display_name(user) if user else None) \
-            or item["label"] or f"Ch {number}"
         message = self.chat_log.add(
             KIND_VOICE, text, user=user, name=name,
             extra={"channel": number, "highlights": highlights},
@@ -5159,13 +5224,18 @@ class MainWindow:
         """Keeps a channel tied to its account through a rename made on a
         phone. On the Tkinter thread - see process_messages."""
         config = self.settings.get("voice")
-        if not config or not any(item["user"] == old
-                                 for item in config["channels"].values()):
+        if not config:
+            return
+        setups = [config["channels"], *config["snapshot_channels"].values()]
+        if not any(item["user"] == old
+                   for channels in setups for item in channels.values()):
             return
         config = json.loads(json.dumps(config))
-        for item in config["channels"].values():
-            if item["user"] == old:
-                item["user"] = new
+        for channels in [config["channels"],
+                         *config["snapshot_channels"].values()]:
+            for item in channels.values():
+                if item["user"] == old:
+                    item["user"] = new
         self._set_voice_config(voice_to_text.normalize(config))
         self.voice_section.refresh()
 
@@ -6576,7 +6646,7 @@ class MainWindow:
         self._refresh_chat_name()
 
         self.voice_section.refresh()
-        self.voice_engine.apply(self.settings["voice"])
+        self._apply_voice()
 
     def _apply_companion(self, restart=False):
         """Start, reconfigure or stop the Companion bridge to match
@@ -6890,6 +6960,10 @@ class MainWindow:
                 number, name = value
                 self._set_snapshot_text(f"Snapshot: {name or f'#{number}'}")
                 self._refresh_chat_name()
+                if name and name != self._voice_snapshot:
+                    self._voice_snapshot = name
+                    self._apply_voice()
+                    self.voice_section.refresh_model_status()
 
             elif msg_type == "message":
                 log("debug", value)

@@ -16,4 +16,4 @@
 # through several server releases while android/version.properties moved
 # four times. The two version numbers are independent (the phone apps ship
 # on their own schedule), but a change spanning both should bump both.
-VERSION = "1.30.0"
+VERSION = "1.31.0"

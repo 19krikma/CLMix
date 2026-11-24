@@ -9,6 +9,13 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.18.1
+
+- **Channel setup fits in landscape.** The sheet with gain, trim and
+  delay is rearranged when the phone is on its side: name and polarity
+  on one row, Main and ALT with the meter on the left, delay on the
+  right - no more scrolling to reach the Trim dials.
+
 ## 1.18.0
 
 - **Voice to Text in the chat.** When the desktop listens to your mic

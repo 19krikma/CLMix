@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Landscape version of the channel input sheet. The portrait sheet
+     stacks name, input stage and delay, and is far taller than a phone on
+     its side - so here the name and polarity share one row with the
+     channel number, and the input stage (Main and ALT, with the meter)
+     and the delay sit side by side beneath it. Every id matches the
+     portrait layout, which ChannelInputBottomSheet binds either way. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="16dp">
+
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="10dp"
+        android:background="@color/track_background" />
+
+    <!-- Channel number, name box and polarity in one row. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:id="@+id/input_channel_number"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="14dp"
+            android:textSize="13sp"
+            android:textColor="@color/on_surface_variant"
+            tools:text="Channel 22" />
+
+        <EditText
+            android:id="@+id/input_channel_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/value_box"
+            android:gravity="center"
+            android:paddingVertical="10dp"
+            android:paddingHorizontal="10dp"
+            android:maxLines="1"
+            android:inputType="textCapCharacters|textNoSuggestions"
+            android:imeOptions="actionDone|flagNoExtractUi"
+            android:importantForAutofill="no"
+            android:selectAllOnFocus="true"
+            android:hint="Channel name"
+            android:textColorHint="#6B7079"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#F2F4F8"
+            tools:text="DI 2" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/phase_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="12dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="Polarity"
+            app:icon="@drawable/ic_phase"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="22dp"
+            app:iconTint="@color/on_mute_inactive"
+            app:backgroundTint="@color/mute_inactive"
+            app:shapeAppearanceOverlay="@style/ShapeAppearance.CLMix.Circle" />
+
+    </LinearLayout>
+
+    <!-- Input stage | delay. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <!-- Main and ALT, two thirds of the width between them, with the
+             channel's meter down their right-hand side. -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="2"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="horizontal">
+
+                <include
+                    android:id="@+id/main_column"
+                    layout="@layout/channel_input_column"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp" />
+
+                <include
+                    android:id="@+id/alt_column"
+                    layout="@layout/channel_input_column"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp" />
+
+            </LinearLayout>
+
+            <com.clmix.ChannelMeterView
+                android:id="@+id/input_meter"
+                android:layout_width="10dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="14dp" />
+
+        </LinearLayout>
+
+        <!-- A fine rule between the input stage and the delay, as the
+             portrait sheet's horizontal one. -->
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginVertical="8dp"
+            android:background="@color/divider" />
+
+        <!-- The channel delay: its in/out button over the time and fine
+             dials, stacked so the column is the input stage's height. -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/delay_button"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="Delay"
+                app:cornerRadius="10dp"
+                app:backgroundTint="@color/mute_inactive"
+                android:textColor="@color/on_mute_inactive" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.clmix.DialView
+                    android:id="@+id/delay_dial"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:contentDescription="Delay dial - hold and drag" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/delay_label"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="3dp"
+                        android:gravity="center"
+                        android:text="Delay"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <EditText
+                        android:id="@+id/delay_value"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/value_box"
+                        android:gravity="center"
+                        android:imeOptions="actionDone|flagNoExtractUi"
+                        android:importantForAutofill="no"
+                        android:maxLines="1"
+                        android:paddingVertical="8dp"
+                        android:selectAllOnFocus="true"
+                        android:textColor="#F2F4F8"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        tools:text="8.00 ms" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.clmix.DialView
+                    android:id="@+id/fine_delay_dial"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:contentDescription="Fine delay dial - hold and drag" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/fine_delay_label"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="3dp"
+                        android:gravity="center"
+                        android:text="Fine"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <EditText
+                        android:id="@+id/fine_delay_value"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/value_box"
+                        android:gravity="center"
+                        android:imeOptions="actionDone|flagNoExtractUi"
+                        android:importantForAutofill="no"
+                        android:maxLines="1"
+                        android:paddingVertical="8dp"
+                        android:selectAllOnFocus="true"
+                        android:textColor="#F2F4F8"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        tools:text="0 smp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>

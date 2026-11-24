@@ -1,11 +1,11 @@
 import copy
 import sys
-import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import ttk
 
 from services import voice_highlights, voice_to_text
 from ui.sos_section import SosSection
+from ui.voice_models import ModelPanel
 
 # The muted gray the rest of the desktop UI uses for secondary text.
 MUTED_FG = "#888888"
@@ -13,6 +13,7 @@ OK_FG = "#66bb6a"
 ERROR_FG = "#ef5350"
 
 NOBODY = "(nobody)"
+GLOBAL_SCOPE = "Global - every snapshot"
 
 # How often the status line and level column are read back, while shown.
 POLL_MS = 250
@@ -48,14 +49,24 @@ class VoiceSection:
     """
 
     def __init__(self, parent, get_config, set_config, get_snapshots,
-                 get_users, engine):
+                 get_users, engine, get_live_snapshot=lambda: None,
+                 set_test=None):
         self.get_config = get_config
         self.set_config = set_config
         self.get_users = get_users
+        self.get_snapshots = get_snapshots
+        self.get_live_snapshot = get_live_snapshot
         self.engine = engine
+        # The channel setup shown: None for the global one, else a
+        # snapshot's name.
+        self._scope = None
+        self._scopes = [None]
+        # set_test(device) starts a mic test, set_test(None) stops it.
+        self.set_test = set_test
+        self._test_device = None
+        self._mics = []
         self._devices = []
         self._poll_job = None
-        self._downloading = False
 
         outer = ScrollFrame(parent)
         outer.pack(fill="both", expand=True)
@@ -83,6 +94,39 @@ class VoiceSection:
                         command=self._toggle_enabled).pack(side="left")
         self.status_label = ttk.Label(top, text="", foreground=MUTED_FG)
         self.status_label.pack(side="left", padx=(14, 0))
+
+        # --- Mic test ---
+        test = ttk.LabelFrame(self.frame, text="Mic Test", padding=10)
+        test.pack(fill="x", pady=(12, 0))
+        ttk.Label(
+            test,
+            text="Try it on this computer's microphone - no interface "
+                 "needed. Uses the speech model and highlight words below; "
+                 "what it hears also goes to the chat as \u201cMic Test\u201d, and Live "
+                 "Text in the sidebar shows it as it is heard. "
+                 "Your interface setup is untouched and comes back when the "
+                 "test stops.",
+            foreground=MUTED_FG, wraplength=640, justify="left"
+        ).pack(anchor="w", pady=(0, 8))
+
+        test_row = ttk.Frame(test)
+        test_row.pack(fill="x")
+        ttk.Label(test_row, text="Microphone").pack(side="left")
+        self.mic_combo = ttk.Combobox(test_row, state="readonly", width=44)
+        self.mic_combo.pack(side="left", padx=(10, 6))
+        self.test_button = ttk.Button(test_row, text="Start Mic Test",
+                                      style="Accent.TButton", width=16,
+                                      command=self._toggle_test)
+        self.test_button.pack(side="left")
+
+        heard_row = ttk.Frame(test)
+        heard_row.pack(fill="x", pady=(8, 0))
+        self.test_level = ttk.Label(heard_row, text="", font=("TkFixedFont", 9),
+                                    width=16)
+        self.test_level.pack(side="left")
+        self.heard_label = ttk.Label(heard_row, text="", wraplength=520,
+                                     justify="left")
+        self.heard_label.pack(side="left", padx=(10, 0))
 
         # --- Audio ---
         audio = ttk.LabelFrame(self.frame, text="Audio Input", padding=10)
@@ -131,28 +175,11 @@ class VoiceSection:
                   foreground=MUTED_FG).pack(side="left", padx=(8, 0))
 
         # --- Model ---
-        model = ttk.LabelFrame(self.frame, text="Speech Model", padding=10)
-        model.pack(fill="x", pady=(12, 0))
-        self.model_label = ttk.Label(model, text="", wraplength=600,
-                                     justify="left")
-        self.model_label.pack(anchor="w")
-        model_buttons = ttk.Frame(model)
-        model_buttons.pack(fill="x", pady=(8, 0))
-        self.download_button = ttk.Button(
-            model_buttons,
-            text=f"Download English Model ({voice_to_text.MODEL_SIZE_MB} MB)",
-            command=self._download
-        )
-        self.download_button.pack(side="left")
-        ttk.Button(model_buttons, text="Choose Folder...",
-                   command=self._choose_model).pack(side="left", padx=(6, 0))
-        self.use_newest_button = ttk.Button(
-            model_buttons, text="Use Downloaded", command=self._use_downloaded
-        )
-        self.use_newest_button.pack(side="left", padx=(6, 0))
-        self.download_label = ttk.Label(model_buttons, text="",
-                                        foreground=MUTED_FG)
-        self.download_label.pack(side="left", padx=(10, 0))
+        self.models = ModelPanel(self.frame, self.get_config, self._change,
+                                 get_snapshots=get_snapshots,
+                                 get_live_snapshot=get_live_snapshot,
+                                 engine=engine)
+        self.models.frame.pack(fill="x", pady=(12, 0))
 
         # --- Channels ---
         channels = ttk.LabelFrame(self.frame, text="Channels", padding=10)
@@ -160,10 +187,25 @@ class VoiceSection:
         ttk.Label(
             channels,
             text="Tick the channels to listen to and tie each to the account "
-                 "using it - their messages go out under that name. Double-"
-                 "click a channel to edit it.",
+                 "using it - the channel is labelled with the account's name "
+                 "(its username if it has none), and its messages go out "
+                 "under it. Double-click a channel to edit it.",
             foreground=MUTED_FG, wraplength=600, justify="left"
         ).pack(anchor="w", pady=(0, 8))
+
+        scope_row = ttk.Frame(channels)
+        scope_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(scope_row, text="Setup for").pack(side="left")
+        self.scope_combo = ttk.Combobox(scope_row, state="readonly", width=34)
+        self.scope_combo.pack(side="left", padx=(8, 0))
+        self.scope_combo.bind("<<ComboboxSelected>>",
+                              lambda event: self._scope_chosen())
+        self.global_button = ttk.Button(scope_row, text="Use Global Setup",
+                                        command=self._use_global)
+        self.global_button.pack(side="left", padx=(8, 0))
+        self.scope_note = ttk.Label(channels, foreground=MUTED_FG,
+                                    wraplength=600, justify="left")
+        self.scope_note.pack(anchor="w", pady=(0, 8))
 
         body = ttk.Frame(channels)
         body.pack(fill="x")
@@ -240,10 +282,101 @@ class VoiceSection:
         self.count_combo.set(str(config["channel_count"]))
         self.gate_var.set(str(config["gate_db"]))
         self._show_device(config)
-        self._show_model(config)
+        self.models.refresh()
         self._show_channels(config)
         self.highlights.refresh()
         self._show_status()
+
+    # --- Mic test ---
+
+    def _show_mics(self):
+        """Every recording device but ASIO ones - a test is for the
+        computer's own mics - with the default one picked."""
+        chosen = self._mics[self.mic_combo.current()] \
+            if 0 <= self.mic_combo.current() < len(self._mics) else None
+        self._mics = [d for d in self._devices if d["host_api"] != "ASIO"] \
+            or list(self._devices)
+        self.mic_combo.configure(values=[self._device_label(d)
+                                         for d in self._mics])
+
+        default = voice_to_text.default_input_device()
+        keep = chosen or self._test_device or default
+        index = next((i for i, d in enumerate(self._mics) if keep and
+                      d["name"] == keep["name"]
+                      and d["host_api"] == keep["host_api"]), None)
+        if index is None and self._mics:
+            index = 0
+        if index is not None:
+            self.mic_combo.current(index)
+        else:
+            self.mic_combo.set("")
+
+        if self._test_device is None:
+            # Say why the list is empty rather than just greying it out.
+            problem = voice_to_text.unavailable_reason()
+            if problem:
+                why = problem
+            elif not self._mics:
+                why = "No microphones found - plug one in and press Refresh."
+            else:
+                why = ""
+            self.heard_label.configure(text=why, foreground=ERROR_FG
+                                       if why else "")
+        self._show_test_button()
+
+    def _show_test_button(self):
+        testing = self._test_device is not None
+        self.test_button.configure(
+            text="Stop Mic Test" if testing else "Start Mic Test")
+        self.test_button.state(
+            ["!disabled"] if testing or (self._mics and self.set_test)
+            else ["disabled"])
+        self.mic_combo.state(["disabled"] if testing else ["!disabled"])
+        if not testing:
+            self.test_level.configure(text="")
+
+    def _toggle_test(self):
+        if self.set_test is None:
+            return
+        if self._test_device is not None:
+            self._test_device = None
+            self.set_test(None)
+            self.heard_label.configure(text="")
+        else:
+            index = self.mic_combo.current()
+            if not 0 <= index < len(self._mics):
+                return
+            self._test_device = self._mics[index]
+            self.heard_label.configure(
+                text="Say something - try \u201cgoing to the chorus\u201d.",
+                foreground=MUTED_FG)
+            self.set_test(self._test_device)
+        self._show_test_button()
+        self._show_status()
+        self._start_polling()
+
+    def _show_test(self):
+        if self._test_device is None or self.engine is None:
+            return
+        level = self.engine.levels().get(1)
+        if level is None:
+            self.test_level.configure(text="")
+        else:
+            steps = max(0, min(12, round((level + 60) / 5)))
+            open_ = level >= self.get_config()["gate_db"]
+            self.test_level.configure(
+                text="\u2588" * steps + "\u2591" * (12 - steps)
+                + (" \u25cf" if open_ else "  "))
+        heard = self.engine.last_text
+        if heard:
+            self.heard_label.configure(text=f"Heard: {heard}",
+                                       foreground="")
+
+    def refresh_model_status(self):
+        """After a snapshot recall, which may have changed the model and
+        the channel setup in use."""
+        self.models.refresh()
+        self._show_channels(self.get_config())
 
     def _toggle_enabled(self):
         enabled = self.enabled_var.get()
@@ -254,11 +387,12 @@ class VoiceSection:
 
     @staticmethod
     def _device_label(device):
-        return f"{device['name']}  —  {device['host_api']}, " \
-               f"{device['channels']} in"
+        return f"{device.get('label') or device['name']}  —  " \
+               f"{device['host_api']}, {device['channels']} in"
 
     def refresh_devices(self):
         self._devices = voice_to_text.input_devices()
+        self._show_mics()
         labels = [self._device_label(d) for d in self._devices]
         self.device_combo.configure(values=labels)
         self._show_device(self.get_config())
@@ -328,101 +462,89 @@ class VoiceSection:
         if gate != self.get_config()["gate_db"]:
             self._change(lambda config: config.update(gate_db=gate))
 
-    # --- Model ---
-
-    def _show_model(self, config):
-        path = voice_to_text.model_path(config)
-        if path:
-            text = f"Using {path}"
-        elif config["model_dir"]:
-            text = f"{config['model_dir']} is not a speech model folder."
-        else:
-            text = ("No speech model yet. Download the English one, or "
-                    "choose a Vosk model folder - larger models and other "
-                    "languages are at alphacephei.com/vosk/models.")
-        self.model_label.configure(text=text)
-        # Back from a chosen folder to the newest downloaded model.
-        self.use_newest_button.state(["!disabled"] if config["model_dir"]
-                                     else ["disabled"])
-
-    def _choose_model(self):
-        chosen = filedialog.askdirectory(
-            parent=self.frame, title="Choose a Vosk model folder",
-            initialdir=str(voice_to_text.MODELS_ROOT)
-            if voice_to_text.MODELS_ROOT.is_dir() else None,
-        )
-        if not chosen:
-            return
-        if not voice_to_text.is_model(chosen):
-            messagebox.showerror(
-                "Voice to Text",
-                "That folder is not a Vosk speech model - pick the folder "
-                "that holds its “am” and “conf” folders.",
-                parent=self.frame
-            )
-            return
-        self._change(lambda config: config.update(model_dir=chosen))
-        self.refresh()
-
-    def _use_downloaded(self):
-        self._change(lambda config: config.update(model_dir=""))
-        self.refresh()
-
-    def _download(self):
-        if self._downloading:
-            return
-        self._downloading = True
-        self.download_button.state(["disabled"])
-        self.download_label.configure(text="Downloading...")
-        progress = {"text": "Downloading..."}
-        result = {}
-
-        def report(done, total):
-            mb = done / 1e6
-            progress["text"] = (f"Downloading... {mb:.0f} of {total / 1e6:.0f} MB"
-                                if total else f"Downloading... {mb:.0f} MB")
-
-        def run():
-            try:
-                result["path"] = voice_to_text.download_model(report)
-            except Exception as ex:
-                result["error"] = ex
-
-        worker = threading.Thread(target=run, name="VoiceModelDownload",
-                                  daemon=True)
-        worker.start()
-
-        def check():
-            if worker.is_alive():
-                self.download_label.configure(text=progress["text"])
-                self.frame.after(300, check)
-                return
-            self._downloading = False
-            self.download_button.state(["!disabled"])
-            if "error" in result:
-                self.download_label.configure(text="")
-                messagebox.showerror(
-                    "Voice to Text",
-                    f"The model could not be downloaded: {result['error']}",
-                    parent=self.frame
-                )
-                return
-            self.download_label.configure(text="Downloaded.")
-            # The newest download, so the engine restarts with it.
-            self._change(lambda config: config.update(model_dir=""))
-            self.refresh()
-
-        check()
-
     # --- Channels ---
 
     def _user_names(self):
         return dict(self.get_users())
 
+    def _show_scopes(self, config):
+        live = self.get_live_snapshot()
+        names = set(self.get_snapshots() or ()) | set(config["snapshot_channels"])
+        if live:
+            names.add(live)
+        if self._scope:
+            names.add(self._scope)
+        self._scopes = [None] + sorted(names, key=str.lower)
+
+        def label(scope):
+            if scope is None:
+                return GLOBAL_SCOPE
+            text = scope
+            if scope in config["snapshot_channels"]:
+                text += " - own setup"
+            if scope == live:
+                text += " (live)"
+            return text
+
+        self.scope_combo.configure(values=[label(s) for s in self._scopes])
+        self.scope_combo.current(self._scopes.index(self._scope))
+
+        own = self._scope in config["snapshot_channels"]
+        self.global_button.state(["!disabled"] if own else ["disabled"])
+        live_own = live in config["snapshot_channels"]
+        if self._scope is None:
+            note = ("Used on every snapshot without a setup of its own.")
+            if live_own:
+                note += f" Not in use now: {live} has its own."
+        elif own:
+            note = (f"{self._scope} has a setup of its own, used while it "
+                    "is live. Use Global Setup drops it.")
+        else:
+            note = (f"{self._scope} uses the global setup. A change here "
+                    "gives it a setup of its own, starting from the global "
+                    "one.")
+        self.scope_note.configure(text=note)
+
+    def _scope_chosen(self):
+        index = self.scope_combo.current()
+        if 0 <= index < len(self._scopes):
+            self._scope = self._scopes[index]
+        self._show_channels(self.get_config())
+
+    def _use_global(self):
+        scope = self._scope
+        if scope is None:
+            return
+        self._change(lambda config: config["snapshot_channels"].pop(scope, None))
+        self._show_channels(self.get_config())
+
+    def _shown_setup(self, config):
+        """The channels shown: the scope's own, else the global ones."""
+        return voice_to_text.for_snapshot(config, self._scope)
+
+    def _target(self, config):
+        """The channels dict an edit goes into - on a snapshot without a
+        setup of its own, a new one copied from the global setup."""
+        if self._scope is None:
+            return config["channels"]
+        setups = config["snapshot_channels"]
+        if self._scope not in setups:
+            setups[self._scope] = copy.deepcopy(config["channels"])
+        return setups[self._scope]
+
+    def _viewing_live(self, config):
+        """True if the setup shown is the one listening now."""
+        live = self.get_live_snapshot()
+        in_use = live if live in config["snapshot_channels"] else None
+        return self._scope == in_use
+
     def _show_channels(self, config):
+        self._show_scopes(config)
         names = self._user_names()
         selected = self.tree.selection()
         count = config["channel_count"]
+        shown = self._shown_setup(config)
+        live = self._viewing_live(config)
 
         if len(self.tree.get_children()) != count:
             self.tree.delete(*self.tree.get_children())
@@ -430,18 +552,22 @@ class VoiceSection:
                 self.tree.insert("", "end", iid=str(number), text=str(number))
 
         for number in range(1, count + 1):
-            item = voice_to_text.channel(config, number)
+            item = voice_to_text.channel(shown, number)
             user = item["user"]
+            label = item["label"]
             if user is None:
                 shown_user = ""
             elif user in names:
-                shown_user = names[user] if names[user] == user \
-                    else f"{names[user]} ({user})"
+                # Labelled with the account's name - its username if it
+                # has none.
+                label = names[user]
+                shown_user = user
             else:
                 shown_user = f"{user} (account gone)"
+            level = self.tree.set(str(number), "level") \
+                if item["listen"] and live else ""
             self.tree.item(str(number), values=(
-                "✔" if item["listen"] else "", item["label"], shown_user,
-                self.tree.set(str(number), "level") if item["listen"] else "",
+                "✔" if item["listen"] else "", label, shown_user, level,
             ))
 
         keep = [row for row in selected if self.tree.exists(row)]
@@ -463,16 +589,18 @@ class VoiceSection:
         numbers = self._selected_numbers()
         if not numbers:
             return "break"
-        config = self.get_config()
+        shown = self._shown_setup(self.get_config())
         # All on, unless every one picked is already on.
-        turn_on = not all(voice_to_text.channel(config, n)["listen"]
+        turn_on = not all(voice_to_text.channel(shown, n)["listen"]
                           for n in numbers)
 
         def edit(config):
+            channels = self._target(config)
             for number in numbers:
-                item = dict(voice_to_text.channel(config, number))
+                item = dict(voice_to_text.channel({"channels": channels},
+                                                  number))
                 item["listen"] = turn_on
-                config["channels"][str(number)] = item
+                channels[str(number)] = item
 
         self._change(edit)
         self._show_channels(self.get_config())
@@ -484,8 +612,9 @@ class VoiceSection:
             return
 
         def edit(config):
+            channels = self._target(config)
             for number in numbers:
-                config["channels"].pop(str(number), None)
+                channels.pop(str(number), None)
 
         self._change(edit)
         self._show_channels(self.get_config())
@@ -495,17 +624,21 @@ class VoiceSection:
         if len(numbers) != 1:
             return
         number = numbers[0]
-        item = voice_to_text.channel(self.get_config(), number)
+        item = voice_to_text.channel(self._shown_setup(self.get_config()),
+                                     number)
 
         def save(listen, label, user):
             def edit(config):
-                config["channels"][str(number)] = {
+                self._target(config)[str(number)] = {
                     "listen": listen, "label": label, "user": user,
                 }
             self._change(edit)
             self._show_channels(self.get_config())
 
-        ChannelDialog(self.frame, number, item, self.get_users(), on_saved=save)
+        title = f"Channel {number}" + (f" - {self._scope}" if self._scope
+                                       else "")
+        ChannelDialog(self.frame, number, item, self.get_users(),
+                      on_saved=save, title=title)
 
     # --- Live status ---
 
@@ -519,6 +652,7 @@ class VoiceSection:
             return
         self._show_status()
         self._show_levels()
+        self._show_test()
         self._poll_job = self.frame.after(POLL_MS, self._poll)
 
     def _show_status(self):
@@ -526,11 +660,20 @@ class VoiceSection:
         state = engine.state if engine is not None else "off"
         message = engine.message if engine is not None else "Off"
         color = {"running": OK_FG, "error": ERROR_FG}.get(state, MUTED_FG)
+        if self._test_device is not None:
+            message = f"Mic test: {message}"
         self.status_label.configure(text=message, foreground=color)
 
     def _show_levels(self):
+        if self._test_device is not None:
+            # The test mic's level is not input 1's.
+            return
+        config = self.get_config()
+        if not self._viewing_live(config):
+            # Another snapshot's setup: the levels are not its channels'.
+            return
         levels = self.engine.levels() if self.engine is not None else {}
-        gate = self.get_config()["gate_db"]
+        gate = config["gate_db"]
         for number, level in levels.items():
             row = str(number)
             if not self.tree.exists(row):
@@ -546,12 +689,15 @@ class ChannelDialog:
     """One channel's settings: listened to or not, a label, and the
     account using it. on_saved(listen, label, user)."""
 
-    def __init__(self, master, number, item, users, on_saved):
+    def __init__(self, master, number, item, users, on_saved, title=None):
         self.on_saved = on_saved
         self.users = users
+        self.names = dict(users)
+        # The label typed in - kept while an account's name stands in.
+        self._own_label = item["label"]
 
         self.window = tk.Toplevel(master)
-        self.window.title(f"Channel {number}")
+        self.window.title(title or f"Channel {number}")
         self.window.transient(master.winfo_toplevel())
         self.window.resizable(False, False)
 
@@ -591,11 +737,15 @@ class ChannelDialog:
             self.user_combo.current(0)
         self.user_combo.grid(row=2, column=1, sticky="ew", padx=(10, 0),
                              pady=(10, 0))
+        self.user_combo.bind("<<ComboboxSelected>>",
+                             lambda event: self._show_label())
+        self._show_label()
 
         ttk.Label(
             frame,
-            text="Messages go out under the account's name, or the label, "
-                 f"or “Ch {number}”.",
+            text="With an account, the channel is labelled with its name - "
+                 "its username if it has none. Without one, the label is "
+                 f"yours to type, or “Ch {number}”.",
             foreground=MUTED_FG, wraplength=320, justify="left"
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
@@ -606,15 +756,32 @@ class ChannelDialog:
         ttk.Button(btn_bar, text="Save", style="Accent.TButton",
                    command=self.save).pack(side="right", padx=(0, 5))
 
-        self.label_entry.focus_set()
+        self.user_combo.focus_set()
         self.window.bind("<Return>", lambda event: self.save())
         self.window.bind("<Escape>", lambda event: self.window.destroy())
         self.window.grab_set()
 
-    def save(self):
-        label = " ".join(self.label_entry.get().split())[:voice_to_text.MAX_LABEL]
+    def _user(self):
         index = self.user_combo.current()
-        user = self.choices[index] if 0 <= index < len(self.choices) else None
+        return self.choices[index] if 0 <= index < len(self.choices) else None
+
+    def _show_label(self):
+        """The account's name in the label box while one is picked."""
+        user = self._user()
+        if str(self.label_entry.cget("state")) != "disabled":
+            self._own_label = self.label_entry.get()
+        self.label_entry.configure(state="normal")
+        self.label_entry.delete(0, "end")
+        if user in self.names:
+            self.label_entry.insert(0, self.names[user])
+            self.label_entry.configure(state="disabled")
+        else:
+            self.label_entry.insert(0, self._own_label)
+
+    def save(self):
+        user = self._user()
+        typed = self._own_label if user in self.names else self.label_entry.get()
+        label = " ".join(typed.split())[:voice_to_text.MAX_LABEL]
         self.on_saved(self.listen_var.get(), label, user)
         self.window.destroy()
 

@@ -3,6 +3,14 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.23.1
+
+- **Channel setup fits in landscape.** The sheet with gain, trim and
+  delay is rearranged when the phone is on its side: name and polarity
+  on one row, Main and ALT with the meter on the left, delay on the
+  right - nothing cut off. Turning the phone with the sheet open
+  switches it over.
+
 ## 2.23.0
 
 Needs desktop 1.30.0 or later for output meters and Voice to Text; with

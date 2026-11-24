@@ -452,6 +452,22 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
         applyLargeScreen()
         applySideControls()
         applyOrientation()
+        reopenInputSheet()
+    }
+
+    /**
+     * The channel input sheet has its own landscape layout, but this
+     * activity handles rotation itself, so a sheet already open would keep
+     * the layout it was built with - the portrait one cut off on a phone
+     * turned on its side. Rebuild it instead, on the latest state the
+     * console pushed; closing it first commits anything mid-edit.
+     */
+    private fun reopenInputSheet() {
+        val open = inputSheet ?: return
+        val state = open.latest
+        open.dismiss()
+        inputSheet = null
+        showChannelInputSheet(state)
     }
 
     // ---- Landscape sidebar: as MixerActivity's, with the menu and the

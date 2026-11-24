@@ -2,6 +2,7 @@ package com.clmix
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.os.SystemClock
 import android.text.InputFilter
 import android.text.InputType
@@ -63,6 +64,12 @@ class ChannelInputBottomSheet(
     private val onNameChanged: (Int, String) -> Unit
 ) {
     val channel: Int = initial.channel
+
+    /** The newest state the console has pushed for this channel - what a
+     *  rebuilt sheet opens on when the phone turns (see
+     *  MixerControlActivity.onConfigurationChanged). */
+    var latest: ChannelState = initial
+        private set
 
     private val dialog = BottomSheetDialog(context)
     private val binding = BottomSheetChannelInputBinding.inflate(dialog.layoutInflater)
@@ -127,6 +134,18 @@ class ChannelInputBottomSheet(
         binding.root.isFocusableInTouchMode = true
         binding.root.requestFocus()
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
+
+        // The landscape layout (layout-land) puts the input stage and the
+        // delay side by side, which wants more than Material's 640dp
+        // sheet - so it gets the window's width, up to
+        // LANDSCAPE_MAX_WIDTH_DP (the behavior clamps it to the parent).
+        // Set before the sheet is first laid out: changed in the show
+        // listener, the sheet keeps the left edge it was centred at for
+        // 640dp and runs off the right of the screen.
+        if (isLandscape(context)) {
+            val density = context.resources.displayMetrics.density
+            dialog.behavior.maxWidth = (LANDSCAPE_MAX_WIDTH_DP * density).toInt()
+        }
 
         // As PanBottomSheet: in landscape the default peek height cuts
         // the content off, so the sheet opens fully expanded.
@@ -401,6 +420,7 @@ class ChannelInputBottomSheet(
 
     fun update(state: ChannelState) {
         if (state.channel != channel) return
+        latest = state
 
         binding.inputMeter.setStereo(state.stereo)
 
@@ -643,6 +663,15 @@ class ChannelInputBottomSheet(
 
         // How long after a turn to keep ignoring pushes for that dial.
         private const val SETTLE_MS = 700L
+
+        // The widest the landscape sheet grows: a phone on its side gets
+        // its full width; a tablet stops here rather than stretching the
+        // dials across the whole screen.
+        private const val LANDSCAPE_MAX_WIDTH_DP = 960
+
+        private fun isLandscape(context: Context) =
+            context.resources.configuration.orientation ==
+                Configuration.ORIENTATION_LANDSCAPE
 
         // How long a tapped 48V, polarity or Main/ALT button holds its own
         // state before deferring to the console again.

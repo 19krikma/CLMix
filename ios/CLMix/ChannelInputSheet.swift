@@ -110,68 +110,23 @@ struct ChannelInputSheet: View {
     @State private var draftName = ""
     @FocusState private var editingName: Bool
 
+    /// Compact on a phone on its side, where the portrait stack below is
+    /// far taller than the screen - see landscapeContent.
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
     var body: some View {
-        // Scrolling, because the sheet does not always get the height
-        // it asks for: in landscape the phone reports a compact
-        // height, which makes every sheet full-screen and ignores the
-        // detent below outright - and this content is taller than the
-        // screen is in that orientation, so the Trim dials at the bottom
-        // would simply be cut off. .scrollBounceBehavior(.basedOnSize)
-        // keeps it feeling like a fixed panel wherever it does fit,
-        // which is every portrait case.
+        // Scrolling, as a safety net: in landscape the phone reports a
+        // compact height, which makes every sheet full-screen and ignores
+        // the detent outright. The landscape arrangement is built to fit
+        // that height, but a small phone with the keyboard up can still
+        // run out. .scrollBounceBehavior(.basedOnSize) keeps it feeling
+        // like a fixed panel wherever it does fit.
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Capsule()
-                    .fill(Color.clmixTrackBackground)
-                    .frame(width: 40, height: 4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 18)
-
-                Text("Channel \(channel.channel)")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.clmixOnSurfaceVariant)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 6)
-
-                nameRow
-                    .padding(.bottom, 16)
-
-                // The columns, with the channel's meter down their right-
-                // hand side: from just under the name and polarity row to
-                // the foot of the dials, so it reads the signal those
-                // dials are setting without rising past the polarity
-                // button. Mirrors Android's input_meter.
-                HStack(alignment: .top, spacing: 14) {
-                    HStack(alignment: .top, spacing: 16) {
-                        mainColumn
-                        altColumn
-                    }
-
-                    ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
-                        .frame(width: 10)
-                        .frame(maxHeight: .infinity)
-                        .allowsHitTesting(false)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-
-                // A fine rule between the input stage and the delay
-                // behind it, inset so it stops short of both edges.
-                Rectangle()
-                    .fill(Color.clmixDivider)
-                    .frame(height: 1)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 20)
-                    .padding(.bottom, 16)
-
-                delaySection
-                    // Lined up with the columns, which stop short of the
-                    // meter down their right-hand side.
-                    .padding(.trailing, 24)
+            if verticalSizeClass == .compact {
+                landscapeContent
+            } else {
+                portraitContent
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 10)
-            .padding(.bottom, 28)
-            .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollDismissesKeyboard(.interactively)
@@ -188,6 +143,122 @@ struct ChannelInputSheet: View {
             if editingName { commitRename() }
         }
     }
+
+    // MARK: - Layouts
+
+    private var portraitContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Capsule()
+                .fill(Color.clmixTrackBackground)
+                .frame(width: 40, height: 4)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 18)
+
+            Text("Channel \(channel.channel)")
+                .font(.system(size: 13))
+                .foregroundStyle(Color.clmixOnSurfaceVariant)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 6)
+
+            nameRow
+                .padding(.bottom, 16)
+
+            // The columns, with the channel's meter down their right-
+            // hand side: from just under the name and polarity row to
+            // the foot of the dials, so it reads the signal those
+            // dials are setting without rising past the polarity
+            // button. Mirrors Android's input_meter.
+            HStack(alignment: .top, spacing: 14) {
+                HStack(alignment: .top, spacing: 16) {
+                    mainColumn
+                    altColumn
+                }
+
+                ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                    .frame(width: 10)
+                    .frame(maxHeight: .infinity)
+                    .allowsHitTesting(false)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+
+            // A fine rule between the input stage and the delay
+            // behind it, inset so it stops short of both edges.
+            Rectangle()
+                .fill(Color.clmixDivider)
+                .frame(height: 1)
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            delaySection
+                // Lined up with the columns, which stop short of the
+                // meter down their right-hand side.
+                .padding(.trailing, 24)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 10)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// A phone on its side: the channel number, name and polarity share
+    /// one row, and under it the input stage (Main and ALT, each with its
+    /// 48V beside its button, and the meter) sits beside the delay, whose
+    /// dials stack. Mirrors Android's layout-land/bottom_sheet_channel_input.
+    private var landscapeContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Capsule()
+                .fill(Color.clmixTrackBackground)
+                .frame(width: 40, height: 4)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 10)
+
+            HStack(spacing: 14) {
+                Text("Channel \(channel.channel)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.clmixOnSurfaceVariant)
+                    .fixedSize()
+
+                nameRow
+            }
+            .padding(.bottom, 12)
+
+            HStack(alignment: .top, spacing: 0) {
+                HStack(alignment: .top, spacing: 14) {
+                    HStack(alignment: .top, spacing: 16) {
+                        mainColumn
+                        altColumn
+                    }
+
+                    ChannelMeterView(channel: channel.channel, stereo: channel.stereo)
+                        .frame(width: 10)
+                        .frame(maxHeight: .infinity)
+                        .allowsHitTesting(false)
+                }
+                .frame(maxWidth: .infinity)
+
+                Rectangle()
+                    .fill(Color.clmixDivider)
+                    .frame(width: 1)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 20)
+
+                // A third of the width inside the sheet's padding and the
+                // rule; Main and ALT share the rest, as on Android.
+                delaySection
+                    .containerRelativeFrame(.horizontal) { width, _ in
+                        max(0, (width - 48 - 41) / 3)
+                    }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var isLandscape: Bool { verticalSizeClass == .compact }
 
     // MARK: - Name
 
@@ -338,17 +409,33 @@ struct ChannelInputSheet: View {
     ) -> some View {
         let editable = live && available
 
+        let sourceButton = Button(action: onSelect) {
+            Text(title)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, isLandscape ? 0 : 12)
+                .frame(height: isLandscape ? 44 : nil)
+        }
+        .foregroundStyle(live ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
+        .background(live ? Color.clmixPrimary : Color.clmixMuteInactive)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .disabled(!available)
+        .opacity(available ? 1 : Self.disabledOpacity)
+
         return VStack(alignment: .leading, spacing: 0) {
-            Button(action: onSelect) {
-                Text(title)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+            if isLandscape {
+                // The 48V beside the button rather than under it, so the
+                // column is one row shorter.
+                HStack(spacing: 8) {
+                    sourceButton
+                    phantomButton(on: phantomOn, action: onPhantom)
+                        .disabled(!editable)
+                        .allowsHitTesting(editable)
+                        .opacity(editable ? 1 : Self.disabledOpacity)
+                }
+                .padding(.bottom, 10)
+            } else {
+                sourceButton
             }
-            .foregroundStyle(live ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
-            .background(live ? Color.clmixPrimary : Color.clmixMuteInactive)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .disabled(!available)
-            .opacity(available ? 1 : Self.disabledOpacity)
 
             controls(
                 editable: editable,
@@ -371,21 +458,12 @@ struct ChannelInputSheet: View {
         onGain: @escaping (Double, Bool) -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 48V on reads as the console's own warning colour, not the
-            // app's accent: it is the one control on this sheet that can
-            // damage a source (ribbon mics especially), so it should look
-            // like a live state rather than a selected option.
-            Button(action: onPhantom) {
-                Text("48V")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 44, height: 44)
+            // In landscape the 48V is up beside the source button.
+            if !isLandscape {
+                phantomButton(on: phantomOn, action: onPhantom)
+                    .padding(.top, 6)
+                    .padding(.bottom, 12)
             }
-            .foregroundStyle(phantomOn ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
-            .background(phantomOn ? Color.clmixMuteActive : Color.clmixMuteInactive)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .accessibilityLabel(phantomOn ? "48V on" : "48V off")
-            .padding(.top, 6)
-            .padding(.bottom, 12)
 
             // Gain turns at a quarter of the dial's usual rate: a head
             // amp is the coarsest thing on the sheet, and a few dB too far
@@ -394,7 +472,7 @@ struct ChannelInputSheet: View {
                 label: "Gain", value: gain, range: gainRange,
                 rate: Self.gainDialRate, enabled: editable, onChanged: onGain
             )
-            .padding(.bottom, 12)
+            .padding(.bottom, isLandscape ? 10 : 12)
 
             dialRow(
                 label: "Trim",
@@ -416,25 +494,49 @@ struct ChannelInputSheet: View {
         .opacity(editable ? 1 : Self.disabledOpacity)
     }
 
+    /// 48V on reads as the console's own warning colour, not the app's
+    /// accent: it is the one control on this sheet that can damage a
+    /// source (ribbon mics especially), so it should look like a live
+    /// state rather than a selected option.
+    private func phantomButton(on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text("48V")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 44, height: 44)
+        }
+        .foregroundStyle(on ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
+        .background(on ? Color.clmixMuteActive : Color.clmixMuteInactive)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel(on ? "48V on" : "48V off")
+    }
+
     /// The channel delay: one per channel, after the main/alt switch, so
     /// it serves whichever input is live. The button switches it in and
     /// out; time (ms) and fine trim (samples) each have a dial and a box
     /// that can be typed into, as gain and trim do above.
+    /// In landscape the two dials stack under the button rather than
+    /// sitting side by side, so the section matches the input stage's
+    /// height beside it.
     private var delaySection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: isLandscape ? 10 : 12) {
             Button {
                 delayOn.set(!delayOn.shown)
                 onDelayOnChanged(channel.channel, delayOn.shown)
             } label: {
                 Text(delayOn.shown ? "Delay On" : "Delay Off")
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, isLandscape ? 0 : 12)
+                    .frame(height: isLandscape ? 44 : nil)
             }
             .foregroundStyle(delayOn.shown ? Color.clmixOnPrimary : Color.clmixOnMuteInactive)
             .background(delayOn.shown ? Color.clmixPrimary : Color.clmixMuteInactive)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            HStack(alignment: .top, spacing: 16) {
+            let dials = isLandscape
+                ? AnyLayout(VStackLayout(spacing: 10))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+
+            dials {
                 // A full sweep is 1.3 s, so the time dial turns slowly.
                 dialRow(
                     label: "Delay", value: delayShown, range: Self.delayMsRange,
