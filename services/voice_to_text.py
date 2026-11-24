@@ -54,7 +54,8 @@ HOLD_SECONDS = 0.8
 # Audio kept from before the gate opened, so the first syllable is heard.
 PREROLL_SECONDS = 0.3
 # Rates tried, after the device's own, until one opens - the console's
-# clock decides which an interface locked to it will take.
+# clock decides which an interface locked to it will take. See
+# _open_stream.
 SAMPLE_RATES = (48000, 96000, 44100, 88200, 192000)
 # One block of audio, as the interface hands it over.
 BLOCK_SECONDS = 0.1
@@ -239,20 +240,25 @@ def unavailable_reason():
     return _load()
 
 
-def _supported_rate(index, channels, extra, default):
-    """The first rate the device will open at, the one PortAudio has on
-    file for it first - None if it takes none. That one can be stale: an
-    ASIO driver locked to the console's clock refuses any rate but the
-    console's, with "Invalid sample rate" (-9997)."""
+def _open_stream(index, channels, extra, default, callback):
+    """An input stream on the device, not yet started, at the first rate
+    it will open at - the one PortAudio has on file for it first. That
+    one can be stale, and asking whether a rate is supported is no help:
+    an ASIO driver locked to the console's clock says yes to rates it
+    then refuses to switch to, with "Invalid sample rate" (-9997). So
+    each is opened for real. Raises the last refusal if none opens."""
+    error = None
     for rate in dict.fromkeys((default,) + SAMPLE_RATES):
         try:
-            _sd.check_input_settings(device=index, channels=channels,
-                                     samplerate=rate, dtype="int16",
-                                     extra_settings=extra)
-            return rate
-        except Exception:
-            continue
-    return None
+            return _sd.InputStream(
+                device=index, channels=channels, samplerate=rate,
+                dtype="int16", blocksize=int(rate * BLOCK_SECONDS),
+                callback=callback, extra_settings=extra,
+            )
+        except Exception as ex:
+            log("info", f"Voice to Text: {rate} Hz refused: {ex}")
+            error = ex
+    raise error
 
 
 def _init_com():
@@ -884,38 +890,39 @@ class VoiceEngine:
             info = _sd.query_devices(device["index"])
         except Exception as ex:
             return self._fail(generation, f"Could not read the device: {ex}")
-        rate = _supported_rate(device["index"], stream_channels, extra,
-                               int(info["default_samplerate"]))
-        if rate is None:
-            return self._fail(
-                generation, f"{device['name']} accepts none of the sample "
-                            f"rates tried ({', '.join(map(str, SAMPLE_RATES))})"
-                            " - is it locked to a clock it cannot see?")
 
-        # Recognised at 16 kHz where the interface rate divides down to
-        # it cleanly - a third of the work at 48 kHz, and what the model
-        # was trained on. Otherwise Vosk resamples it itself.
-        factor = rate // 16000 if rate % 16000 == 0 and rate > 16000 else 1
-
-        workers = {
-            n: _ChannelWorker(n, model, rate // factor, factor, self._gate_db,
-                              self._emit, live=lambda: self.watchers > 0)
-            for n in channels
-        }
+        # Set once the stream is open, and only read once it is started.
+        workers = {}
 
         def callback(indata, frames, time_info, status):
             for number, column in columns.items():
                 workers[number].push(indata[:, column].copy())
 
         try:
-            stream = _sd.InputStream(
-                device=device["index"], channels=stream_channels,
-                samplerate=rate, dtype="int16",
-                blocksize=int(rate * BLOCK_SECONDS), callback=callback,
-                extra_settings=extra,
-            )
+            stream = _open_stream(device["index"], stream_channels, extra,
+                                  int(info["default_samplerate"]), callback)
+        except Exception as ex:
+            hint = (" - is it locked to a clock it cannot see?"
+                    if "sample rate" in str(ex).lower() else "")
+            return self._fail(generation,
+                              f"Could not open {device['name']}: {ex}{hint}")
+        rate = int(stream.samplerate)
+
+        # Recognised at 16 kHz where the interface rate divides down to
+        # it cleanly - a third of the work at 48 kHz, and what the model
+        # was trained on. Otherwise Vosk resamples it itself.
+        factor = rate // 16000 if rate % 16000 == 0 and rate > 16000 else 1
+
+        workers.update({
+            n: _ChannelWorker(n, model, rate // factor, factor, self._gate_db,
+                              self._emit, live=lambda: self.watchers > 0)
+            for n in channels
+        })
+
+        try:
             stream.start()
         except Exception as ex:
+            stream.close()
             for worker in workers.values():
                 worker.finish()
             return self._fail(generation, f"Could not open {device['name']}: {ex}")
