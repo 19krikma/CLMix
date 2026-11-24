@@ -236,6 +236,19 @@ def unavailable_reason():
     return _load()
 
 
+def _init_com():
+    """PortAudio's ASIO host loads the driver through COM, which it sets
+    up only on the thread that first imported sounddevice. Opening an
+    ASIO stream from any other thread fails with "Failed to load ASIO
+    driver" (-9999) unless that thread has COM of its own."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    # COINIT_APARTMENTTHREADED, as PortAudio itself uses. Never undone -
+    # the driver lives on after this thread ends.
+    ctypes.windll.ole32.CoInitializeEx(None, 0x2)
+
+
 # ALSA's virtual devices that go through the desktop's sound server,
 # and what to call them.
 _SOUND_SERVER_DEVICES = {
@@ -848,6 +861,7 @@ class VoiceEngine:
 
         asio = device["host_api"] == "ASIO"
         if asio:
+            _init_com()
             # Only the channels listened to are opened - the driver hands
             # over nothing else.
             columns = {n: i for i, n in enumerate(channels)}
