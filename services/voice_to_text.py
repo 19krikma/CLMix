@@ -49,8 +49,8 @@ from services import voice_highlights, voice_vocabulary, voice_whisper
 from services.log_store import log
 
 # How many channels the interface is opened with - the most CLMix offers
-# first, down to a stereo pair.
-CHANNEL_COUNTS = (64, 32, 16, 2)
+# first, down to 8.
+CHANNEL_COUNTS = (64, 32, 16, 8)
 DEFAULT_CHANNEL_COUNT = 64
 
 DEFAULT_GATE_DB = -45
@@ -155,8 +155,12 @@ def normalize(raw):
         if isinstance(raw.get(key), str):
             config[key] = raw[key]
 
-    if raw.get("channel_count") in CHANNEL_COUNTS:
-        config["channel_count"] = raw["channel_count"]
+    count = raw.get("channel_count")
+    if count == 2:
+        # Offered until 1.33.1, when 8 took its place.
+        count = 8
+    if count in CHANNEL_COUNTS:
+        config["channel_count"] = count
 
     gate = raw.get("gate_db")
     if isinstance(gate, (int, float)) and not isinstance(gate, bool):
