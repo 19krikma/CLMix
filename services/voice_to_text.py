@@ -747,8 +747,10 @@ def download_model(progress=None, url=MODEL_URL, md5=None, cancel=None):
 
 class VoiceEngine:
     """Runs Voice to Text for one config at a time. apply(config) starts,
-    restarts or stops it to match; on_text(channel_number, text) is
-    called from a worker thread for each finished utterance.
+    restarts or stops it to match; on_text(channel_number, text,
+    language) is called from a worker thread for each finished utterance
+    - language is Whisper's code for it ("en", "ru", "uk"), None from
+    Vosk.
 
     `state` is "off", "starting", "running" or "error", with `message`
     saying more - read from the Tkinter thread for Settings' status line.
@@ -1112,7 +1114,7 @@ class VoiceEngine:
                             "text": text, "language": language,
                             "confidence": confidence})
         try:
-            self.on_text(number, text)
+            self.on_text(number, text, language)
         except Exception as ex:
             log("error", f"Voice to Text: sending channel {number}: {ex!r}")
 

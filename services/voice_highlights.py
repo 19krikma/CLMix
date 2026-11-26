@@ -68,6 +68,13 @@ DEFAULT_OPTIONS = (
     {"id": "ru_repeat", "text": "Повтор", "color": "#ffa726"},
     {"id": "ru_again", "text": "Ещё раз", "color": "#ffa726"},
     {"id": "ru_ending", "text": "Концовка", "color": "#78909c"},
+    # And Ukrainian - Куплет, Бридж and Повтор are the same as Russian's.
+    {"id": "uk_intro", "text": "Вступ", "color": "#26a69a"},
+    {"id": "uk_pre_chorus", "text": "Передприспів", "color": "#ab47bc"},
+    {"id": "uk_chorus", "text": "Приспів", "color": "#f9a825"},
+    {"id": "uk_interlude", "text": "Програш", "color": "#8d6e63"},
+    {"id": "uk_again", "text": "Ще раз", "color": "#ffa726"},
+    {"id": "uk_ending", "text": "Кінцівка", "color": "#78909c"},
 )
 
 # Words added to the defaults after the first release, with the
@@ -75,7 +82,9 @@ DEFAULT_OPTIONS = (
 # normalize, rather than only a list made fresh. See REVISION.
 ADDED_IN = {2: ("refrain", "repeat", "again", "ru_intro", "ru_verse",
                 "ru_pre_chorus", "ru_chorus", "ru_bridge", "ru_interlude",
-                "ru_repeat", "ru_again", "ru_ending")}
+                "ru_repeat", "ru_again", "ru_ending"),
+            3: ("uk_intro", "uk_pre_chorus", "uk_chorus", "uk_interlude",
+                "uk_again", "uk_ending")}
 REVISION = max(ADDED_IN)
 
 SCRIPTURE_COLOR = "#ff7043"
@@ -83,27 +92,34 @@ SCRIPTURE_COLOR = "#ff7043"
 _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 
-# A number said after a word - "verse two", "куплет второй" - as digits
-# or a word for one to ten. Which number a word is comes from
-# voice_scripture.number_word.
+# A number said after a word - "verse two", "куплет второй", "куплет
+# другий" - as digits or a word for one to ten. Which number a word is
+# comes from voice_scripture.number_word.
 _RU_END = r"(?:ый|ий|ой|ое|ее|ого|его|ому|ая|ую|ом|ым)"
+_UK_END = r"(?:ий|ій|ого|ому|а|ої|у|ою|е|і)"
+_APOS = r"['’ʼ]"
 _NUMBER = (
     r"(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|first|"
     r"second|third|fourth|fifth|один|одна|два|две|три|четыре|пять|шесть|"
     r"семь|восемь|девять|десять|перв" + _RU_END + r"|втор" + _RU_END
     + r"|трет(?:ий|ья|ье|ьего|ьей|ью|ьем)|четв[её]рт" + _RU_END
     + r"|пят" + _RU_END + r"|шест" + _RU_END + r"|седьм" + _RU_END
-    + r"|восьм" + _RU_END + r")"
+    + r"|восьм" + _RU_END
+    + r"|дві|чотири|п" + _APOS + r"ять|шість|сім|вісім|дев" + _APOS + r"ять"
+    + r"|перш" + _UK_END + r"|друг" + _UK_END + r"|трет(?:ій|ього|я|ю|є)"
+    + r"|четверт" + _UK_END + r"|п" + _APOS + r"ят" + _UK_END
+    + r"|шост" + _UK_END + r"|сьом" + _UK_END + r")"
 )
 # An ordinal before a word: "second verse", "второй куплет".
 _ORDINAL = (
     r"(?:first|second|third|fourth|fifth|last|перв" + _RU_END + r"|втор"
     + _RU_END + r"|трет(?:ий|ья|ье|ьего|ьей|ью|ьем)|четв[её]рт" + _RU_END
-    + r"|последн\w*)"
+    + r"|последн\w*|перш" + _UK_END + r"|друг" + _UK_END
+    + r"|трет(?:ій|ього|я|ю|є)|останн\w*)"
 )
 # "chorus in two" - coming up in two bars.
 _IN = r"(?:in|через)"
-_CYRILLIC = re.compile(r"[а-яё]", re.IGNORECASE)
+_CYRILLIC = re.compile(r"[а-яёіїєґ]", re.IGNORECASE)
 
 
 def default_options():
@@ -230,9 +246,9 @@ def _pattern(text):
     if escaped and _CYRILLIC.search(parts[-1]):
         # Any case ending: "припев" finds "припева", "куплет" "куплете",
         # "концовка" "концовку".
-        last = re.sub(r"[аяоеёуюыиьй]$", "", parts[-1].lower())
+        last = re.sub(r"[аяоеёуюыиьйіїє]$", "", parts[-1].lower())
         if len(last) >= 3:
-            escaped[-1] = _escape(last) + r"[а-яё]{0,3}"
+            escaped[-1] = _escape(last) + r"[а-яёіїєґ]{0,3}"
     return r"[\s-]*".join(escaped)
 
 
@@ -289,7 +305,8 @@ def _words(text, options, offset):
         number = match.group("num")
         before_word = match.group("pre")
         if before_word and before_word.lower().startswith(("last",
-                                                           "последн")):
+                                                           "последн",
+                                                           "останн")):
             # "last chorus" - kept as said, highlighted with it.
             replacement = f"{before_word} {replacement}"
         elif before_word and not number:
@@ -312,16 +329,17 @@ def _words(text, options, offset):
     return "".join(out), highlights
 
 
-def highlight(text, options, scripture=False):
+def highlight(text, options, scripture=False, language=None):
     """(text, highlights): the transcript with every listed word in it
     written as the list spells it - and, with `scripture`, every
     reference the short way - and where each one is: a list of
     {"start", "end", "color"}, offsets in characters (code points) into
-    the returned text, in order and never overlapping."""
+    the returned text, in order and never overlapping. `language` is the
+    one the recogniser heard, if known - see voice_scripture.find."""
     if not text or (not options and not scripture):
         return text, []
 
-    references = voice_scripture.find(text) if scripture else []
+    references = voice_scripture.find(text, language) if scripture else []
     out = []
     highlights = []
     length = 0

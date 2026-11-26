@@ -169,10 +169,10 @@ class VoiceLiveWindow:
         self._tags.add(name)
         return name
 
-    def _insert(self, widget, text, base=()):
+    def _insert(self, widget, text, base=(), language=None):
         """text into widget with its command words and scripture picked
         out."""
-        text, spans = self.mark(text)
+        text, spans = self.mark(text, language)
         at = 0
         for span in spans:
             widget.insert("end", text[at:span["start"]], base)
@@ -200,7 +200,8 @@ class VoiceLiveWindow:
             self.text.insert("end", f"{name}: ", ("name",))
             confidence = line.get("confidence")
             unsure = confidence is not None and confidence < UNSURE_BELOW
-            self._insert(self.text, line["text"], ("unsure",) if unsure else ())
+            self._insert(self.text, line["text"], ("unsure",) if unsure else (),
+                         line.get("language"))
             self.text.insert("end", "\n", ("gap",))
             self._shown = line["time"]
         self.text.configure(state="disabled")
@@ -212,9 +213,10 @@ class VoiceLiveWindow:
         with a trailing ellipsis, else the last line it finished."""
         latest = {}
         for line in self.engine.recent:
-            latest[line["channel"]] = (line["text"], False)
+            latest[line["channel"]] = (line["text"], False,
+                                       line.get("language"))
         for number, text in self.engine.partials().items():
-            latest[number] = (text, True)
+            latest[number] = (text, True, None)
 
         shown = sorted(latest.items())
         hint = self._gate_hint() if not shown else ""
@@ -226,7 +228,7 @@ class VoiceLiveWindow:
         self.live.delete("1.0", "end")
         if not shown:
             self.live.insert("end", "Nothing heard yet." + hint, ("idle",))
-        for i, (number, (text, speaking)) in enumerate(shown):
+        for i, (number, (text, speaking, language)) in enumerate(shown):
             if i:
                 self.live.insert("end", "\n")
             name, _user = self.get_speaker(number)
@@ -234,7 +236,7 @@ class VoiceLiveWindow:
             if speaking:
                 self._insert(self.live, text + " …", ("speaking",))
             else:
-                self._insert(self.live, text)
+                self._insert(self.live, text, language=language)
         self.live.configure(state="disabled",
                             height=min(8, max(2, len(shown) + 1)))
 

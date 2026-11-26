@@ -5185,13 +5185,13 @@ class MainWindow:
         return voice_highlights.options_for(
             self._voice_config()["highlights"], snapshot)
 
-    def voice_mark(self, text):
+    def voice_mark(self, text, language=None):
         """(text, highlights) for a line of Voice to Text: the live
         snapshot's highlight words, and scripture references if Settings
         has them on."""
         return voice_highlights.highlight(
             text, self.voice_highlight_words(),
-            scripture=self._voice_config()["scripture"])
+            scripture=self._voice_config()["scripture"], language=language)
 
     def open_voice_live(self):
         window = self.voice_live_window
@@ -5207,7 +5207,7 @@ class MainWindow:
             mark=self.voice_mark, on_closed=closed,
         )
 
-    def _on_voice_text(self, number, text):
+    def _on_voice_text(self, number, text, language=None):
         """One utterance Voice to Text heard on input channel `number`.
         Called from that channel's thread: the chat log takes its own
         lock and the phone server hands it to its own loop, and the Chat
@@ -5215,7 +5215,7 @@ class MainWindow:
         name, user = self.voice_speaker(number)
         # Matched against the live snapshot's words as it is heard, and
         # stamped on the message, as the Leader badge is.
-        text, highlights = self.voice_mark(text)
+        text, highlights = self.voice_mark(text, language)
 
         message = self.chat_log.add(
             KIND_VOICE, text, user=user, name=name,

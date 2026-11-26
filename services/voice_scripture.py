@@ -3,9 +3,13 @@ five", "John three sixteen", "1 Corinthians 13:4-7", "От Матфея глав
 четвёртая, стих пятый" - each found and written out the short way
 ("Matthew 4:5", "От Матфея 4:5") for the projection team to look up.
 
-English and Russian (Synodal names and numbering - so 3 Царств is
-1 Kings), and the numbers in either spoken as words or written as digits,
-since the recogniser does both.
+English, Russian (Synodal names and numbering - so 3 Царств is
+1 Kings) and Ukrainian (the names of Ohienko's translation - "Від
+Матвія", "До римлян"), and the numbers in any of them spoken as words or
+written as digits, since the recogniser does both. Many names are the
+same in Russian and Ukrainian; which is written comes from the language
+Whisper heard, else from the letters - і, ї, є and ґ are Ukrainian's
+alone.
 
 find(text) -> [(start, end, reference)] is all Voice to Text needs; the
 words to digits work is also used by voice_highlights for "verse two".
@@ -42,8 +46,29 @@ _EN_WORDS.update({"hundred": (100, "hundred"), "hundredth": (100, "hundred"),
 # Russian numbers change their endings with case and gender - пятый,
 # пятого, пятой, пятую - so they are matched by pattern, ё read as е.
 _ORD = r"(?:ый|ий|ой|ое|ее|ого|его|ому|ему|ая|яя|ую|юю|ом|ем|ым|им|ые|ых)"
+# Ukrainian's, the same way.
+_UK = r"(?:ий|ій|ого|ому|им|ім|а|ої|у|ою|е|і|их|ими)"
 _RU_PATTERNS = [(re.compile(pattern), value, kind) for pattern, value, kind in (
-    (r"сто|сотый|сотого|сотой|сотом|сотая|сотую", 100, "hundred"),
+    (r"сто|сотый|сотого|сотой|сотом|сотая|сотую|сотий|сотому|сота|сотої|соту",
+     100, "hundred"),
+    (r"п'ятдесят\w*", 50, "tens"), (r"шістдесят\w*", 60, "tens"),
+    (r"сімдесят\w*", 70, "tens"), (r"вісімдесят\w*", 80, "tens"),
+    (r"дев'яност\w*", 90, "tens"),
+    (r"двадцят\w*", 20, "tens"), (r"тридцят\w*", 30, "tens"),
+    (r"одинадцят\w*", 11, "teen"), (r"дванадцят\w*", 12, "teen"),
+    (r"тринадцят\w*", 13, "teen"), (r"чотирнадцят\w*", 14, "teen"),
+    (r"п'ятнадцят\w*", 15, "teen"), (r"шістнадцят\w*", 16, "teen"),
+    (r"сімнадцят\w*", 17, "teen"), (r"вісімнадцят\w*", 18, "teen"),
+    (r"дев'ятнадцят\w*", 19, "teen"), (r"десят" + _UK, 10, "teen"),
+    (r"одне|перш" + _UK, 1, "unit"),
+    (r"дві|друг(?:ий|ого|ому|им|ім|а|ої|ій|у|ою|е|і|их)", 2, "unit"),
+    (r"трьох|трет(?:ій|ього|ьому|ім|я|ьої|ю|ьою|є|і)", 3, "unit"),
+    (r"чотири|чотирьох|четверт" + _UK, 4, "unit"),
+    (r"п'ять|п'яти|п'ят" + _UK, 5, "unit"),
+    (r"шість|шост" + _UK, 6, "unit"),
+    (r"сім|сьом" + _UK, 7, "unit"),
+    (r"вісім|восьм" + _UK, 8, "unit"),
+    (r"дев'ять|дев'яти|дев'ят" + _UK, 9, "unit"),
     (r"двадцат\w*", 20, "tens"), (r"тридцат\w*", 30, "tens"),
     (r"сорок\w*", 40, "tens"), (r"пят[ьи]десят\w*", 50, "tens"),
     (r"шест[ьи]десят\w*", 60, "tens"), (r"сем[ьи]десят\w*", 70, "tens"),
@@ -68,7 +93,7 @@ _RU_PATTERNS = [(re.compile(pattern), value, kind) for pattern, value, kind in (
 
 
 def _fold(word):
-    return word.lower().replace("ё", "е")
+    return word.lower().replace("ё", "е").replace("’", "'").replace("ʼ", "'")
 
 
 def number_word(word):
@@ -83,7 +108,11 @@ def number_word(word):
     return None
 
 
-_TOKEN = re.compile(r"\d+|[^\W\d_]+|[:\-–—,.]")
+# Endings a Russian ordinal takes after its digits: "5-я", "5-го".
+_DIGIT_SUFFIX = re.compile(r"(?:е|я|й|ю|м|х|го|ое|ая|ой|ую|ом|ый|ий|ых|ми|ти)")
+
+# A word may have an apostrophe inside it: Ukrainian's "п'ять".
+_TOKEN = re.compile(r"\d+|[^\W\d_]+(?:['’ʼ][^\W\d_]+)*|[:\-–—,.]")
 
 
 def _tokens(text):
@@ -97,7 +126,17 @@ def _number(tokens, i):
         return None
     word = tokens[i][2]
     if word.isdigit():
-        return (int(word), i + 1) if len(word) <= 3 else None
+        if len(word) > 3:
+            return None
+        j = i + 1
+        # "5th", and "5-я", "5-го" - an ending written onto the digits.
+        if j < len(tokens) and tokens[j][0] == tokens[i][1]:
+            if _fold(tokens[j][2]) in ("th", "st", "nd", "rd"):
+                j += 1
+            elif tokens[j][2] == "-" and j + 1 < len(tokens) and \
+                    _DIGIT_SUFFIX.fullmatch(_fold(tokens[j + 1][2])):
+                j += 2
+        return int(word), j
 
     first = number_word(word)
     if first is None:
@@ -237,6 +276,83 @@ _BOOKS = (
     ("Revelation", "Откровение", 22, ["revelations?"], ["откровени\\w*"]),
 )
 
+# Ukrainian: {English name: (name as written, names as spoken)}, read
+# the same way as the Russian above. "Від" before a gospel and "до"
+# before an epistle are taken with the name, as "от" is.
+_UKRAINIAN = {
+    "Genesis": ("Буття", ["бутт\\w*"]),
+    "Exodus": ("Вихід", ["вих[іо]д\\w*"]),
+    "Leviticus": ("Левит", ["левит\\w*"]),
+    "Numbers": ("Числа", ["числ\\w*"]),
+    "Deuteronomy": ("Повторення Закону", ["повторенн\\w* закон\\w*"]),
+    "Joshua": ("Ісус Навин", ["ісус\\w* навин\\w*", "навин\\w*"]),
+    "Judges": ("Судді", ["судд(?:і|ів|ям)"]),
+    "Ruth": ("Рут", ["рут[иі]?"]),
+    "1 Samuel": ("1 Самуїлова", ["1: самуїл\\w*"]),
+    "2 Samuel": ("2 Самуїлова", ["2: самуїл\\w*"]),
+    "1 Kings": ("1 Царів", ["1: цар(?:ів|ям|ях)"]),
+    "2 Kings": ("2 Царів", ["2: цар(?:ів|ям|ях)"]),
+    "1 Chronicles": ("1 Хроніки", ["1: хронік\\w*", "1: літопис\\w*"]),
+    "2 Chronicles": ("2 Хроніки", ["2: хронік\\w*", "2: літопис\\w*"]),
+    "Ezra": ("Ездра", ["ездр\\w*"]),
+    "Nehemiah": ("Неемія", ["неемі\\w*"]),
+    "Esther": ("Естер", ["естер\\w*"]),
+    "Job": ("Йов", ["йов\\w*"]),
+    "Psalm": ("Псалом", ["псал(?:ом|ма|ми|мі|мів|тир\\w*)"]),
+    "Proverbs": ("Приповісті", ["приповіст\\w*"]),
+    "Ecclesiastes": ("Екклезіяст", ["е?кклезіяст\\w*", "проповідник\\w*"]),
+    "Song of Solomon": ("Пісня над піснями",
+                        ["пісн[яі] над пісн\\w*", "пісн[яі] пісень"]),
+    "Isaiah": ("Ісая", ["іса[яїю]\\w*"]),
+    "Jeremiah": ("Єремія", ["єремі\\w*"]),
+    "Lamentations": ("Плач Єремії", ["плач\\w* єремі\\w*"]),
+    "Ezekiel": ("Єзекіїль", ["єзекіїл\\w*"]),
+    "Daniel": ("Даниїл", ["даниїл\\w*"]),
+    "Hosea": ("Осія", ["осі[яїю]"]),
+    "Joel": ("Йоїл", ["йоїл\\w*"]),
+    "Amos": ("Амос", ["амос\\w*"]),
+    "Obadiah": ("Овдій", ["овді\\w*"]),
+    "Jonah": ("Йона", ["йон[аиі]"]),
+    "Micah": ("Михей", ["ми[хк]е\\w*"]),
+    "Nahum": ("Наум", ["наум\\w*"]),
+    "Habakkuk": ("Авакум", ["авакум\\w*"]),
+    "Zephaniah": ("Софонія", ["софоні\\w*"]),
+    "Haggai": ("Огій", ["огі[йяї]"]),
+    "Zechariah": ("Захарія", ["захарі\\w*"]),
+    "Malachi": ("Малахія", ["малахі\\w*"]),
+    "Matthew": ("Від Матвія", ["матві\\w*", "матфі\\w*"]),
+    "Mark": ("Від Марка", ["марк[аоу]?"]),
+    "Luke": ("Від Луки", ["лук[аиі]"]),
+    "John": ("Від Івана", ["іван\\w*"]),
+    "Acts": ("Дії", ["ді[їя]"]),
+    "Romans": ("До римлян", ["римлян\\w*"]),
+    "1 Corinthians": ("1 до коринтян", ["1: коринтян\\w*", "1: коринфян\\w*"]),
+    "2 Corinthians": ("2 до коринтян", ["2: коринтян\\w*", "2: коринфян\\w*"]),
+    "Galatians": ("До галатів", ["галат\\w*"]),
+    "Ephesians": ("До ефесян", ["ефесян\\w*"]),
+    "Philippians": ("До филип'ян", ["фил[иі]пп?'ян\\w*"]),
+    "Colossians": ("До колоссян", ["колосс?ян\\w*"]),
+    "1 Thessalonians": ("1 до солунян", ["1: солунян\\w*"]),
+    "2 Thessalonians": ("2 до солунян", ["2: солунян\\w*"]),
+    "1 Timothy": ("1 до Тимофія", ["1: тимофі\\w*"]),
+    "2 Timothy": ("2 до Тимофія", ["2: тимофі\\w*"]),
+    "Titus": ("До Тита", ["тит[аові]"]),
+    "Philemon": ("До Филимона", ["ф[иі]лимон\\w*"]),
+    "Hebrews": ("До євреїв", ["євре\\w*"]),
+    "James": ("Якова", ["яков\\w*"]),
+    "1 Peter": ("1 Петра", ["1: петр\\w*"]),
+    "2 Peter": ("2 Петра", ["2: петр\\w*"]),
+    "1 John": ("1 Івана", ["1: іван\\w*"]),
+    "2 John": ("2 Івана", ["2: іван\\w*"]),
+    "3 John": ("3 Івана", ["3: іван\\w*"]),
+    "Jude": ("Юди", ["юд[иа]"]),
+    "Revelation": ("Об'явлення", ["об'явленн\\w*", "одкровенн\\w*"]),
+}
+
+# Words taken with the name that follows them: "от Матфея", "від
+# Матвія", "до римлян" - each for the names written with it.
+_LEADS = {"от": "От ", "від": "Від ", "до": "До "}
+
 # Books named by an everyday word - "mark", "acts", "числа" (dates) -
 # are only taken with "chapter" said, or a verse as well.
 _EVERYDAY = {"Mark", "Job", "Acts", "Numbers", "James", "Judges", "Titus",
@@ -245,13 +361,28 @@ _EVERYDAY = {"Mark", "Job", "Acts", "Numbers", "James", "Judges", "Titus",
 # Between a book's number and its name: "First letter to the
 # Corinthians", "Первое послание к Коринфянам".
 _LINKS = {"letter", "epistle", "to", "the", "of", "послание", "послания",
-          "посланию", "к", "ко"}
+          "посланию", "к", "ко", "послання", "посланні", "до"}
 # Ordinal endings written after a digit: "1-е", "2-го".
 _SUFFIX = re.compile(r"(?:е|я|й|го|ое|ая|ого|ой)")
 
-_CHAPTER = re.compile(r"chapters?|глав[аеуы]?")
-_VERSE = re.compile(r"verses?|стих(?:а|и|е|ов|ам|ами|ах)?")
-_RANGE = re.compile(r"[-–—]|to|through|thru|по|до")
+_CHAPTER = re.compile(r"chapters?|глав(?:а|е|у|ы|ой|ою|і|и)?"
+                      r"|розділ(?:у|і|ом|и|ів|ах)?")
+_VERSE = re.compile(r"verses?|стих(?:а|и|е|у|ов|ам|ами|ах|ом)?"
+                    r"|вірш(?:а|і|у|ів|ем|ах|ами)?")
+_RANGE = re.compile(r"[-–—]|to|through|thru|till|until|по|до")
+# Said before a verse or range: "from verse 5", "стихи с 5 по 7".
+_FROM = {"from", "с", "со", "из", "от", "з", "із", "зі", "від"}
+# Words between a chapter or verse and the book it is in: "chapter 5
+# from Matthew", "fifth chapter of the Gospel of Matthew", "пятую главу
+# в Евангелии от Матфея".
+_OF = {"of", "from", "in", "the", "book", "gospel", "according", "to",
+       "letter", "epistle", "из", "в", "во", "книги", "книга", "книге",
+       "книгу", "евангелия", "евангелие", "евангелии", "евангелию",
+       "послания", "послание", "послании", "посланию", "к", "ко", "на",
+       "з", "із", "у", "книзі", "євангелія", "євангеліє", "євангелії",
+       "послання", "посланні"}
+# Most of those in a row before the book's name.
+MAX_OF = 4
 
 MAX_VERSE = 176
 
@@ -259,24 +390,35 @@ MAX_VERSE = 176
 def _compile():
     names = []
     for english, russian, chapters, en_names, ru_names in _BOOKS:
+        ukrainian, uk_names = _UKRAINIAN[english]
         for lang, spoken, shown in (("en", en_names, english),
-                                    ("ru", ru_names, russian)):
+                                    ("ru", ru_names, russian),
+                                    ("uk", uk_names, ukrainian)):
             for name in spoken:
                 prefix = None
                 if name[:1].isdigit() and name[1:2] == ":":
                     prefix, name = int(name[0]), name[2:].strip()
                 words = [re.compile(part) for part in name.split()]
+                lead = next((word for word, start in _LEADS.items()
+                             if shown.startswith(start)), None)
                 names.append({"english": english, "shown": shown, "lang": lang,
                               "chapters": chapters, "prefix": prefix,
-                              "words": words,
+                              "words": words, "lead": lead,
                               "everyday": english in _EVERYDAY})
-    # Longer names first, numbered ones before the plain - "1 John"
-    # before "John".
-    names.sort(key=lambda n: (n["prefix"] is None, -len(n["words"])))
     return names
 
 
-_NAMES = _compile()
+def _ordered(names, prefer):
+    """names to try in order: longer names first, numbered ones before
+    the plain - "1 John" before "John" - and of a Russian and a
+    Ukrainian name spelt alike, the `prefer`red language's."""
+    return sorted(names, key=lambda n: (n["prefix"] is None, -len(n["words"]),
+                                        n["lang"] != prefer))
+
+
+_ALL_NAMES = _compile()
+_NAMES = {lang: _ordered(_ALL_NAMES, lang) for lang in ("ru", "uk")}
+_UKRAINIAN_LETTERS = re.compile(r"[іїєґІЇЄҐ]")
 
 
 def numbered_books():
@@ -310,43 +452,145 @@ def _match_name(tokens, i, name):
     return j
 
 
-def _match_numbers(tokens, j, name):
-    """(chapter, verse, end verse, index after) following a book's name,
+def _word(tokens, j):
+    return _fold(tokens[j][2]) if j < len(tokens) else ""
+
+
+def _chapter(tokens, j):
+    """(chapter, index after) for a chapter said with the word -
+    "chapter 5", "fifth chapter", "главу пятую", "5-я глава" - or None."""
+    if _CHAPTER.fullmatch(_word(tokens, j)):
+        found = _number(tokens, j + 1)
+        return found
+    found = _number(tokens, j)
+    if found is not None and _CHAPTER.fullmatch(_word(tokens, found[1])):
+        return found[0], found[1] + 1
+    return None
+
+
+def _range(tokens, j, verse):
+    """(end verse, index after) for "to 7", "- 7", "по седьмой", "and 6"
+    following a verse, or (None, j)."""
+    word = _word(tokens, j)
+    if _RANGE.fullmatch(word) or word in ("and", "и"):
+        k = j + 1
+        if _VERSE.fullmatch(_word(tokens, k)):
+            k += 1
+        upto = _number(tokens, k)
+        if upto is not None and upto[0] > verse and \
+                (word not in ("and", "и") or upto[0] == verse + 1):
+            return upto
+    return None, j
+
+
+def _verse(tokens, j):
+    """(verse, end verse or None, index after) for verses said with the
+    word - "verse 5", "verses 5 to 7", "from verse 5 to verse 7",
+    "стихи с 5 по 7", "с пятого по седьмой стих", "fifth verse" - or
+    None."""
+    k = j + 1 if _word(tokens, j) in _FROM else j
+    if _VERSE.fullmatch(_word(tokens, k)):
+        k += 1
+        if _word(tokens, k) in _FROM:
+            k += 1
+        found = _number(tokens, k)
+        if found is None:
+            return None
+        end, k = _range(tokens, found[1], found[0])
+        return found[0], end, k
+    found = _number(tokens, k)
+    if found is None:
+        return None
+    end, k = _range(tokens, found[1], found[0])
+    if _VERSE.fullmatch(_word(tokens, k)):
+        return found[0], end, k + 1
+    return None
+
+
+def _skip_of(tokens, j):
+    skipped = 0
+    while _word(tokens, j) in _OF and skipped < MAX_OF:
+        j, skipped = j + 1, skipped + 1
+    return j
+
+
+def _skip_comma(tokens, j):
+    return j + 1 if j < len(tokens) and tokens[j][2] == "," else j
+
+
+def _books(tokens, j, names):
+    """Every (name, index after) that a book's name at tokens[j] could
+    be, trying `names` in order - "от Матфея", "від Матвія", "до
+    римлян" taken whole."""
+    lead = _word(tokens, j)
+    for name in names:
+        if name["lead"] is not None and name["lead"] == lead:
+            after = _match_name(tokens, j + 1, name)
+            if after is not None:
+                yield name, after
+        after = _match_name(tokens, j, name)
+        if after is not None:
+            yield name, after
+
+
+def _bare(tokens, j):
+    """(chapter, verse, end, index after) for numbers straight after a
+    book's name - "5", "5:5", "5 5", "five five", "5, verses 5 to 7" -
     or None."""
-    keyword = False
-    if j < len(tokens) and _CHAPTER.fullmatch(_fold(tokens[j][2])):
-        keyword, j = True, j + 1
     found = _number(tokens, j)
     if found is None:
         return None
     chapter, j = found
-
     verse = end = None
     k = j
     separator = None
     if k < len(tokens) and tokens[k][2] in (":", ",", "."):
         separator, k = tokens[k][2], k + 1
-    said_verse = k < len(tokens) and _VERSE.fullmatch(_fold(tokens[k][2]))
-    if said_verse:
-        k += 1
+    said = _verse(tokens, k)
+    if said is not None:
+        verse, end, j = said
+        return chapter, verse, end, j
     after = _number(tokens, k)
-    # "3:16", "verse 16", "3 16" and "three sixteen" all give a verse; a
-    # bare comma or full stop only between digits - "Psalm 23, one of my
+    # "3:16", "3 16" and "three sixteen" all give a verse; a bare comma
+    # or full stop only between digits - "Psalm 23, one of my
     # favourites" is chapter 23 alone.
     if after is not None and (
-            separator in (None, ":") or said_verse
+            separator in (None, ":")
             or (tokens[j - 1][2].isdigit() and tokens[k][2].isdigit())):
         verse, j = after
-        if j + 1 < len(tokens) and _RANGE.fullmatch(_fold(tokens[j][2])):
-            upto = _number(tokens, j + 1)
-            if upto is not None and upto[0] > verse:
-                end, j = upto
+        end, j = _range(tokens, j, verse)
+    return chapter, verse, end, j
 
+
+def _after_book(tokens, j):
+    """(chapter, verse, end, said "chapter", index after) for what
+    follows a book's name, or None."""
+    chapter = _chapter(tokens, _skip_comma(tokens, j))
+    if chapter is not None:
+        chapter, k = chapter
+        verse = _verse(tokens, _skip_comma(tokens, k))
+        if verse is not None:
+            return chapter, verse[0], verse[1], True, verse[2]
+        if k < len(tokens) and tokens[k][2] == ":":
+            found = _number(tokens, k + 1)
+            if found is not None:
+                end, after = _range(tokens, found[1], found[0])
+                return chapter, found[0], end, True, after
+        return chapter, None, None, True, k
+    bare = _bare(tokens, j)
+    if bare is not None:
+        return (*bare[:3], False, bare[3])
+    return None
+
+
+def _check(name, chapter, verse, end, keyword):
+    """(chapter, verse, end) made sense of for the book, or None if it
+    cannot be a reference to it."""
     chapters = name["chapters"]
     if chapters == 1 and verse is None and not keyword:
         # "Jude 3" is its third verse - it has only the one chapter.
         chapter, verse = 1, chapter
-    if not 1 <= chapter <= chapters:
+    if chapter is None or not 1 <= chapter <= chapters:
         return None
     if verse is not None and not 1 <= verse <= MAX_VERSE:
         return None
@@ -354,7 +598,72 @@ def _match_numbers(tokens, j, name):
         end = None
     if name["everyday"] and not keyword and verse is None:
         return None
-    return chapter, verse, end, j
+    return chapter, verse, end
+
+
+def _book_first(tokens, i, names):
+    """"Matthew 5:5-7", "Matthew chapter 5 verses 5 to 7", "От Матфея
+    пятая глава, с пятого по седьмой стих"."""
+    for name, j in _books(tokens, i, names):
+        found = _after_book(tokens, j)
+        if found is None:
+            continue
+        chapter, verse, end, keyword, after = found
+        checked = _check(name, chapter, verse, end, keyword)
+        if checked is not None:
+            return name, checked, after
+    return None
+
+
+def _chapter_first(tokens, i, names):
+    """"chapter 5 from Matthew, verse 5 to 7", "пятую главу от Матфея,
+    стихи с пятого по седьмой", "chapter 5 verse 5 of Matthew"."""
+    chapter = _chapter(tokens, i)
+    if chapter is None:
+        return None
+    chapter, j = chapter
+    verse = _verse(tokens, _skip_comma(tokens, j))
+    if verse is not None:
+        j = verse[2]
+    j = _skip_of(tokens, _skip_comma(tokens, j))
+    for name, after in _books(tokens, j, names):
+        if verse is not None:
+            v, e, k = verse[0], verse[1], after
+        else:
+            v, e, k = _verse(tokens, _skip_comma(tokens, after)) \
+                or (None, None, after)
+        checked = _check(name, chapter, v, e, True)
+        if checked is not None:
+            return name, checked, k
+    return None
+
+
+def _verse_first(tokens, i, names):
+    """"verses 5 to 7 of chapter 5 of Matthew", "verse 5 of Matthew 5",
+    "стих 16 главы 3 от Иоанна"."""
+    verse = _verse(tokens, i)
+    if verse is None:
+        return None
+    v, e, j = verse
+    j = _skip_of(tokens, _skip_comma(tokens, j))
+    chapter = _chapter(tokens, j)
+    if chapter is not None:
+        chapter, j = chapter
+        j = _skip_of(tokens, _skip_comma(tokens, j))
+        for name, after in _books(tokens, j, names):
+            checked = _check(name, chapter, v, e, True)
+            if checked is not None:
+                return name, checked, after
+        return None
+    for name, after in _books(tokens, j, names):
+        number = _chapter(tokens, _skip_comma(tokens, after)) or \
+            _number(tokens, _skip_comma(tokens, after))
+        if number is None:
+            continue
+        checked = _check(name, number[0], v, e, True)
+        if checked is not None:
+            return name, checked, number[1]
+    return None
 
 
 def _reference(name, chapter, verse, end):
@@ -366,35 +675,28 @@ def _reference(name, chapter, verse, end):
     return text
 
 
-def find(text):
+def find(text, language=None):
     """[(start, end, reference)] - every scripture reference in text, by
-    character offsets, in order and never overlapping."""
+    character offsets, in order and never overlapping. The book, chapter
+    and verses may be said in any order: "Matthew 5:5-7", "chapter 5
+    from Matthew, verses 5 to 7" and "пятую главу от Матфея, стихи с
+    пятого по седьмой" are all found. `language` is the one Whisper heard
+    - for a name Russian and Ukrainian share - when known."""
+    if language not in ("ru", "uk"):
+        language = "uk" if _UKRAINIAN_LETTERS.search(text) else "ru"
+    names = _NAMES[language]
     tokens = _tokens(text)
     found = []
     i = 0
     while i < len(tokens):
-        start = i
-        # "от Матфея" - the "от" goes with the gospel's name.
-        lead = _fold(tokens[i][2]) == "от"
-        match = None
-        for offset in ((1, 0) if lead else (0,)):
-            for name in _NAMES:
-                if offset and not name["shown"].startswith("От "):
-                    continue
-                j = _match_name(tokens, i + offset, name)
-                if j is None:
-                    continue
-                numbers = _match_numbers(tokens, j, name)
-                if numbers is not None:
-                    match = name, numbers
-                    break
-            if match:
-                break
+        match = (_book_first(tokens, i, names)
+                 or _chapter_first(tokens, i, names)
+                 or _verse_first(tokens, i, names))
         if match is None:
             i += 1
             continue
-        name, (chapter, verse, end, j) = match
-        found.append((tokens[start][0], tokens[j - 1][1],
+        name, (chapter, verse, end), j = match
+        found.append((tokens[i][0], tokens[j - 1][1],
                       _reference(name, chapter, verse, end)))
         i = j
     return found
