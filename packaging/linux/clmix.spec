@@ -34,29 +34,32 @@ datas += [
     for name in ("clmix-feature-graphic.png", "clmix-logo-round.png")
 ]
 
-# Voice to Text (services/voice_to_text.py). Vosk loads its native
-# library from its own package folder by path, and sounddevice's Windows
+# Voice to Text (services/voice_to_text.py). Vosk and CTranslate2 load
+# their native libraries from their own package folders by path, and sounddevice's Windows
 # wheel keeps PortAudio - both builds, the ASIO one included - as package
 # data; neither is an import PyInstaller would follow. All optional: a
 # build without them still runs, with the feature reporting itself
 # unavailable.
 voice_binaries = []
-for package in ("vosk",):
+for package in ("vosk", "ctranslate2", "onnxruntime", "av"):
     try:
         voice_binaries += collect_dynamic_libs(package)
     except Exception:
         pass
-try:
-    datas += collect_data_files("_sounddevice_data")
-except Exception:
-    pass
+for package in ("_sounddevice_data", "faster_whisper"):
+    # faster_whisper's data is Silero VAD's model (assets/*.onnx).
+    try:
+        datas += collect_data_files(package)
+    except Exception:
+        pass
 
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "main.py")],
     pathex=[PROJECT_ROOT],
     binaries=voice_binaries,
     datas=datas,
-    hiddenimports=["sounddevice", "numpy", "vosk"],
+    hiddenimports=["sounddevice", "numpy", "vosk", "faster_whisper",
+                   "ctranslate2", "onnxruntime", "av"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

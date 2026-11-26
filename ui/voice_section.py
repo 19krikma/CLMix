@@ -1,9 +1,13 @@
 import copy
+import os
+import subprocess
 import sys
+import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
-from services import voice_highlights, voice_to_text
+from services import (voice_highlights, voice_to_text, voice_vocabulary,
+                      voice_whisper)
 from ui.sos_section import SosSection
 from ui.voice_models import ModelPanel
 
@@ -174,16 +178,22 @@ class VoiceSection:
                                  "to, which keeps band bleed out of the text.",
                   foreground=MUTED_FG).pack(side="left", padx=(8, 0))
 
-        # --- Model ---
+        # --- Recognition ---
+        self.recognition = RecognitionPanel(
+            self.frame, self.get_config, self._change, engine,
+            on_engine=lambda: self._show_models(self.get_config()))
+        self.recognition.frame.pack(fill="x", pady=(12, 0))
+
+        # --- Model (Vosk's) ---
         self.models = ModelPanel(self.frame, self.get_config, self._change,
                                  get_snapshots=get_snapshots,
                                  get_live_snapshot=get_live_snapshot,
                                  engine=engine)
-        self.models.frame.pack(fill="x", pady=(12, 0))
 
         # --- Channels ---
         channels = ttk.LabelFrame(self.frame, text="Channels", padding=10)
         channels.pack(fill="x", pady=(12, 0))
+        self.channels_frame = channels
         ttk.Label(
             channels,
             text="Tick the channels to listen to and tie each to the account "
@@ -282,7 +292,8 @@ class VoiceSection:
         self.count_combo.set(str(config["channel_count"]))
         self.gate_var.set(str(config["gate_db"]))
         self._show_device(config)
-        self.models.refresh()
+        self.recognition.refresh()
+        self._show_models(config)
         self._show_channels(config)
         self.highlights.refresh()
         self._show_status()
@@ -375,8 +386,20 @@ class VoiceSection:
     def refresh_model_status(self):
         """After a snapshot recall, which may have changed the model and
         the channel setup in use."""
-        self.models.refresh()
+        self._show_models(self.get_config())
         self._show_channels(self.get_config())
+
+    def _show_models(self, config):
+        """Vosk's model list, only while Vosk is the engine - Whisper's
+        model is picked in Recognition."""
+        vosk = config["engine"] == "vosk"
+        if vosk:
+            self.models.refresh()
+            if not self.models.frame.winfo_ismapped():
+                self.models.frame.pack(fill="x", pady=(12, 0),
+                                       before=self.channels_frame)
+        else:
+            self.models.frame.pack_forget()
 
     def _toggle_enabled(self):
         enabled = self.enabled_var.get()
@@ -653,6 +676,7 @@ class VoiceSection:
         self._show_status()
         self._show_levels()
         self._show_test()
+        self.recognition.poll()
         self._poll_job = self.frame.after(POLL_MS, self._poll)
 
     def _show_status(self):
@@ -683,6 +707,263 @@ class VoiceSection:
             bar = "█" * steps + "░" * (12 - steps)
             mark = " ●" if level >= gate else ""
             self.tree.set(row, "level", bar + mark)
+
+
+class RecognitionPanel:
+    """Settings > Voice to Text's Recognition: which engine, and for
+    Whisper its model, where it runs and the languages it listens for;
+    then scripture detection and the corrections file, for either.
+
+    `change(edit)` applies edit(config) to a copy and saves it, which
+    restarts Voice to Text on the new setup."""
+
+    def __init__(self, parent, get_config, change, engine,
+                 on_engine=lambda: None):
+        """on_engine() is called after the engine is switched."""
+        self.get_config = get_config
+        self.change = change
+        self.engine = engine
+        self.on_engine = on_engine
+        self._download = None
+        self._gpus = None
+        self._gpu_missing = None
+
+        self.frame = ttk.LabelFrame(parent, text="Recognition", padding=10)
+
+        engines = ttk.Frame(self.frame)
+        engines.pack(fill="x")
+        self.engine_var = tk.StringVar()
+        ttk.Radiobutton(
+            engines, text="Whisper - accurate, English and Russian mixed, "
+                          "best on an NVIDIA GPU",
+            value="whisper", variable=self.engine_var,
+            command=self._engine_chosen).pack(anchor="w")
+        ttk.Radiobutton(
+            engines, text="Vosk - light enough for any computer, one "
+                          "language per model",
+            value="vosk", variable=self.engine_var,
+            command=self._engine_chosen).pack(anchor="w", pady=(2, 0))
+
+        # --- Whisper ---
+        self.whisper = ttk.Frame(self.frame)
+        whisper = self.whisper
+        whisper.columnconfigure(1, weight=1)
+
+        ttk.Label(whisper, text="Model").grid(row=0, column=0, sticky="w")
+        model_row = ttk.Frame(whisper)
+        model_row.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        self.model_combo = ttk.Combobox(
+            model_row, state="readonly", width=44,
+            values=[f"{name} - {size} - {note}"
+                    for name, size, note in voice_whisper.MODELS])
+        self.model_combo.pack(side="left")
+        self.model_combo.bind("<<ComboboxSelected>>",
+                              lambda event: self._model_chosen())
+        self.download_button = ttk.Button(model_row, text="Download",
+                                          command=self._start_download)
+        self.download_button.pack(side="left", padx=(8, 0))
+        self.model_note = ttk.Label(whisper, foreground=MUTED_FG,
+                                    wraplength=600, justify="left")
+        self.model_note.grid(row=1, column=1, sticky="w", padx=(10, 0),
+                             pady=(4, 0))
+
+        ttk.Label(whisper, text="Run on").grid(row=2, column=0, sticky="w",
+                                               pady=(8, 0))
+        device_row = ttk.Frame(whisper)
+        device_row.grid(row=2, column=1, sticky="w", padx=(10, 0),
+                        pady=(8, 0))
+        self._device_labels = {"auto": "NVIDIA GPU if there is one, else CPU",
+                               "cuda": "NVIDIA GPU (CUDA)", "cpu": "CPU"}
+        self.device_combo = ttk.Combobox(
+            device_row, state="readonly", width=34,
+            values=[self._device_labels[d] for d in voice_whisper.DEVICES])
+        self.device_combo.pack(side="left")
+        self.device_combo.bind("<<ComboboxSelected>>",
+                               lambda event: self._device_chosen())
+        self.gpu_note = ttk.Label(device_row, foreground=MUTED_FG)
+        self.gpu_note.pack(side="left", padx=(10, 0))
+
+        ttk.Label(whisper, text="Languages").grid(row=3, column=0,
+                                                  sticky="nw", pady=(8, 0))
+        languages = ttk.Frame(whisper)
+        languages.grid(row=3, column=1, sticky="w", padx=(10, 0),
+                       pady=(8, 0))
+        self.language_vars = {}
+        for index, (code, name) in enumerate(voice_whisper.LANGUAGES):
+            var = tk.BooleanVar()
+            self.language_vars[code] = var
+            ttk.Checkbutton(languages, text=name, variable=var,
+                            command=self._languages_chosen).grid(
+                row=index // 5, column=index % 5, sticky="w", padx=(0, 12))
+        ttk.Label(
+            whisper,
+            text="Each sentence is read in whichever of these it sounds "
+                 "like, so a leader can move between English and Russian "
+                 "without anyone switching anything. Tick only the ones "
+                 "you need - fewer is more reliable. None ticked means any "
+                 "language.",
+            foreground=MUTED_FG, wraplength=600, justify="left"
+        ).grid(row=4, column=1, sticky="w", padx=(10, 0), pady=(4, 0))
+
+        # --- Either engine ---
+        common = ttk.Frame(self.frame)
+        common.pack(fill="x", side="bottom", pady=(10, 0))
+        self.scripture_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            common, text="Pick out scripture references - “Matthew chapter "
+                         "four verse five” shows as Matthew 4:5",
+            variable=self.scripture_var,
+            command=self._scripture_chosen).pack(anchor="w")
+        corrections = ttk.Frame(common)
+        corrections.pack(fill="x", pady=(8, 0))
+        ttk.Button(corrections, text="Edit Corrections...",
+                   command=self._open_corrections).pack(side="left")
+        ttk.Label(
+            corrections,
+            text="Words it keeps getting wrong, and what to write instead - "
+                 "names, songs. Bible books and worship terms are built in.",
+            foreground=MUTED_FG, wraplength=460, justify="left"
+        ).pack(side="left", padx=(10, 0))
+
+        self.refresh()
+
+    # --- Showing ---
+
+    def refresh(self):
+        config = self.get_config()
+        self.engine_var.set(config["engine"])
+        self.scripture_var.set(config["scripture"])
+        whisper = config["whisper"]
+        self.model_combo.current(voice_whisper.MODEL_NAMES.index(whisper["model"]))
+        self.device_combo.current(voice_whisper.DEVICES.index(whisper["device"]))
+        for code, var in self.language_vars.items():
+            var.set(code in whisper["languages"])
+
+        if config["engine"] == "whisper":
+            if not self.whisper.winfo_ismapped():
+                self.whisper.pack(fill="x", pady=(10, 0))
+        else:
+            self.whisper.pack_forget()
+        self._show_model_note()
+
+    def _show_model_note(self):
+        config = self.get_config()
+        name = config["whisper"]["model"]
+        problem = voice_whisper.unavailable_reason() \
+            if config["engine"] == "whisper" else None
+        busy = self._download is not None
+        if problem:
+            note = problem
+            have = False
+        elif busy:
+            note = f"Downloading {self._download['name']} " \
+                   f"({voice_whisper.model_size(self._download['name'])})..."
+            have = False
+        else:
+            have = voice_whisper.is_downloaded(name)
+            note = (f"{name} is on this computer." if have else
+                    f"{name} is not downloaded yet - it is fetched from "
+                    "Hugging Face the first time Voice to Text starts, or "
+                    "now with Download.")
+            if name == "medium" and self._gpu_count() == 0:
+                note += (" Without an NVIDIA GPU, medium runs seconds "
+                         "behind - small or base keep up better on a CPU.")
+        self.model_note.configure(text=note,
+                                  foreground=ERROR_FG if problem else MUTED_FG)
+        self.download_button.state(
+            ["disabled"] if busy or have or problem else ["!disabled"])
+
+        gpus = self._gpu_count()
+        if problem:
+            gpu = ""
+        elif not gpus:
+            gpu = "No NVIDIA GPU found"
+        elif self._gpu_missing:
+            gpu = f"NVIDIA GPU found, but {self._gpu_missing} is missing - CPU only"
+        else:
+            gpu = f"{gpus} NVIDIA GPU{'s' if gpus > 1 else ''} found"
+        self.gpu_note.configure(text=gpu)
+
+    def _gpu_count(self):
+        if self._gpus is None:
+            self._gpus = voice_whisper.cuda_devices() \
+                if voice_whisper.unavailable_reason() is None else 0
+            self._gpu_missing = voice_whisper.missing_cuda_library() \
+                if self._gpus else None
+        return self._gpus
+
+    def poll(self):
+        """Called with Settings' status line, while it is shown."""
+        if self._download is not None and not self._download["thread"].is_alive():
+            result = self._download
+            self._download = None
+            if "error" in result:
+                messagebox.showerror(
+                    "Voice to Text", f"Whisper {result['name']} could not be "
+                    f"downloaded: {result['error']}", parent=self.frame)
+            self._show_model_note()
+
+    # --- Changes ---
+
+    def _engine_chosen(self):
+        engine = self.engine_var.get()
+        self.change(lambda config: config.update(engine=engine))
+        self.refresh()
+        self.on_engine()
+
+    def _model_chosen(self):
+        index = self.model_combo.current()
+        if 0 <= index < len(voice_whisper.MODEL_NAMES):
+            name = voice_whisper.MODEL_NAMES[index]
+            self.change(lambda config: config["whisper"].update(model=name))
+        self._show_model_note()
+
+    def _device_chosen(self):
+        index = self.device_combo.current()
+        if 0 <= index < len(voice_whisper.DEVICES):
+            device = voice_whisper.DEVICES[index]
+            self.change(lambda config: config["whisper"].update(device=device))
+
+    def _languages_chosen(self):
+        chosen = [code for code, var in self.language_vars.items() if var.get()]
+        self.change(lambda config: config["whisper"].update(languages=chosen))
+
+    def _scripture_chosen(self):
+        on = self.scripture_var.get()
+        self.change(lambda config: config.update(scripture=on))
+
+    def _start_download(self):
+        if self._download is not None:
+            return
+        name = self.get_config()["whisper"]["model"]
+        state = {"name": name}
+
+        def run():
+            try:
+                voice_whisper.download(name)
+            except Exception as ex:
+                state["error"] = ex
+
+        state["thread"] = threading.Thread(target=run, name="WhisperDownload",
+                                           daemon=True)
+        self._download = state
+        state["thread"].start()
+        self._show_model_note()
+
+    def _open_corrections(self):
+        try:
+            path = str(voice_vocabulary.corrections_file())
+            if sys.platform == "win32":
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as ex:
+            messagebox.showerror(
+                "Voice to Text", f"Could not open the corrections file "
+                f"({voice_vocabulary.CORRECTIONS_FILE}): {ex}",
+                parent=self.frame)
 
 
 class ChannelDialog:

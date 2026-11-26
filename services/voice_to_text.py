@@ -3,10 +3,18 @@ ASIO on Windows, whatever PortAudio offers elsewhere - and turns what is
 said on each into text, handed to on_text one utterance at a time. The
 main window puts that in the shared chat.
 
-Speech is recognised on this machine by Vosk (https://alphacephei.com/vosk),
-offline, one recogniser per channel sharing one model. Nothing is sent
-anywhere; the only network use is the one-off model download Settings
-offers.
+Speech is recognised on this machine, offline, by one of two engines:
+
+- Whisper (services/voice_whisper.py) - faster-whisper with Silero VAD,
+  on an NVIDIA GPU where there is one. Far more accurate, handles a
+  leader switching between English and Russian, and streams the
+  sentence so far to Live Text. The default.
+- Vosk (https://alphacephei.com/vosk) - one small recogniser per channel
+  sharing one model. Light enough for any CPU, one language per model.
+
+Nothing is sent anywhere; the only network use is the one-off model
+download. What either hears is put right by services/voice_vocabulary.py
+before it goes on.
 
 Settings keep the config under "voice" - see normalize. Channels are
 numbered from 1, as the interface and the console label them.
@@ -16,9 +24,9 @@ each channel has a gate - audio below gate_db never reaches the
 recogniser, and an utterance is closed off (and its text sent) as soon
 as the channel has been quiet for HOLD_SECONDS.
 
-sounddevice, numpy and vosk are optional: without them, or without
-PortAudio on Linux (libportaudio2), the feature reports itself
-unavailable and the rest of CLMix is unaffected.
+sounddevice and numpy are optional, as are each engine's own libraries:
+without them, or without PortAudio on Linux (libportaudio2), the feature
+reports itself unavailable and the rest of CLMix is unaffected.
 """
 
 import hashlib
@@ -37,7 +45,7 @@ import zipfile
 from collections import deque
 from pathlib import Path
 
-from services import voice_highlights
+from services import voice_highlights, voice_vocabulary, voice_whisper
 from services.log_store import log
 
 # How many channels the interface is opened with - the most CLMix offers
@@ -79,10 +87,26 @@ CATALOG_URL = "https://alphacephei.com/vosk/models/model-list.json"
 
 _SSL_CONTEXT = None
 
+ENGINES = ("whisper", "vosk")
+DEFAULT_ENGINE = "whisper"
+
+
+def default_whisper():
+    return {"model": voice_whisper.DEFAULT_MODEL,
+            "device": voice_whisper.DEFAULT_DEVICE,
+            "languages": list(voice_whisper.DEFAULT_LANGUAGES)}
+
 
 def default_config():
     return {
         "enabled": False,
+        # Which recogniser: "whisper" or "vosk" - see the module's top.
+        "engine": DEFAULT_ENGINE,
+        # Whisper's model size, where it runs ("auto", "cuda", "cpu") and
+        # the languages it picks between - see services/voice_whisper.py.
+        "whisper": default_whisper(),
+        # Scripture references picked out with the highlight words.
+        "scripture": True,
         # The input device as PortAudio names it, and its host API
         # ("ASIO", "ALSA", ...) - names rather than indexes, which move
         # when an interface is plugged in.
@@ -103,6 +127,7 @@ def default_config():
         # for_snapshot.
         "snapshot_channels": {},
         "highlights": voice_highlights.default_config(),
+        "highlights_rev": voice_highlights.REVISION,
     }
 
 
@@ -113,6 +138,19 @@ def normalize(raw):
         return config
 
     config["enabled"] = bool(raw.get("enabled"))
+    if raw.get("engine") in ENGINES:
+        config["engine"] = raw["engine"]
+    if isinstance(raw.get("scripture"), bool):
+        config["scripture"] = raw["scripture"]
+    whisper = raw.get("whisper") if isinstance(raw.get("whisper"), dict) else {}
+    if whisper.get("model") in voice_whisper.MODEL_NAMES:
+        config["whisper"]["model"] = whisper["model"]
+    if whisper.get("device") in voice_whisper.DEVICES:
+        config["whisper"]["device"] = whisper["device"]
+    if isinstance(whisper.get("languages"), list):
+        known = [code for code, _name in voice_whisper.LANGUAGES]
+        config["whisper"]["languages"] = [
+            code for code in known if code in whisper["languages"]]
     for key in ("device", "host_api", "model_dir"):
         if isinstance(raw.get(key), str):
             config[key] = raw[key]
@@ -141,7 +179,10 @@ def normalize(raw):
         and isinstance(path, str) and path
     }
 
-    config["highlights"] = voice_highlights.normalize(raw.get("highlights"))
+    revision = raw.get("highlights_rev")
+    config["highlights"] = voice_highlights.normalize(
+        raw.get("highlights"),
+        revision if isinstance(revision, int) else 1)
     return config
 
 
@@ -201,12 +242,13 @@ _sd = None
 _np = None
 _vosk = None
 _import_error = None
+_vosk_error = None
 
 
 def _load():
-    """Imports what the feature needs, once. Returns None when all is
-    well, else a sentence saying what is missing."""
-    global _sd, _np, _vosk, _import_error
+    """Imports what every engine needs - the audio side - once. Returns
+    None when all is well, else a sentence saying what is missing."""
+    global _sd, _np, _import_error
 
     if _sd is not None or _import_error is not None:
         return _import_error
@@ -219,7 +261,6 @@ def _load():
     try:
         import numpy
         import sounddevice
-        import vosk
     except ImportError as ex:
         _import_error = (f"Voice to Text needs the {ex.name or 'audio'} "
                          "package, which this install of CLMix is missing.")
@@ -231,13 +272,37 @@ def _load():
                             .startswith("linux") else f": {ex}"))
         return _import_error
 
-    vosk.SetLogLevel(-1)
-    _sd, _np, _vosk = sounddevice, numpy, vosk
+    _sd, _np = sounddevice, numpy
     return None
 
 
-def unavailable_reason():
-    return _load()
+def _load_vosk():
+    global _vosk, _vosk_error
+    problem = _load()
+    if problem is not None:
+        return problem
+    if _vosk is not None or _vosk_error is not None:
+        return _vosk_error
+    try:
+        import vosk
+    except ImportError:
+        _vosk_error = ("Vosk needs the vosk package, which this install of "
+                       "CLMix is missing.")
+        return _vosk_error
+    vosk.SetLogLevel(-1)
+    _vosk = vosk
+    return None
+
+
+def unavailable_reason(config=None):
+    """Why Voice to Text cannot run, or None: the audio side, and with
+    `config` its engine too."""
+    problem = _load()
+    if problem is not None or config is None:
+        return problem
+    if config.get("engine") == "vosk":
+        return _load_vosk()
+    return voice_whisper.unavailable_reason()
 
 
 def _open_stream(index, channels, extra, default, callback):
@@ -438,6 +503,9 @@ LOAD_MEMORY_FACTOR = 2.7
 def _get_model(path, wanted=lambda: True):
     """The Vosk model at `path` - the one already loaded if it is that
     one. None if `wanted()` turns false while waiting for another load."""
+    problem = _load_vosk()
+    if problem is not None:
+        raise RuntimeError(problem)
     with _LOAD_LOCK:
         if _loaded["path"] == path:
             return _loaded["model"]
@@ -449,9 +517,11 @@ def _get_model(path, wanted=lambda: True):
 
 
 def _release_model():
-    """Drops the kept model; its memory goes once no recogniser holds it."""
+    """Drops the kept models - Vosk's, and Whisper's along with the GPU
+    memory it holds; memory goes once no recogniser holds it."""
     with _LOAD_LOCK:
         _loaded.update(path=None, model=None)
+    voice_whisper.release()
     _trim()
 
 
@@ -703,7 +773,11 @@ class VoiceEngine:
         # extra work otherwise skipped. `recent` keeps the latest finished
         # lines as {"time", "channel", "text"}, for a window opened later.
         self.watchers = 0
-        self.recent = deque(maxlen=200)
+        self.recent = deque(maxlen=1000)
+        # Whisper's: the thread that reads every channel's speech, and
+        # where the model runs ("GPU", "CPU") once loaded.
+        self._decoder = None
+        self.where = ""
 
     def levels(self):
         """{channel_number: dBFS} of the last block each listened channel
@@ -723,9 +797,16 @@ class VoiceEngine:
             worker.gate_db = config["gate_db"]
 
         channels = listened(config)
+        whisper = config["whisper"]
         key = (config["device"], config["host_api"], config["channel_count"],
-               tuple(channels))
-        path = model_path(config, snapshot)
+               tuple(channels), config["engine"], whisper["model"],
+               whisper["device"], tuple(whisper["languages"]))
+        if config["engine"] == "whisper":
+            # A different Whisper setup is a different key - restarted,
+            # never swapped in as a Vosk model is.
+            path = f"whisper:{whisper['model']}"
+        else:
+            path = model_path(config, snapshot)
 
         if not config["enabled"]:
             self.stop()
@@ -816,8 +897,10 @@ class VoiceEngine:
             self._generation += 1
             stream, self._stream = self._stream, None
             channels, self._channels = self._channels, {}
+            decoder, self._decoder = self._decoder, None
             self._running_key = None
             self._model_path = None
+            self.where = ""
 
         if stream is not None:
             try:
@@ -828,6 +911,18 @@ class VoiceEngine:
 
         for worker in channels.values():
             worker.finish()
+
+        if decoder is not None:
+            # Each channel hands in what it was saying as it finishes;
+            # the decoder reads that, then stops. Waited for off this
+            # thread - it may be the Tkinter one.
+            def close():
+                for worker in channels.values():
+                    worker.join(timeout=3)
+                decoder.close()
+
+            threading.Thread(target=close, name="VoiceClose",
+                             daemon=True).start()
 
         self._set("off", "Off")
 
@@ -842,7 +937,7 @@ class VoiceEngine:
             self._running_key = None
 
     def _start(self, config, channels, path, generation):
-        problem = _load()
+        problem = unavailable_reason(config)
         if problem is not None:
             return self._fail(generation, problem)
         if not channels:
@@ -861,17 +956,22 @@ class VoiceEngine:
                 f"{device['name']} has {device['channels']} inputs - "
                 f"channel {too_high[0]} is beyond them.")
 
-        if path is None:
-            return self._fail(generation,
-                              "No speech model - download one below.")
-
-        try:
-            # Waits for any load under way; skipped if overtaken by then.
-            model = _get_model(path, lambda: generation == self._generation)
-        except Exception as ex:
-            return self._fail(generation, f"Could not load the model: {ex}")
-        if model is None:
-            return
+        whisper = config["engine"] == "whisper"
+        if whisper:
+            model = self._load_whisper(config["whisper"], generation)
+            if model is None:
+                return
+        else:
+            if path is None:
+                return self._fail(generation,
+                                  "No speech model - download one below.")
+            try:
+                # Waits for any load under way; skipped if overtaken by then.
+                model = _get_model(path, lambda: generation == self._generation)
+            except Exception as ex:
+                return self._fail(generation, f"Could not load the model: {ex}")
+            if model is None:
+                return
 
         asio = device["host_api"] == "ASIO"
         if asio:
@@ -913,11 +1013,27 @@ class VoiceEngine:
         # was trained on. Otherwise Vosk resamples it itself.
         factor = rate // 16000 if rate % 16000 == 0 and rate > 16000 else 1
 
-        workers.update({
-            n: _ChannelWorker(n, model, rate // factor, factor, self._gate_db,
-                              self._emit, live=lambda: self.watchers > 0)
-            for n in channels
-        })
+        decoder = None
+        if whisper:
+            decoder = voice_whisper.Decoder(
+                model, config["whisper"]["languages"],
+                on_final=lambda n, u, text, language, confidence:
+                    workers[n].finished(u, text, language, confidence),
+                on_partial=lambda n, u, text: workers[n].heard_so_far(u, text),
+            )
+            workers.update({
+                n: voice_whisper.ChannelWorker(
+                    n, rate, self._gate_db, decoder, self._emit,
+                    live=lambda: self.watchers > 0)
+                for n in channels
+            })
+        else:
+            workers.update({
+                n: _ChannelWorker(n, model, rate // factor, factor,
+                                  self._gate_db, self._emit,
+                                  live=lambda: self.watchers > 0)
+                for n in channels
+            })
 
         try:
             stream.start()
@@ -936,28 +1052,65 @@ class VoiceEngine:
                 return
             self._stream = stream
             self._channels = workers
+            self._decoder = decoder
 
+        if decoder is not None:
+            decoder.start()
         for worker in workers.values():
             worker.start()
 
         names = ", ".join(str(n) for n in channels)
         self._listening_text = (f"Listening on {device['name']} - channel"
                                 f"{'s' if len(channels) > 1 else ''} {names}")
-        self._set("running", f"{self._listening_text} - {Path(path).name}")
+        if whisper:
+            self.where = model.where
+            label = f"Whisper {model.name} on the {model.where}"
+            if model.note:
+                label += f" ({model.note})"
+        else:
+            label = Path(path).name
+        self._set("running", f"{self._listening_text} - {label}")
         log("info", f"Voice to Text listening on {device['name']} "
                     f"({device['host_api']}, {rate} Hz), channels {names}")
+
+    def _load_whisper(self, settings, generation):
+        """The Whisper model for `settings`, downloading it the first
+        time - or None, having said why, if it cannot be had."""
+        name = settings["model"]
+        if not voice_whisper.is_downloaded(name):
+            self._set("starting", f"Downloading Whisper {name} "
+                                  f"({voice_whisper.model_size(name)}) - "
+                                  "first time only...")
+        else:
+            self._set("starting", f"Loading Whisper {name}...")
+        try:
+            model = voice_whisper.get_transcriber(
+                name, settings["device"], lambda: generation == self._generation)
+        except Exception as ex:
+            log("error", f"Voice to Text: Whisper {name}: {ex!r}")
+            self._fail(generation, f"Could not load Whisper {name}: {ex}")
+            return None
+        if model is None or generation != self._generation:
+            return None
+        log("info", f"Voice to Text: Whisper {name} on the {model.where} "
+                    f"({model.compute})"
+                    + (f" - {model.note}" if model.note else ""))
+        return model
 
     def partials(self):
         """{channel_number: text so far} for every channel mid-sentence -
         only kept while Live Text is watching."""
-        return {number: worker.partial for number, worker in
-                list(self._channels.items()) if worker.partial}
+        return {number: voice_vocabulary.correct(worker.partial)
+                for number, worker in list(self._channels.items())
+                if worker.partial}
 
-    def _emit(self, number, text):
+    def _emit(self, number, text, language=None, confidence=None):
+        text = voice_vocabulary.correct(text)
         # For Settings' mic test, which shows what was last heard.
         self.last_text = text
         self.recent.append({"time": time.time(), "channel": number,
-                            "text": text})
+                            "text": text, "language": language,
+                            "confidence": confidence})
         try:
             self.on_text(number, text)
         except Exception as ex:
