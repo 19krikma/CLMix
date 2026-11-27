@@ -54,7 +54,8 @@ class VoiceSection:
 
     def __init__(self, parent, get_config, set_config, get_snapshots,
                  get_users, engine, get_live_snapshot=lambda: None,
-                 set_test=None):
+                 set_test=None, get_to_chat=lambda: False,
+                 set_to_chat=None):
         self.get_config = get_config
         self.set_config = set_config
         self.get_users = get_users
@@ -84,9 +85,10 @@ class VoiceSection:
             self.frame,
             text="Listens to input channels of your audio interface"
                  + (" over ASIO" if sys.platform == "win32" else "")
-                 + " and puts what is said into the chat, under the name of "
-                 "the account using that channel. Speech is recognised on "
-                 "this computer - nothing is sent online.",
+                 + " and shows what is said in Live Text, under the name of "
+                 "the account using that channel - and in the chat too, if "
+                 "you turn that on. Speech is recognised on this computer - "
+                 "nothing is sent online.",
             foreground=MUTED_FG, wraplength=640, justify="left"
         ).pack(anchor="w", pady=(2, 8))
 
@@ -99,6 +101,15 @@ class VoiceSection:
         self.status_label = ttk.Label(top, text="", foreground=MUTED_FG)
         self.status_label.pack(side="left", padx=(14, 0))
 
+        # Live Text always gets what is heard; the chat (and with it the
+        # phones) only with this on.
+        self.to_chat_var = tk.BooleanVar(value=get_to_chat())
+        ttk.Checkbutton(
+            self.frame, text="Also send what is heard to the chat",
+            style="Switch.TCheckbutton", variable=self.to_chat_var,
+            command=lambda: set_to_chat and set_to_chat(self.to_chat_var.get())
+        ).pack(anchor="w", pady=(8, 0))
+
         # --- Mic test ---
         test = ttk.LabelFrame(self.frame, text="Mic Test", padding=10)
         test.pack(fill="x", pady=(12, 0))
@@ -106,8 +117,9 @@ class VoiceSection:
             test,
             text="Try it on this computer's microphone - no interface "
                  "needed. Uses the speech model and highlight words below; "
-                 "what it hears also goes to the chat as \u201cMic Test\u201d, and Live "
-                 "Text in the sidebar shows it as it is heard. "
+                 "Live Text in the sidebar shows what it hears as it is "
+                 "heard (and the chat, as \u201cMic Test\u201d, if sending to the "
+                 "chat is on). "
                  "Your interface setup is untouched and comes back when the "
                  "test stops.",
             foreground=MUTED_FG, wraplength=640, justify="left"

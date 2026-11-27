@@ -780,6 +780,11 @@ class VoiceEngine:
         # lines as {"time", "channel", "text"}, for a window opened later.
         self.watchers = 0
         self.recent = deque(maxlen=1000)
+        # Live Text's Clear: lines at or before this time (time.time())
+        # are left out of every Live Text view, a window opened later
+        # included. A cut-off rather than emptying `recent`, which the
+        # channel threads append to.
+        self.cleared_at = 0.0
         # Whisper's: the thread that reads every channel's speech, and
         # where the model runs ("GPU", "CPU") once loaded.
         self._decoder = None
@@ -1102,6 +1107,17 @@ class VoiceEngine:
                     f"({model.compute})"
                     + (f" - {model.note}" if model.note else ""))
         return model
+
+    def clear_recent(self):
+        """Live Text's Clear - see cleared_at."""
+        self.cleared_at = time.time()
+
+    def visible_recent(self):
+        """The finished lines Live Text shows: `recent` since the last
+        Clear."""
+        cleared_at = self.cleared_at
+        return [line for line in list(self.recent)
+                if line["time"] > cleared_at]
 
     def partials(self):
         """{channel_number: text so far} for every channel mid-sentence -

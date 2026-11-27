@@ -12,7 +12,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from services.companion_bridge import (
-    ARG_TYPES, COMPANION_TIMEOUT_SECONDS, MODE_FIXED, MODE_NONE, MODE_PASS,
+    ARG_TYPES, MODE_FIXED, MODE_NONE, MODE_PASS,
     MODE_SCALE, MODE_STEP, MODE_TOGGLE, TO_COMPANION, TO_CONSOLE, Rule,
     compile_pattern, default_rule, fill_template, missing_default_rules,
     normalize_rule, normalize_settings, placeholder_problem,
@@ -605,7 +605,6 @@ class CompanionPanel:
         if bridge is None:
             return "Starting..."
 
-        listening = f"Listening on port {bridge.listen_port}."
         worker = self.get_worker()
         if worker is None or not worker.is_alive() or not worker.loaded:
             console = (" Not connected to the console - Companion's "
@@ -613,19 +612,11 @@ class CompanionPanel:
         else:
             console = ""
 
-        heard = bridge.seconds_since_heard()
-        destination = bridge.companion_address()
-
-        if heard is None or heard > COMPANION_TIMEOUT_SECONDS:
-            waiting = "Waiting for Companion." if heard is None else \
-                f"Companion last heard {int(heard)}s ago."
-            return f"{listening} {waiting}{console}"
-
-        where = f"{destination[0]}:{destination[1]}" if destination else "?"
-        return (f"Companion connected at {where}. "
-                f"{bridge.packets_from_companion} in, "
-                f"{bridge.packets_to_companion} out, "
-                f"{bridge.translated} translated.{console}")
+        # The same answer the Settings badge shows - see link_state.
+        state, sentence = bridge.link_state()
+        mark = {"ok": "\u2713 ", "fail": "\u2717 "}.get(state, "")
+        return (f"{mark}{sentence} Listening on port {bridge.listen_port}."
+                f"{console}")
 
     def refresh(self):
         text = self._status_text()

@@ -14,14 +14,14 @@ DATETIME_COLUMN_WIDTH = 190
 
 class BackupWindow:
     """Lets the operator capture a backup of everything CLMix keeps -
-    accounts, presets and settings, always all three - and see what's
-    already been captured, restore from one, or remove one - mirroring
-    PresetsWindow's relationship to PresetStore.
+    accounts, presets, settings, voice corrections and Launch on Startup
+    (see BackupStore) - and see what's already been captured, restore
+    from one, or remove one - mirroring PresetsWindow's relationship to
+    PresetStore.
 
-    The list shows only where and when: every backup holds everything.
-    The odd older one, made when the three could be chosen one by one,
-    may hold only some - restore writes back only what a backup contains,
-    and its confirmation names exactly what that is.
+    The list shows only where and when: every new backup holds
+    everything. Older ones hold less - restore writes back only what a
+    backup contains, and its confirmation names exactly what that is.
     """
 
     def __init__(self, master, backup_store, user_store, preset_store,

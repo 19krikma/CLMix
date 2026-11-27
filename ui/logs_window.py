@@ -4,7 +4,7 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk
 
-from services.log_store import capture, log, log_store
+from services.log_store import LEVELS, MAX_ENTRIES, capture, log, log_store
 
 
 def open_folder(path):
@@ -153,12 +153,11 @@ class LogsWindow:
         self.refresh_job = self.window.after(self.REFRESH_MS, self.refresh)
 
     def _matches(self, level, message):
-        level_filter = self.filter_var.get()
-
-        # Debug is the firehose - it already includes everything info,
-        # warning and error show, so it's the only filter that isn't an
-        # exact level match.
-        if level_filter != "Debug" and level != level_filter.lower():
+        # A threshold, as log viewers go: Info shows info and anything
+        # worse, so an error is never hidden by looking at Info - it used
+        # to be an exact match, and Info hid every warning and error.
+        threshold = LEVELS.index(self.filter_var.get().lower())
+        if level in LEVELS and LEVELS.index(level) < threshold:
             return False
 
         search = self.search_var.get().strip().lower()
@@ -192,6 +191,13 @@ class LogsWindow:
             self.text.insert(
                 "end", line, level if level in ("error", "warning") else ""
             )
+
+        # Capped like the store behind it: on Debug with the console
+        # talking, the box used to grow by every line for as long as the
+        # page stayed open.
+        lines = int(self.text.index("end-1c").split(".")[0])
+        if lines > MAX_ENTRIES:
+            self.text.delete("1.0", f"{lines - MAX_ENTRIES + 1}.0")
 
         if at_bottom:
             self.text.see("end")

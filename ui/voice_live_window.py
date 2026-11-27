@@ -183,7 +183,7 @@ class VoiceLiveWindow:
 
     def _catch_up(self):
         """Adds the lines finished since the last call."""
-        recent = list(self.engine.recent)
+        recent = self.engine.visible_recent()
         new = [line for line in recent if line["time"] > self._shown]
         if not new:
             return
@@ -212,7 +212,7 @@ class VoiceLiveWindow:
         """Each channel's latest words: mid-sentence ones in italics
         with a trailing ellipsis, else the last line it finished."""
         latest = {}
-        for line in self.engine.recent:
+        for line in self.engine.visible_recent():
             latest[line["channel"]] = (line["text"], False,
                                        line.get("language"))
         for number, text in self.engine.partials().items():
@@ -295,9 +295,18 @@ class VoiceLiveWindow:
         self._job = self.window.after(POLL_MS, self._poll)
 
     def _clear(self):
+        """Clears the transcript for good: emptying only this box used to
+        let every line come back the next time the window was opened,
+        since a new window fills itself from the engine's history. The
+        engine's cut-off applies to every Live Text view, the web page
+        included."""
+        self.engine.clear_recent()
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
         self.text.configure(state="disabled")
+        # The latest-words box goes too.
+        self._live_shown = None
+        self._show_live()
 
     def _save(self):
         """The history shown, as a text file."""

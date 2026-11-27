@@ -37,8 +37,10 @@ away would otherwise fire on the next connect, long after anyone wanted
 it.
 """
 
+import ipaddress
 import re
 import socket
+import sys
 import threading
 import time
 from collections import deque
@@ -49,6 +51,7 @@ from pythonosc.osc_message_builder import OscMessageBuilder
 
 from services.digico_bridge import type_tags
 from services.log_store import log
+from services.network_info import ipv4_network_of, list_ipv4_interfaces
 
 DEFAULT_LISTEN_PORT = 7001
 DEFAULT_COMPANION_PORT = 7000
@@ -79,6 +82,19 @@ RECV_TIMEOUT_SECONDS = 0.2
 # it connected. The DiGiCo module polls /Console/Session/Filename every
 # few seconds while it is up, so this is several missed polls.
 COMPANION_TIMEOUT_SECONDS = 15.0
+
+# Hearing from Companion is not the only sign of it: the Generic OSC
+# module only sends when a button is pressed, so an idle Companion went
+# quiet and the status called it gone. Every PROBE_SECONDS the bridge
+# also asks the network whether Companion is listening where CLMix sends
+# to it - see CompanionBridge._probe_once.
+PROBE_SECONDS = 5.0
+# How long to wait after a probe for the "nothing listening" answer the
+# OS gives back (ICMP port unreachable) - on a LAN it is a millisecond.
+PROBE_REPLY_SECONDS = 0.3
+# An empty OSC bundle: valid OSC that carries no message, so whatever is
+# listening parses it and does nothing.
+PROBE_DGRAM = b"#bundle\x00" + b"\x00" * 7 + b"\x01"
 
 # Last value seen per console address, for toggles. Bounded only so a
 # runaway stream cannot grow it forever; a real desk has far fewer.
@@ -620,15 +636,74 @@ def _describe(address, args):
     return " ".join([address, *(one(arg) for arg in args)])
 
 
+def _local_addresses():
+    """This computer's IPv4 addresses, loopback included."""
+    try:
+        return {"127.0.0.1"} | {ip for _label, ip in list_ipv4_interfaces()}
+    except Exception:  # noqa: BLE001 - ifaddr failing costs only the match
+        return {"127.0.0.1"}
+
+
+def _is_local(ip, local):
+    return ip in local or ip.startswith("127.")
+
+
+def _host_present(ip, local):
+    """Whether the computer at ip is on the network: True, False, or None
+    when there is no way to tell.
+
+    UDP alone cannot tell "Companion listening" from "Companion's PC
+    switched off" - both are silence. On this computer it is always
+    there; on the same subnet Windows' SendARP asks the machine itself
+    (no admin rights needed, ~2ms when it is there, a few seconds to give
+    up when it is not - which is why this runs on the probe thread).
+    Anything further away is not knowable from here.
+    """
+    if _is_local(ip, local):
+        return True
+
+    if sys.platform != "win32":
+        return None
+
+    try:
+        target = ipaddress.IPv4Address(ip)
+    except ValueError:
+        return None
+
+    if not any((net := ipv4_network_of(own)) is not None and target in net
+               for own in local if not own.startswith("127.")):
+        return None
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        send_arp = ctypes.windll.iphlpapi.SendARP
+        send_arp.argtypes = [wintypes.ULONG, wintypes.ULONG, ctypes.c_void_p,
+                             ctypes.POINTER(wintypes.ULONG)]
+        mac = (ctypes.c_ubyte * 8)()
+        size = wintypes.ULONG(8)
+        result = send_arp(int.from_bytes(socket.inet_aton(ip), "little"), 0,
+                          mac, ctypes.byref(size))
+        return result == 0
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
 class CompanionBridge:
     """The listening socket, the relay and the rules - see the module doc.
 
     Runs for as long as the switch in Settings is on, connected to the
     console or not, so Companion sees CLMix come and go the way it would
     see the desk. get_worker() returns the MixerWorker in use, if any.
+
+    learned_ip is where Companion was last heard from, carried over from
+    an earlier bridge (or launch), so it can be probed before it says
+    anything this time.
     """
 
-    def __init__(self, settings, command_queue, get_worker, listen_ip=None):
+    def __init__(self, settings, command_queue, get_worker, listen_ip=None,
+                 learned_ip=None):
         self.command_queue = command_queue
         self.get_worker = get_worker
         self.listen_ip = listen_ip or None
@@ -641,8 +716,13 @@ class CompanionBridge:
         self._sock = None
 
         self._lock = threading.Lock()
-        self._learned = None
+        self._learned = learned_ip or None
         self._last_heard = None
+        self._local = _local_addresses()
+        # The latest probe: {"ip", "ports": {port: "open" | "refused"},
+        # "host": True | False | None}, or None before the first.
+        self.probe = None
+        self._probe_thread = None
         self._values = {}
         # address -> monotonic time until which the console's reports of
         # it are ignored - see OWN_WRITE_HOLD_SECONDS.
@@ -700,6 +780,10 @@ class CompanionBridge:
             name="companion-bridge"
         )
         self._thread.start()
+        self._probe_thread = threading.Thread(
+            target=self._probe_loop, daemon=True, name="companion-probe"
+        )
+        self._probe_thread.start()
         log("info", f"Companion bridge listening on "
             f"{self.listen_ip or 'all adapters'}:{self.listen_port}")
 
@@ -735,6 +819,147 @@ class CompanionBridge:
         heard = self._last_heard
         return None if heard is None else time.monotonic() - heard
 
+    @property
+    def learned_ip(self):
+        """Where Companion was last heard from, for the next bridge."""
+        return self._learned
+
+    def destination_ports(self):
+        """The ports CLMix actually sends Companion traffic to: the
+        Receive Port while anything uses it, and any port a rule names.
+        Empty when nothing goes back to Companion at all."""
+        _ip, port, _to_console, pass_to_companion, _rules, back, _every = \
+            self._config
+        ports = set()
+        if pass_to_companion or any(rule.port is None for rule in back):
+            ports.add(port)
+        ports.update(rule.port for rule in back if rule.port is not None)
+        return sorted(ports)
+
+    def link_state(self):
+        """("ok" | "fail" | None, sentence) - the one answer the Settings
+        badge and the BitFocus status line both show.
+
+        Heard from recently is proof enough. Otherwise the latest probe
+        decides: a port nothing listens on, or a computer that is not
+        there, is a failure; a port that took the probe quietly on a
+        computer that is there means Companion is up and simply idle -
+        which used to read as a red cross. With no address to try, or
+        nothing ever sent back to Companion, there is nothing to go on,
+        and the status says so rather than guessing.
+        """
+        destination = self.companion_address()
+        heard = self.seconds_since_heard()
+        counts = (f" {self.packets_from_companion} in, "
+                  f"{self.packets_to_companion} out, {self.translated} "
+                  f"translated.")
+
+        if heard is not None and heard <= COMPANION_TIMEOUT_SECONDS:
+            where = f"{destination[0]}:{destination[1]}" if destination \
+                else "?"
+            return "ok", f"Companion connected at {where}.{counts}"
+
+        last = "" if heard is None else f" Last heard {int(heard)}s ago."
+        probe = self.probe
+        ip = destination[0] if destination else None
+
+        if ip is None:
+            return None, ("Waiting for Companion - it shows here once it "
+                          "sends something, or set Companion IP to check "
+                          "for it straight away.")
+
+        if probe is None or probe["ip"] != ip:
+            return None, f"Checking for Companion at {ip}...{last}"
+
+        if probe["host"] is False:
+            return "fail", (f"Companion's computer at {ip} is not answering "
+                            f"on the network.{last}")
+
+        refused = sorted(p for p, state in probe["ports"].items()
+                         if state == "refused")
+        if refused:
+            ports = ", ".join(str(p) for p in refused)
+            return "fail", (f"Nothing is listening at {ip} port {ports} - is "
+                            f"Companion running, with its connection enabled "
+                            f"and set to receive on {ports}?{last}")
+
+        if probe["ports"]:
+            ports = ", ".join(str(p) for p in sorted(probe["ports"]))
+            unsure = "" if probe["host"] else \
+                " (its computer is beyond this network, so that is as much " \
+                "as can be checked)"
+            return "ok", (f"Companion is listening at {ip} port {ports}{unsure}"
+                          f" - quiet, as it only sends when a button is "
+                          f"pressed.{last}{counts}")
+
+        # Nothing is ever sent back, so there is no port to try.
+        if heard is not None:
+            return None, (f"Companion was last heard {int(heard)}s ago. "
+                          f"Nothing is sent back to it, so CLMix can only "
+                          f"see it while it sends.{counts}")
+        return None, ("Waiting for Companion - nothing is sent back to it, "
+                      "so it shows here once it sends something.")
+
+    def _probe_loop(self):
+        while self._running:
+            try:
+                self._probe_once()
+            except Exception as ex:  # noqa: BLE001 - a probe never stops the bridge
+                log("debug", f"Companion probe failed: {ex!r}")
+
+            deadline = time.monotonic() + PROBE_SECONDS
+            while self._running and time.monotonic() < deadline:
+                time.sleep(0.2)
+
+    def _probe_once(self):
+        """Ask whether Companion is listening, without it having to send.
+
+        A connected UDP socket per destination port gets the OS's answer
+        back: "nothing listening on that port" arrives as an error on the
+        next read (Windows and Linux alike), silence means the port is
+        open. Whether the computer itself is there is asked separately -
+        see _host_present.
+        """
+        destination = self.companion_address()
+        if destination is None:
+            self.probe = None
+            return
+
+        ip = destination[0]
+        ports = {}
+
+        for port in self.destination_ports():
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.connect((ip, port))
+                sock.send(PROBE_DGRAM)
+                sock.settimeout(PROBE_REPLY_SECONDS)
+                try:
+                    sock.recv(64)
+                    ports[port] = "open"
+                except socket.timeout:
+                    ports[port] = "open"
+                except (ConnectionResetError, ConnectionRefusedError):
+                    ports[port] = "refused"
+            except OSError:
+                ports[port] = "refused"
+            finally:
+                sock.close()
+
+        host = _host_present(ip, self._local)
+        previous = self.probe
+        self.probe = {"ip": ip, "ports": ports, "host": host}
+
+        # Logged on change only - every 5s would bury the log.
+        if previous is None or previous["ports"] != ports or \
+                previous["host"] != host:
+            computer = {True: "present", False: "not answering",
+                        None: "not checkable from here"}[host]
+            checked = ", ".join(f"port {p} {state}"
+                                for p, state in sorted(ports.items()))
+            log("info", f"Companion at {ip}: computer {computer}, "
+                f"{checked or 'no port to check'}")
+
     def recent(self, after_seq=0):
         """(seq, (time, direction, text)) newer than after_seq."""
         with self._lock:
@@ -763,7 +988,13 @@ class CompanionBridge:
                 break
 
             companion_ip = self._config[0]
-            if companion_ip and sender[0] != companion_ip:
+            if companion_ip and sender[0] != companion_ip and not (
+                    # Companion on this same computer reaches us from
+                    # 127.0.0.1 even when Companion IP names this PC's
+                    # LAN address (or the other way round) - the same
+                    # machine either way, so not a stranger to ignore.
+                    _is_local(companion_ip, self._local)
+                    and _is_local(sender[0], self._local)):
                 continue
 
             self._learned = sender[0]

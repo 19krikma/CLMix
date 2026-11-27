@@ -461,7 +461,8 @@ class RemoteServer:
             pass
 
     def start(self):
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name="PhoneServer")
         self._thread.start()
 
     def stop(self):

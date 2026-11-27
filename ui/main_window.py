@@ -28,16 +28,18 @@ from services.chat_log import (
     KIND_USER, KIND_TECH, KIND_VOICE, ChatLog, normalize_tech_names, tech_name_for,
 )
 from services.companion_bridge import (
-    COMPANION_TIMEOUT_SECONDS, CompanionBridge, normalize_settings,
+    CompanionBridge, normalize_settings,
 )
 from services.digico_bridge import CAPTURE_DIR, DigicoAppBridge
-from services.log_store import capture, log, log_store
+from services.log_store import (
+    capture, install_crash_logging, log, log_store,
+)
 from services.network_info import list_ipv4_interfaces, source_ip_for
 from services.preset_store import PresetStore
 from services.remote_server import RemoteServer
 from services.strips import STRIP_KINDS, is_stereo_mode, strip_of
 from services import sos_options
-from services import voice_highlights, voice_to_text
+from services import live_text_web, voice_highlights, voice_to_text
 
 # Before anything parses a datagram: the console does not always send
 # UTF-8, and python-osc's UnicodeDecodeError is not a ParseError, so
@@ -64,6 +66,7 @@ from ui.startup_section import StartupSection
 from ui.sos_section import SosSection
 from ui.chat_name_section import ChatNameSection
 from ui.voice_section import VoiceSection
+from ui.live_web_section import LiveWebPanel
 from ui.voice_live_window import VoiceLiveWindow
 from ui.chat_toast import ChatToast, DesktopNotifier
 from ui.companion_window import CompanionPanel
@@ -443,7 +446,8 @@ class MixerWorker(threading.Thread):
     def __init__(self, mixer_ip, send_port, recv_port,
                  command_queue, message_queue, bind_ip=None,
                  second_link=None, link_mode=LINK_FAILOVER):
-        super().__init__(daemon=True)
+        # Named, so its lines in the log file read [MixerWorker].
+        super().__init__(daemon=True, name="MixerWorker")
 
         # Connection 1's. Kept as attributes of their own because the
         # DiGiCo App bridge, the Analyzer and the info bar all describe
@@ -1103,16 +1107,19 @@ class MixerWorker(threading.Thread):
         return f"{preview.hex(' ')}{truncated}"
 
     def _log_received(self, sender, text, depth=0):
-        """One inbound line for the debug log, via the UI message pump.
+        """One inbound line for the debug log.
+
+        Logged here on the worker rather than handed to the UI's message
+        pump, as it used to be: during a load or resync that was thousands
+        of lines queued for the Tk thread to log, and their timestamps
+        were when the UI got round to them rather than when they landed.
 
         depth indents a bundle's contents under the bundle header so a
         grouped update reads as one thing rather than as a run of
         unrelated messages that happen to share a timestamp.
         """
-        self.message_queue.put((
-            "message",
-            f"Received from {sender[0]}:{sender[1]}: {'  ' * depth}{text}"
-        ))
+        log("debug",
+            f"Received from {sender[0]}:{sender[1]}: {'  ' * depth}{text}")
 
     def _log_unparsed(self, data, sender, depth=0):
         """Report a datagram no decoder accepted, rather than dropping it."""
@@ -1172,12 +1179,10 @@ class MixerWorker(threading.Thread):
             f", {self._meter_unmapped} for unsubscribed slots"
             if self._meter_unmapped else ""
         )
-        self.message_queue.put((
-            "message",
+        log("debug",
             f"Received: /Meters/values x{self._meter_packets} "
             f"({self._meter_pairs} slot values{unmapped}) in {elapsed:.1f}s "
-            f"across {len(self.meter_slots)} subscribed slots"
-        ))
+            f"across {len(self.meter_slots)} subscribed slots")
 
         self._meter_packets = 0
         self._meter_pairs = 0
@@ -1772,7 +1777,7 @@ class MixerWorker(threading.Thread):
         whatever python-osc would infer from the Python value. link sends
         it down that connection rather than the one _route picks - for
         each connection's own heartbeat."""
-        log("debug", f"send_osc: {address} {args}")
+        log("debug", f"Sent: {address} {args}")
 
         # So their answers are not mistaken for an ALT burst - see
         # _track_alt_route.
@@ -1901,11 +1906,8 @@ class MixerWorker(threading.Thread):
             address = parts[0]
             args = [self.parse_arg(part) for part in parts[1:]]
 
+        # send_osc logs it - this used to log every command a second time.
         self.send_osc(address, args, types)
-
-        self.message_queue.put(
-            ("message", f"Sent: {address} {args}")
-        )
 
     @staticmethod
     def parse_arg(value):
@@ -3947,6 +3949,9 @@ class MainWindow:
         # StartupWMClass has to match that spelling exactly, so don't
         # change one without the other.
         self.root = tk.Tk(className=WM_CLASS_NAME)
+        # Exceptions in button commands and after() jobs reach the log -
+        # Tk otherwise prints them to a stderr the windowed build lacks.
+        install_crash_logging(self.root)
         self.root.title("CLMix")
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
 
@@ -4052,6 +4057,15 @@ class MainWindow:
         # stopped.
         self._voice_test_device = None
         self.voice_live_window = None
+        # Live Text in a web browser - see services/live_text_web.py and
+        # _apply_live_web. The feed is filled from process_messages.
+        self.live_feed = live_text_web.LiveTextFeed(
+            self.voice_engine, get_speaker=self.voice_speaker,
+            mark=self.voice_mark
+        )
+        self.live_web_server = None
+        self.live_web_error = None
+        self.live_web_panel = None
 
         self.user_store = UserStore()
         self.preset_store = PresetStore()
@@ -4080,6 +4094,8 @@ class MainWindow:
         # installer downloaded last time is guaranteed not to be running,
         # since the app it installed is the one doing the clearing.
         updater.sweep_download_dir()
+
+        self._apply_live_web()
 
         self.root.after(100, self.process_messages)
         self.root.after(self.STATUS_TICK_MS, self._tick_status)
@@ -4744,7 +4760,9 @@ class MainWindow:
             text=f"Phones: {len(self.connected_phones())}"
         )
         self.logs_count_label.config(text=f"Logs: {log_store.count():,}")
-        log_store.flush()
+        # No log_store.flush() here any more: the log's own writer thread
+        # flushes every second, and flush() now waits for the disk - which
+        # the Tk thread should never do.
 
         # Repainted only when an address changes: the mixer or server
         # comes or goes, or a phone joins on another adapter.
@@ -4893,6 +4911,14 @@ class MainWindow:
             engine=self.voice_engine,
             get_live_snapshot=self.voice_snapshot,
             set_test=self.set_voice_test,
+            get_to_chat=lambda: bool(self.settings.get("voice_to_chat")),
+            set_to_chat=self._set_voice_to_chat,
+        )
+        self.live_web_panel = LiveWebPanel(
+            self.voice_section.frame,
+            get_config=lambda: self.settings["live_web"],
+            set_config=self._set_live_web_config,
+            get_state=self._live_web_state,
         )
 
         self.access_panel = AccessPanel(
@@ -5335,12 +5361,71 @@ class MainWindow:
             mark=self.voice_mark, on_closed=closed,
         )
 
+    def _set_voice_to_chat(self, on):
+        self.settings["voice_to_chat"] = bool(on)
+        self.save_settings()
+        log("info", "Voice to Text " + ("now posts" if on else "no longer posts")
+            + " what it hears to the chat")
+
+    def _set_live_web_config(self, config):
+        self.settings["live_web"] = config
+        self.save_settings()
+        self._apply_live_web()
+
+    def _apply_live_web(self):
+        """Start, restart or stop the Live Text web page to match
+        Settings - see services/live_text_web.py."""
+        if self.live_web_server is not None:
+            self.live_web_server.stop()
+            self.live_web_server = None
+        self.live_web_error = None
+
+        config = self.settings["live_web"]
+        if config["enabled"]:
+            server = live_text_web.LiveTextWebServer(
+                self.live_feed, config["port"],
+                bind_ip=self.settings.get("remote_bind_ip") or ""
+            )
+            try:
+                server.start()
+                self.live_web_server = server
+            except OSError as ex:
+                self.live_web_error = ex.strerror or str(ex)
+                log("error", f"Live Text web page could not start on port "
+                    f"{config['port']}: {ex}")
+
+        if self.live_web_panel is not None:
+            self.live_web_panel.refresh()
+
+    def _live_web_state(self):
+        """(running, error, urls) for Settings' Live Text on the Web."""
+        server = self.live_web_server
+        if server is None:
+            return False, self.live_web_error, []
+        if server.bind_ip:
+            addresses = [server.bind_ip]
+        else:
+            addresses = [ip for _label, ip in list_ipv4_interfaces()]
+            # 169.254 is what Windows gives an adapter that found no
+            # DHCP - a browser on the network is not going to be there,
+            # so those are listed only if there is nothing else.
+            routable = [ip for ip in addresses if not ip.startswith("169.254.")]
+            addresses = routable or addresses
+        return True, None, [f"http://{ip}:{server.port}/" for ip in addresses]
+
     def _on_voice_text(self, number, text, language=None):
         """One utterance Voice to Text heard on input channel `number`.
         Called from that channel's thread: the chat log takes its own
         lock and the phone server hands it to its own loop, and the Chat
         window catches up from process_messages."""
         name, user = self.voice_speaker(number)
+        log("info", f"Voice to Text, channel {number} ({name}): {text}")
+
+        # Live Text (window and web page) reads the engine's own history,
+        # so it shows the line either way - this is only the chat.
+        if not self.settings.get("voice_to_chat"):
+            return
+
         # Matched against the live snapshot's words as it is heard, and
         # stamped on the message, as the Leader badge is.
         text, highlights = self.voice_mark(text, language)
@@ -5349,7 +5434,6 @@ class MainWindow:
             KIND_VOICE, text, user=user, name=name,
             extra={"channel": number, "highlights": highlights},
         )
-        log("info", f"Voice to Text, channel {number} ({name}): {text}")
 
         server = self.remote_server
         if server is not None:
@@ -5841,9 +5925,10 @@ class MainWindow:
         return None
 
     def _companion_link_state(self):
-        """"ok" while Companion is talking to the bridge, "fail" if the
-        bridge could not start or Companion has gone quiet. None while it
-        is off, or on but not yet heard from."""
+        """"ok" while Companion is heard from or listening, "fail" if the
+        bridge could not start or Companion is not there - see
+        CompanionBridge.link_state, which the BitFocus page's status line
+        shows too. None while it is off or there is nothing to go on."""
         if not (self.settings.get("companion") or {}).get("enabled"):
             return None
         if self._companion_error:
@@ -5853,10 +5938,7 @@ class MainWindow:
         if bridge is None:
             return None
 
-        heard = bridge.seconds_since_heard()
-        if heard is None:
-            return None
-        return "ok" if heard <= COMPANION_TIMEOUT_SECONDS else "fail"
+        return bridge.link_state()[0]
 
     def _show_settings_section(self, name):
         if name == "General":
@@ -5947,6 +6029,11 @@ class MainWindow:
             "tech_name": normalize_tech_names(None),
             # Voice to Text - see services/voice_to_text.py's normalize.
             "voice": voice_to_text.default_config(),
+            # Live Text in a web browser - see services/live_text_web.py.
+            "live_web": live_text_web.default_config(),
+            # Whether what Voice to Text hears is also posted to the chat
+            # (and so to the phones). Off: Live Text only.
+            "voice_to_chat": False,
         }
 
         try:
@@ -5958,6 +6045,7 @@ class MainWindow:
         defaults["sos"] = sos_options.normalize(defaults.get("sos"))
         defaults["tech_name"] = normalize_tech_names(defaults.get("tech_name"))
         defaults["voice"] = voice_to_text.normalize(defaults.get("voice"))
+        defaults["live_web"] = live_text_web.normalize(defaults.get("live_web"))
         return defaults
 
     def save_settings(self):
@@ -6312,6 +6400,8 @@ class MainWindow:
                 self.status_label.config(text=f"{name} adapter unavailable")
                 return
 
+        live_web_moved = remote_bind_ip != self.settings.get("remote_bind_ip")
+
         self.settings.update({
             "mixer_ip": mixer_ip,
             "send_port": send_port,
@@ -6327,6 +6417,10 @@ class MainWindow:
             "link_mode": link_mode,
         })
         self.save_settings()
+
+        if live_web_moved:
+            # It listens on the phone server's adapter.
+            self._apply_live_web()
 
         self._user_disconnected = False
 
@@ -6703,7 +6797,12 @@ class MainWindow:
             self.reload_settings()
 
         if "users" in keys and self.access_panel is not None:
-            panel.refresh_list()
+            self.access_panel.refresh_list()
+
+        if "startup" in keys or "settings" in keys:
+            # Launch on Startup (put back in the login list) and Connect
+            # on Launch (in the settings) - both shown in General.
+            self.startup_section.refresh()
 
         if "presets" in keys and \
                 self.presets_window and self.presets_window.window.winfo_exists():
@@ -6781,7 +6880,13 @@ class MainWindow:
         self._refresh_chat_name()
 
         self.voice_section.refresh()
+        self.voice_section.to_chat_var.set(
+            bool(self.settings.get("voice_to_chat")))
         self._apply_voice()
+
+        # Restarts it on the restored port, or stops it - and refreshes
+        # its Settings box.
+        self._apply_live_web()
 
     def _apply_companion(self, restart=False):
         """Start, reconfigure or stop the Companion bridge to match
@@ -6790,6 +6895,9 @@ class MainWindow:
         config = normalize_settings(self.settings.get("companion"))
         self.settings["companion"] = config
         bridge = self.companion_bridge
+        # Read before a restart drops the old bridge - handed to the new
+        # one below.
+        previous_learned = bridge.learned_ip if bridge is not None else None
 
         if bridge is not None and (restart or not config["enabled"]
                                    or bridge.listen_port != config["listen_port"]):
@@ -6807,7 +6915,13 @@ class MainWindow:
         # Every adapter, so a Companion on this same machine (127.0.0.1)
         # reaches it as well as one across the network. Companion IP in
         # its settings is what narrows who is listened to.
-        bridge = CompanionBridge(config, self.command_queue, lambda: self.worker)
+        # Where Companion was last heard from - by the bridge this one
+        # replaces, else on an earlier launch - so it is probed straight
+        # away instead of showing nothing until it next speaks.
+        learned = previous_learned \
+            or self.settings.get("companion_last_ip") or None
+        bridge = CompanionBridge(config, self.command_queue,
+                                 lambda: self.worker, learned_ip=learned)
 
         try:
             bridge.start()
@@ -7135,6 +7249,16 @@ class MainWindow:
         if self.companion_panel is not None:
             self.companion_panel.refresh()
 
+        bridge = self.companion_bridge
+        if bridge is not None and bridge.learned_ip and \
+                bridge.learned_ip != self.settings.get("companion_last_ip"):
+            # Remembered for the next launch - see _apply_companion.
+            self.settings["companion_last_ip"] = bridge.learned_ip
+            self.save_settings()
+
+        if self.live_web_server is not None:
+            self.live_feed.pump()
+
         self.root.after(100, self.process_messages)
 
     def _failure_notice(self, value):
@@ -7217,6 +7341,9 @@ class MainWindow:
             self.chat_toast.close()
         self.disconnect()
         self._stop_companion()
+        if self.live_web_server is not None:
+            self.live_web_server.stop()
+            self.live_web_server = None
         self.voice_engine.stop()
         self.root.destroy()
 

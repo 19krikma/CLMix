@@ -506,6 +506,9 @@ class ShowBackupWindow:
     # Kept by MainWindow when left rather than destroyed - see
     # MainWindow._open_built_page.
     def on_show(self):
+        # The folder may have changed while the page was away - a
+        # restored backup of the settings can name another one.
+        self.store = ShowBackupStore(self.settings.get("show_backup_dir"))
         self.refresh_list()
 
     def close(self):

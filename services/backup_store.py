@@ -3,7 +3,9 @@ from collections import namedtuple
 from datetime import datetime
 from pathlib import Path
 
+from services import autostart
 from services.log_store import log
+from services.voice_vocabulary import CORRECTIONS_FILE
 
 USERS_PATH = Path.home() / ".clmix_users.json"
 PRESETS_PATH = Path.home() / ".clmix_presets.json"
@@ -16,28 +18,55 @@ BackupInfo = namedtuple("BackupInfo", ["path", "created_at", "included"])
 
 
 class BackupStore:
-    """Point-in-time snapshots of accounts, presets, and app settings.
+    """Point-in-time snapshots of everything CLMix itself keeps.
 
     Bundles the JSON files UserStore/PresetStore/MainWindow persist to
     the home directory into one timestamped file under BACKUPS_DIR, so
     an operator can capture known-good state (e.g. before updating the
     app) without needing to know where those files live or hand-copy
-    them individually. Every backup captures all three. Older backups,
-    made when the three could be chosen one by one, may hold only some -
-    each records which in "included", and restore writes back only those.
+    them individually:
+
+        users              accounts (UserStore)
+        presets            presets (PresetStore)
+        settings           ~/.clmix.json - every setting MainWindow keeps:
+                           connections, AUX, SOS, chat names, Companion,
+                           Voice to Text, Live Text on the web, ...
+        voice_corrections  Voice to Text's own corrections
+                           (services/voice_vocabulary.py)
+        startup            Launch on Startup, which lives in the desktop's
+                           login list rather than in settings (see
+                           services/autostart.py) - kept as a flag
+
+    Not kept: downloaded speech models (large, and downloaded again on
+    demand), logs and captures, and Mixer Backup's console backups, which
+    are their own files in their own folder.
+
+    Every new backup captures all of the above. Older ones hold fewer -
+    each records which in "included", and restore writes back only those,
+    so restoring an old backup leaves anything newer as it is.
     """
 
+    # Sources that are a JSON file each.
     SOURCES = {
         "users": USERS_PATH,
         "presets": PRESETS_PATH,
         "settings": SETTINGS_PATH,
+        "voice_corrections": CORRECTIONS_FILE,
     }
+
+    # Every key a backup can hold, file or not, in the order shown.
+    KEYS = (*SOURCES, "startup")
 
     LABELS = {
         "users": "Accounts",
         "presets": "Presets",
         "settings": "Settings",
+        "voice_corrections": "Voice corrections",
+        "startup": "Launch on Startup",
     }
+
+    # What a backup written before "included" existed always held.
+    LEGACY_KEYS = ("users", "presets", "settings")
 
     DEFAULT_BACKUPS_DIR = BACKUPS_DIR
 
@@ -65,21 +94,23 @@ class BackupStore:
             return self.DEFAULT_BACKUPS_DIR
 
     def backup_now(self):
-        include = list(self.SOURCES)
+        include = list(self.KEYS)
 
         directory = self.resolve_dir()
 
         now = datetime.now()
         data = {"created_at": now.isoformat(), "included": include}
 
-        for key in include:
+        for key in self.SOURCES:
             data[key] = self._read_json(self.SOURCES[key])
+
+        data["startup"] = {"launch_on_startup": autostart.is_enabled()}
 
         filename = f"clmix_backup_{now.strftime(BACKUP_FILENAME_FORMAT)}.json"
         path = directory / filename
 
         try:
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except OSError as ex:
             log("error", f"Failed to write backup: {ex!r}")
@@ -106,11 +137,23 @@ class BackupStore:
             log("error", f"Failed to read backup for restore: {path}")
             return set()
 
-        included = set(data["included"]) if "included" in data else set(self.SOURCES)
+        included = set(data["included"]) if "included" in data \
+            else set(self.LEGACY_KEYS)
         restored = set()
 
         for key in included:
-            target = self.SOURCES[key]
+            if key == "startup":
+                if self._restore_startup(data.get(key)):
+                    restored.add(key)
+                continue
+
+            target = self.SOURCES.get(key)
+            if target is None:
+                # Written by a newer CLMix, with something this one does
+                # not know - left alone rather than guessed at.
+                log("warning", f"Backup holds {key!r}, unknown here - skipped")
+                continue
+
             value = data.get(key)
 
             try:
@@ -118,7 +161,13 @@ class BackupStore:
                     if target.exists():
                         target.unlink()
                 else:
-                    with open(target, "w") as f:
+                    # Voice corrections live in a folder of their own,
+                    # which a fresh machine may not have yet.
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    # ASCII-escaped, as the app itself writes them: the
+                    # settings file is read back with the platform's
+                    # default encoding, which UTF-8 text would trip up.
+                    with open(target, "w", encoding="utf-8") as f:
                         json.dump(value, f, indent=2)
             except OSError as ex:
                 log("error", f"Failed to restore {key} from backup: {ex!r}")
@@ -128,6 +177,28 @@ class BackupStore:
 
         log("info", f"Restored from backup ({', '.join(sorted(restored))}): {path}")
         return restored
+
+    @staticmethod
+    def _restore_startup(value):
+        """Puts Launch on Startup back as it was. True if it now is."""
+        if not isinstance(value, dict) or "launch_on_startup" not in value:
+            return False
+
+        wanted = bool(value["launch_on_startup"])
+
+        if wanted == autostart.is_enabled():
+            return True
+
+        if not autostart.is_supported():
+            return False
+
+        try:
+            autostart.set_enabled(wanted)
+        except autostart.AutostartError as ex:
+            log("error", f"Failed to restore Launch on Startup: {ex}")
+            return False
+
+        return True
 
     def remove_backup(self, path):
         try:
@@ -157,8 +228,8 @@ class BackupStore:
             included = set(data["included"])
         elif data:
             # Backups written before selective backup existed always
-            # captured all three sources.
-            included = set(self.SOURCES)
+            # captured these three.
+            included = set(self.LEGACY_KEYS)
         else:
             included = set()
 
@@ -174,8 +245,12 @@ class BackupStore:
 
     @staticmethod
     def _read_json(path):
+        # UTF-8, not the platform default: voice corrections can be
+        # Ukrainian, and on Windows the default would fail to read them -
+        # recording the file as missing, so a restore would delete it.
+        # The other files are plain ASCII, which reads the same either way.
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except (OSError, json.JSONDecodeError):
             return None
