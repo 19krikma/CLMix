@@ -157,6 +157,14 @@ class BackupWindow:
         selection = self.tree.selection()
         return Path(selection[0]) if selection else None
 
+    # Kept by MainWindow when left rather than destroyed - see
+    # MainWindow._open_built_page.
+    def on_show(self):
+        self.refresh_list()
+
+    def on_hide(self):
+        self._hide_path_entry()
+
     def restore_selected(self):
         path = self.selected_backup_path()
 

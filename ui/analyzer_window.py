@@ -52,6 +52,7 @@ class AnalyzerWindow:
         self._marker_count = 0
         self._refresh_job = None
         self._filter_job = None
+        self._filter_pending_on_hide = False
 
         self.filter_var = tk.StringVar()
         self.hide_heartbeat_var = tk.BooleanVar(value=True)
@@ -518,6 +519,26 @@ class AnalyzerWindow:
 
     def _status(self, text):
         self.status_label.config(text=text)
+
+    # Kept by MainWindow when left rather than destroyed - see
+    # MainWindow._open_built_page.
+    def on_show(self):
+        # A filter typed just before leaving had its debounce cancelled
+        # by on_hide; apply it now. Otherwise only what arrived while
+        # hidden needs adding.
+        if self._filter_pending_on_hide:
+            self.render_full()
+        self.refresh()
+
+    def on_hide(self):
+        self._filter_pending_on_hide = self._filter_job is not None
+
+        for job in (self._refresh_job, self._filter_job):
+            if job is not None:
+                self.window.after_cancel(job)
+
+        self._refresh_job = None
+        self._filter_job = None
 
     def close(self):
         for job in (self._refresh_job, self._filter_job):

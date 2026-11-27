@@ -557,6 +557,18 @@ class CopyToWindow:
 
         return True
 
+    # Kept by MainWindow when left rather than destroyed - see
+    # MainWindow._open_built_page.
+    def on_show(self):
+        # The desk may have been reconnected, or snapshots renamed,
+        # since the page was last open.
+        self.refresh(ask_console=True)
+
+    def on_hide(self):
+        if self._names_job is not None:
+            self.window.after_cancel(self._names_job)
+            self._names_job = None
+
     def close(self):
         for job in (self._poll_job, self._names_job):
             if job is not None:

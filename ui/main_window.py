@@ -234,6 +234,48 @@ LINK_BALANCED = "balanced"
 LINK_MODES = {LINK_FAILOVER: "Fail Over", LINK_BALANCED: "Balanced"}
 
 
+class WakingQueue(queue.Queue):
+    """The command queue, plus a socket that turns readable on every put.
+
+    MixerWorker sleeps in select() on its receive socket for up to 0.1s
+    at a time and only sends what is queued once it wakes, so a fader
+    moved on the desktop or a phone could sit here for most of that
+    before reaching the console - up to 100ms whenever the desk was
+    quiet, which is what made controls feel laggy. Putting this socket
+    in the same select() wakes the worker the moment there is something
+    to send. A self-pipe rather than a Condition because the worker is
+    waiting on sockets, and select() on Windows takes nothing else.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._wake_recv, self._wake_send = socket.socketpair()
+        self._wake_recv.setblocking(False)
+        self._wake_send.setblocking(False)
+
+    def put(self, item, block=True, timeout=None):
+        super().put(item, block, timeout)
+
+        try:
+            self._wake_send.send(b"\0")
+        except OSError:
+            # Buffer full (BlockingIOError is an OSError): the worker
+            # already has wake-ups waiting, so one more adds nothing.
+            pass
+
+    def wake_socket(self):
+        return self._wake_recv
+
+    def clear_wake(self):
+        """Swallow pending wake-ups - called once the worker is awake and
+        about to drain the queue anyway."""
+        try:
+            while self._wake_recv.recv(4096):
+                pass
+        except OSError:
+            pass
+
+
 class MixerLink:
     """One OSC connection to the console: where it is, the two sockets,
     and whether it is answering. The console sees each as a device of its
@@ -776,15 +818,26 @@ class MixerWorker(threading.Thread):
     def receive_osc(self):
         socks = [link.recv_sock for link in self.links if link.recv_sock]
 
-        if len(socks) == 1:
+        # The command queue's wake socket rides along, so a queued
+        # command ends the wait at once - see WakingQueue.
+        wake_socket = getattr(self.command_queue, "wake_socket", None)
+        wake = wake_socket() if wake_socket is not None else None
+
+        if len(socks) == 1 and wake is None:
             readable = socks
         else:
             try:
-                readable, _, _ = select.select(socks, [], [], 0.1)
+                readable, _, _ = select.select(
+                    socks + ([wake] if wake is not None else []), [], [], 0.1
+                )
             except (OSError, ValueError):
                 return
 
         for sock in readable:
+            if sock is wake:
+                self.command_queue.clear_wake()
+                continue
+
             try:
                 data, sender = sock.recvfrom(65535)
             except socket.timeout:
@@ -2083,7 +2136,7 @@ class RoundSlider:
     def set(self, value):
         low, high = sorted((self.from_value, self.to_value))
         self._value = min(high, max(low, value))
-        self._redraw()
+        self._move_thumb()
 
         # Matches tk.Scale's own behavior: .set() fires the command
         # regardless of whether the caller is the user dragging or code
@@ -2105,33 +2158,56 @@ class RoundSlider:
         span = self.to_value - self.from_value
         return 0.0 if span == 0 else (self._value - self.from_value) / span
 
-    def _redraw(self):
-        self.canvas.delete("all")
+    def _thumb_centre(self):
         r = self.THUMB_RADIUS
         fraction = self._fraction()
 
         if self.orient == "vertical":
             cx = int(self.canvas["width"]) / 2
             y0, y1 = r, self.length - r
-            self.canvas.create_line(
-                cx, y0, cx, y1, width=self.TRACK_THICKNESS,
-                capstyle=tk.ROUND, fill=self._track_color
-            )
-            cy = y0 + fraction * (y1 - y0)
-            self.canvas.create_oval(
-                cx - r, cy - r, cx + r, cy + r, fill=self._thumb_color, outline=""
-            )
+            return cx, round(y0 + fraction * (y1 - y0))
+
+        cy = int(self.canvas["height"]) / 2
+        x0, x1 = r, self.length - r
+        return round(x0 + fraction * (x1 - x0)), cy
+
+    def _move_thumb(self):
+        """Slide the existing thumb rather than rebuilding the canvas.
+
+        set() runs for every mouse-move of a drag and for every echo from
+        the console, so it only moves the one item - and only when the
+        thumb actually lands on a different pixel, since any coords()
+        call, even a no-op one, makes Tk repaint the canvas.
+        """
+        centre = self._thumb_centre()
+
+        if centre == self._thumb_drawn_at:
+            return
+
+        self._thumb_drawn_at = centre
+        cx, cy = centre
+        r = self.THUMB_RADIUS
+        self.canvas.coords(self._thumb, cx - r, cy - r, cx + r, cy + r)
+
+    def _redraw(self):
+        self.canvas.delete("all")
+        r = self.THUMB_RADIUS
+
+        if self.orient == "vertical":
+            cx = int(self.canvas["width"]) / 2
+            track = (cx, r, cx, self.length - r)
         else:
             cy = int(self.canvas["height"]) / 2
-            x0, x1 = r, self.length - r
-            self.canvas.create_line(
-                x0, cy, x1, cy, width=self.TRACK_THICKNESS,
-                capstyle=tk.ROUND, fill=self._track_color
-            )
-            cx = x0 + fraction * (x1 - x0)
-            self.canvas.create_oval(
-                cx - r, cy - r, cx + r, cy + r, fill=self._thumb_color, outline=""
-            )
+            track = (r, cy, self.length - r, cy)
+
+        self.canvas.create_line(
+            *track, width=self.TRACK_THICKNESS,
+            capstyle=tk.ROUND, fill=self._track_color
+        )
+        cx, cy = self._thumb_drawn_at = self._thumb_centre()
+        self._thumb = self.canvas.create_oval(
+            cx - r, cy - r, cx + r, cy + r, fill=self._thumb_color, outline=""
+        )
 
 
 
@@ -2339,7 +2415,12 @@ class RoundButton:
 
 
 class AuxLevelsPanel:
+    # Mute colours, bank buttons and the post-snapshot resync.
     REFRESH_MS = 150
+
+    # Faders and pans following the console - see refresh_faders. The
+    # same beat as the meters, so a fader moved elsewhere glides.
+    FADER_REFRESH_MS = 33
 
     # How long to wait for /Layout/Layout/Banks replies before giving up
     # and showing every channel instead. The opening bank comes from the
@@ -2616,6 +2697,7 @@ class AuxLevelsPanel:
         self.build_ui()
 
         self.master.after(self.REFRESH_MS, self.refresh_levels)
+        self.master.after(self.FADER_REFRESH_MS, self.refresh_faders)
         self.master.after(self.METER_REFRESH_MS, self.refresh_meters)
 
     def build_ui(self):
@@ -3739,56 +3821,71 @@ class AuxLevelsPanel:
             f"/Input_Channels/{channel}/Aux_Send/{aux}/send_on {send_on}"
         )
 
-    def refresh_levels(self):
-        if self.worker is not None:
+    def refresh_faders(self):
+        """Follow the console's fader and pan values on the meter's beat.
+
+        Split out of refresh_levels, whose 150ms tick is fine for mute
+        colours and bank buttons but made a fader moved on the desk or a
+        phone step across the screen at under 7 frames a second. Cheap
+        enough to run every frame: a dict lookup per strip, and
+        RoundSlider only touches its canvas when the thumb moves a pixel.
+        """
+        if self.worker is not None and not self.meters_paused:
             aux = self.current_aux()
 
             if aux is not None:
-                for channel, slider in self.sliders.items():
-                    if channel in self.dragging:
-                        continue
+                self._sync_faders(aux)
 
-                    released_at = self.drag_released_at.get(channel)
-                    if released_at is not None and \
-                            time.monotonic() - released_at < self.DRAG_GRACE_SECONDS:
-                        continue
+        self.master.after(self.FADER_REFRESH_MS, self.refresh_faders)
 
-                    key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level"
+    def _sync_faders(self, aux):
+        for channel, slider in self.sliders.items():
+            if channel in self.dragging:
+                continue
 
-                    if key not in self.worker.cache:
-                        continue
+            released_at = self.drag_released_at.get(channel)
+            if released_at is not None and \
+                    time.monotonic() - released_at < self.DRAG_GRACE_SECONDS:
+                continue
 
-                    level = round(self.worker.cache[key][0], 2)
-                    current_level = self._fraction_to_db(slider.get())
+            key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_level"
 
-                    if abs(current_level - level) > self.LEVEL_EPSILON:
-                        self.suppress_send = True
-                        slider.set(self._db_to_fraction(level))
-                        self.suppress_send = False
+            if key not in self.worker.cache:
+                continue
 
-                for channel, pan_slider in self.pan_sliders.items():
-                    if channel in self.pan_dragging:
-                        continue
+            level = round(self.worker.cache[key][0], 2)
+            current_level = self._fraction_to_db(slider.get())
 
-                    released_at = self.pan_drag_released_at.get(channel)
-                    if released_at is not None and \
-                            time.monotonic() - released_at < self.DRAG_GRACE_SECONDS:
-                        continue
+            if abs(current_level - level) > self.LEVEL_EPSILON:
+                self.suppress_send = True
+                slider.set(self._db_to_fraction(level))
+                self.suppress_send = False
 
-                    key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan"
+        for channel, pan_slider in self.pan_sliders.items():
+            if channel in self.pan_dragging:
+                continue
 
-                    if key not in self.worker.cache:
-                        continue
+            released_at = self.pan_drag_released_at.get(channel)
+            if released_at is not None and \
+                    time.monotonic() - released_at < self.DRAG_GRACE_SECONDS:
+                continue
 
-                    wire_pan = round(self.worker.cache[key][0], 2)
-                    ui_pan = self._wire_pan_to_ui(wire_pan)
-                    current_pan = round(float(pan_slider.get()), 2)
+            key = f"/Input_Channels/{channel}/Aux_Send/{aux}/send_pan"
 
-                    if abs(current_pan - ui_pan) > self.LEVEL_EPSILON:
-                        self.suppress_send = True
-                        pan_slider.set(ui_pan)
-                        self.suppress_send = False
+            if key not in self.worker.cache:
+                continue
 
+            wire_pan = round(self.worker.cache[key][0], 2)
+            ui_pan = self._wire_pan_to_ui(wire_pan)
+            current_pan = round(float(pan_slider.get()), 2)
+
+            if abs(current_pan - ui_pan) > self.LEVEL_EPSILON:
+                self.suppress_send = True
+                pan_slider.set(ui_pan)
+                self.suppress_send = False
+
+    def refresh_levels(self):
+        if self.worker is not None:
             for channel, button in self.mute_buttons.items():
                 bg, fg = self._mute_button_colors(
                     channel, self._is_muted(channel)
@@ -3921,7 +4018,7 @@ class MainWindow:
         # demand, and this survives it.
         self.latest_update = None
 
-        self.command_queue = queue.Queue()
+        self.command_queue = WakingQueue()
         self.message_queue = queue.Queue()
 
         # Open SOS windows by account, so a repeat SOS updates the one
@@ -4824,6 +4921,9 @@ class MainWindow:
         # None for the persistent ones above, which are only hidden.
         self._page = None
         self._slide_job = None
+        # Built pages kept after they are left, by title - see
+        # _open_built_page.
+        self._page_cache = {}
 
     # Page slide: total duration, and how many frames it aims to draw.
     # Paced by the clock, not by counting frames: each frame repaints
@@ -4906,11 +5006,32 @@ class MainWindow:
         }
 
     def _open_built_page(self, title):
+        """Open one of the _built_pages, reusing it if it was kept.
+
+        A page whose owner has on_show() is kept (hidden) when left
+        rather than destroyed, and shown again next time. Building is
+        cheap; it is Tk's first layout of a fresh page - its Treeview
+        above all - that took 50-150ms and held the slide back before it
+        started. on_show() brings a kept page up to date; on_hide(), if
+        it has one, stops its timers while it is out of sight. Pages
+        without on_show() are built afresh every time, as before.
+        """
         build, fill, attribute = self._built_pages()[title]
+        cached = self._page_cache.pop(title, None)
+
+        if cached is not None and cached.window.winfo_exists():
+            def build(_host, owner=cached):
+                owner.on_show()
+                return owner
+
         page = self._open_page(title, build=build, fill=fill)
 
         if page is not None:
             setattr(self, attribute, page)
+        elif cached is not None and cached.window.winfo_exists():
+            # The open did not happen (a slide under way, or the current
+            # page refused to close) - keep the page for next time.
+            self._page_cache[title] = cached
 
     def _largest_page_size(self):
         """The width and height the biggest page asks for.
@@ -5017,9 +5138,16 @@ class MainWindow:
             if confirm and not getattr(owner, "confirm_close", lambda: True)():
                 return False
 
-            # close() where the page has one - it cancels its own after()
-            # jobs, which would otherwise fire against a destroyed widget.
-            getattr(owner, "close", frame.destroy)()
+            if hasattr(owner, "on_show"):
+                # Kept for next time - see _open_built_page.
+                getattr(owner, "on_hide", lambda: None)()
+                frame.pack_forget()
+                self._page_cache[title] = owner
+            else:
+                # close() where the page has one - it cancels its own
+                # after() jobs, which would otherwise fire against a
+                # destroyed widget.
+                getattr(owner, "close", frame.destroy)()
 
         self._page = None
         return True

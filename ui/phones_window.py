@@ -208,6 +208,16 @@ class PhonesWindow:
     def _schedule_refresh(self):
         self._refresh_job = self.window.after(REFRESH_MS, self.refresh_list)
 
+    # Kept by MainWindow when left rather than destroyed - see
+    # MainWindow._open_built_page.
+    def on_show(self):
+        self.refresh_list()
+
+    def on_hide(self):
+        if self._refresh_job is not None:
+            self.window.after_cancel(self._refresh_job)
+            self._refresh_job = None
+
     def close(self):
         # Cancelled explicitly: an after() job that fires against a
         # destroyed window raises out of the Tk callback rather than

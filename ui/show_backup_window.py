@@ -503,6 +503,11 @@ class ShowBackupWindow:
 
         return True
 
+    # Kept by MainWindow when left rather than destroyed - see
+    # MainWindow._open_built_page.
+    def on_show(self):
+        self.refresh_list()
+
     def close(self):
         if self._poll_job is not None:
             self.window.after_cancel(self._poll_job)

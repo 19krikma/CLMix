@@ -1,5 +1,6 @@
 import atexit
 import itertools
+import os
 import threading
 import time
 from collections import deque
@@ -251,9 +252,17 @@ log_store = LogStore()
 atexit.register(log_store.flush)
 
 
+# Echo debug lines to the terminal too. Off by default: every OSC
+# message in and out is logged at debug, and printing each one to a
+# Windows console is slow enough to cost the UI frames under traffic.
+# They still reach the Logs page and the log file either way.
+ECHO_DEBUG = bool(os.environ.get("CLMIX_DEBUG_CONSOLE"))
+
+
 def log(level, message):
     try:
-        print(f"[{level}] {message}")
+        if level != "debug" or ECHO_DEBUG:
+            print(f"[{level}] {message}")
     except (AttributeError, OSError, ValueError):
         # No usable stdout - e.g. a windowed (console=False) PyInstaller
         # build, where sys.stdout is None and print() would otherwise
