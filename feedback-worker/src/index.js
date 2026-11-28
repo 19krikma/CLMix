@@ -115,6 +115,13 @@ export default {
     const invalid = validate(payload);
     if (invalid) return reply(400, { error: invalid });
 
+    // Names only, never values.
+    const missing = ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPOSITORY"].filter((k) => !env[k]);
+    if (missing.length) {
+      console.log(`Missing Worker secrets: ${missing.join(", ")}`);
+      return reply(503, { error: "feedback service not configured" });
+    }
+
     // One limiter object per install id, holding its recent sends and the
     // ids it has filed; another per (hashed) address.
     const install = env.LIMITER.get(env.LIMITER.idFromName("install:" + payload.installId.toLowerCase()));
@@ -157,7 +164,9 @@ export default {
 
     if (!github.ok) {
       // Status only: GitHub's error body can echo the request.
-      console.log(`GitHub issue create failed: HTTP ${github.status}`);
+      // 401 bad token, 403 token lacks Issues: write on this repo,
+      // 404 owner/repository wrong or the token can't see it.
+      console.log(`GitHub issue create failed: HTTP ${github.status} for ${env.GITHUB_OWNER}/${env.GITHUB_REPOSITORY}`);
       await install.refund();
       return reply(502, { error: "could not file feedback" });
     }

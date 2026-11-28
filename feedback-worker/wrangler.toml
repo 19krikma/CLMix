@@ -6,6 +6,10 @@ compatibility_date = "2025-09-01"
 # any that aren't listed in this file.
 keep_vars = true
 
+# Logs (console.log) viewable in the dashboard under the Worker's Logs tab.
+[observability]
+enabled = true
+
 # Per-install and per-address rate limits, and the ids already filed.
 [[durable_objects.bindings]]
 name = "LIMITER"
