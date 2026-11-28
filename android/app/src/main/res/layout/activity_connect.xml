@@ -15,6 +15,16 @@
         android:layout_height="match_parent"
         android:importantForAccessibility="no" />
 
+    <!-- A tablet's wallpaper instead: the artwork beside the form panel
+         rather than behind the form. ConnectActivity.applyLayoutMode
+         swaps the two, and sizes and places form_scroll as the panel. -->
+    <com.clmix.LoginWideBackgroundView
+        android:id="@+id/login_wide_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
     <ScrollView
         android:id="@+id/form_scroll"
         android:layout_width="match_parent"
@@ -38,6 +48,34 @@
         android:paddingStart="28dp"
         android:paddingEnd="28dp"
         android:paddingBottom="28dp">
+
+        <!-- The tablet panel's heading. Gone on a phone, where the
+             artwork above the form does that job. -->
+        <LinearLayout
+            android:id="@+id/panel_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="28dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Connect"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="30sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Pick your CLMix desktop and sign in."
+                android:textColor="@color/on_surface_variant"
+                android:textSize="15sp" />
+
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/discovered_container"

@@ -39,6 +39,7 @@ import androidx.core.view.doOnNextLayout
 import com.clmix.databinding.ActivityConnectBinding
 import com.google.android.material.button.MaterialButton
 import kotlin.math.max
+import kotlin.math.min
 
 class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryListener {
     private lateinit var binding: ActivityConnectBinding
@@ -147,6 +148,121 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         )
     }
 
+    /**
+     * Where the form goes. A phone has it over the artwork, under the strip
+     * of lights (LoginBackgroundView). A tablet gives it a frosted panel of
+     * its own beside the artwork (LoginWideBackgroundView), as the iPad
+     * does: down the right on its side, which is how tablets are held (see
+     * TabletLandscape), or along the bottom should one end up upright.
+     */
+    private enum class LoginLayout { PHONE, SIDE, BOTTOM }
+
+    private var layoutMode = LoginLayout.PHONE
+    private var panelSizePx = 0
+
+    // The content's own padding from the layout, and the system bars as of
+    // the last insets pass - what every layout's padding is built from.
+    private val contentBasePadding = Rect()
+    private val lastBars = Rect()
+
+    private fun layoutModeFor(width: Int, height: Int): LoginLayout = when {
+        !isLargeScreen() -> LoginLayout.PHONE
+        width >= height -> LoginLayout.SIDE
+        else -> LoginLayout.BOTTOM
+    }
+
+    /** The form's padding in the current layout: under the lights on a
+     *  phone, or set in from the panel's edges on a tablet - where an
+     *  upright tablet's bottom panel also holds the form to a column
+     *  rather than stretching the fields across the whole screen. */
+    private fun expectedContentPadding(): Rect = when (layoutMode) {
+        LoginLayout.PHONE -> Rect(
+            contentBasePadding.left + lastBars.left,
+            contentBasePadding.top + contentTopFor(binding.loginBackground.height),
+            contentBasePadding.right + lastBars.right,
+            contentBasePadding.bottom + lastBars.bottom
+        )
+        LoginLayout.SIDE -> Rect(
+            dpToPx(PANEL_PADDING_H_DP),
+            dpToPx(PANEL_PADDING_V_DP) + lastBars.top,
+            dpToPx(PANEL_PADDING_H_DP) + lastBars.right,
+            dpToPx(PANEL_PADDING_V_DP) + lastBars.bottom
+        )
+        LoginLayout.BOTTOM -> {
+            val side = max(
+                dpToPx(PANEL_PADDING_H_DP),
+                (binding.root.width - dpToPx(PANEL_FORM_MAX_WIDTH_DP)) / 2
+            )
+            Rect(
+                side + lastBars.left,
+                dpToPx(PANEL_PADDING_H_DP),
+                side + lastBars.right,
+                dpToPx(PANEL_PADDING_H_DP) + lastBars.bottom
+            )
+        }
+    }
+
+    /** Puts the form where [layoutModeFor] says for a window of [width] x
+     *  [height]. A no-op when nothing would change, so it is safe to call
+     *  on every layout. */
+    private fun applyLayoutMode(width: Int, height: Int) {
+        val mode = layoutModeFor(width, height)
+        val panel = when (mode) {
+            LoginLayout.PHONE -> 0
+            // About a third of the width, held between a large phone's
+            // width and a little more - the iPad's numbers.
+            LoginLayout.SIDE ->
+                (width * 0.34f).toInt().coerceIn(dpToPx(400), dpToPx(480))
+            // Enough for the whole form on most screens, leaving the
+            // artwork at least the top of the screen.
+            LoginLayout.BOTTOM -> {
+                val low = min(dpToPx(560), height)
+                (height * 0.56f).toInt().coerceIn(low, max(low, height - dpToPx(200)))
+            }
+        }
+        if (mode == layoutMode && panel == panelSizePx) return
+        layoutMode = mode
+        panelSizePx = panel
+
+        val phone = mode == LoginLayout.PHONE
+        binding.loginBackground.visibility = if (phone) View.VISIBLE else View.GONE
+        binding.loginWideBackground.visibility = if (phone) View.GONE else View.VISIBLE
+        binding.loginWideBackground.setPanel(panel, mode == LoginLayout.BOTTOM)
+        binding.panelHeader.visibility = if (phone) View.GONE else View.VISIBLE
+
+        val lp = binding.formScroll.layoutParams as FrameLayout.LayoutParams
+        when (mode) {
+            LoginLayout.PHONE -> {
+                lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.gravity = Gravity.TOP or Gravity.START
+            }
+            LoginLayout.SIDE -> {
+                lp.width = panel
+                lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.gravity = Gravity.END
+            }
+            LoginLayout.BOTTOM -> {
+                lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.height = panel
+                lp.gravity = Gravity.BOTTOM
+            }
+        }
+        binding.formScroll.layoutParams = lp
+        binding.formScroll.background = if (phone) null else LoginPanelDrawable(
+            ContextCompat.getColor(this, R.color.login_outline),
+            edgeAtTop = mode == LoginLayout.BOTTOM,
+            hairlinePx = max(1f, resources.displayMetrics.density)
+        )
+        // Centred top to bottom in the panel, as on the iPad. Never on a
+        // phone, where it would fight the fixed top - see the layout.
+        binding.content.gravity = if (phone) Gravity.NO_GRAVITY else Gravity.CENTER_VERTICAL
+
+        val padding = expectedContentPadding()
+        binding.content.setPadding(padding.left, padding.top, padding.right, padding.bottom)
+        binding.content.requestLayout()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -167,21 +283,29 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // applied here, because the banner is what actually sits under the
         // status bar.
         val scrollBasePaddingBottom = binding.formScroll.paddingBottom
-        val contentBasePadding = Rect(
+        contentBasePadding.set(
             binding.content.paddingLeft, binding.content.paddingTop,
             binding.content.paddingRight, binding.content.paddingBottom
         )
+        // Straight away, off the window's size, so a tablet doesn't open
+        // on a frame of the phone layout; the root's listener below keeps
+        // it right through rotations and resizes.
+        resources.displayMetrics.let { applyLayoutMode(it.widthPixels, it.heightPixels) }
+        binding.root.addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
+            val mode = layoutModeFor(right - left, bottom - top)
+            if (mode != layoutMode || mode != LoginLayout.PHONE) {
+                // Posted: a relayout asked for inside a layout pass is dropped.
+                view.post { applyLayoutMode(view.width, view.height) }
+            }
+        }
         ViewCompat.setOnApplyWindowInsetsListener(binding.content) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             statusBarInset = bars.top
+            lastBars.set(bars.left, bars.top, bars.right, bars.bottom)
 
-            view.setPadding(
-                contentBasePadding.left + bars.left,
-                contentBasePadding.top + contentTopFor(binding.loginBackground.height),
-                contentBasePadding.right + bars.right,
-                contentBasePadding.bottom + bars.bottom
-            )
+            val padding = expectedContentPadding()
+            view.setPadding(padding.left, padding.top, padding.right, padding.bottom)
 
             // The floating controls are a child of the window-sized root,
             // so nothing else has moved them clear of the gesture strip.
@@ -243,22 +367,27 @@ class ConnectActivity : AppCompatActivity(), MixerClientListener, MdnsDiscoveryL
         // clips to its padding, turning landscape -> portrait cut the top
         // ~200px off Discovered until something else happened to relayout.
         binding.content.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
-            val expectedTop =
-                contentBasePadding.top + contentTopFor(binding.loginBackground.height)
-            // Discovered is the first child with no margin, so once laid out
-            // its top is the padding - if not, the padding moved without a
-            // relayout and the boxes are sitting where the old value was.
-            val stale = view.paddingTop != expectedTop ||
-                (binding.discoveredContainer.visibility == View.VISIBLE &&
+            val expected = expectedContentPadding()
+            // On a phone Discovered is the first child with no margin, so
+            // once laid out its top is the padding - if not, the padding
+            // moved without a relayout and the boxes are sitting where the
+            // old value was. (On a tablet the panel's heading is above it,
+            // and the form is centred, so only the padding is checked.)
+            val stale = view.paddingTop != expected.top ||
+                view.paddingLeft != expected.left ||
+                view.paddingRight != expected.right ||
+                view.paddingBottom != expected.bottom ||
+                (layoutMode == LoginLayout.PHONE &&
+                    binding.discoveredContainer.visibility == View.VISIBLE &&
                     binding.discoveredContainer.top != view.paddingTop)
             if (stale) {
                 view.post {
-                    val top = contentBasePadding.top +
-                        contentTopFor(binding.loginBackground.height)
-                    view.setPadding(view.paddingLeft, top, view.paddingRight, view.paddingBottom)
+                    val e = expectedContentPadding()
+                    view.setPadding(e.left, e.top, e.right, e.bottom)
                     view.requestLayout()
                 }
             }
+            if (layoutMode != LoginLayout.PHONE) return@addOnLayoutChangeListener
             // The band is pinned to the box it sits behind rather than to any
             // fixed height. Discovered's top is already in the background's
             // own coordinates: content and wallpaper share a parent, the
@@ -1124,3 +1253,9 @@ private const val FIELD_SCROLL_MARGIN_PX = 48
 private const val LABEL_LOGIN = "Login"
     }
 }
+
+// The tablet form panel's insets, as on the iPad, and the widest the form
+// is let grow in an upright tablet's full-width bottom panel.
+private const val PANEL_PADDING_H_DP = 40
+private const val PANEL_PADDING_V_DP = 48
+private const val PANEL_FORM_MAX_WIDTH_DP = 480
