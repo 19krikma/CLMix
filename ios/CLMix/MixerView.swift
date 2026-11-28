@@ -26,6 +26,7 @@ struct MixerView: View {
     @State private var showPresetLoad = false
     @State private var showChat = false
     @State private var showProfile = false
+    @State private var showFeedback = false
 
     // Bank edit mode (the pencil under the bank grid). Only ever on for
     // an account holding personalization. While on, the grid ends in a
@@ -121,6 +122,9 @@ struct MixerView: View {
         }
         .sheet(isPresented: $showChat) {
             ChatView()
+        }
+        .sheet(isPresented: $showFeedback) {
+            FeedbackView()
         }
         // Slides up over the strips, which change behind it as channels
         // are ticked.
@@ -916,6 +920,15 @@ struct MixerView: View {
                     .padding(.top, 8)
                 }
             }
+
+            // Anonymous feedback to the developer - see FeedbackView.
+            // Needs no mixer server, so it is open to every account.
+            tonalButton("Feedback") {
+                dismissMenu()
+                showFeedback = true
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
 
             // Log Out ends the session outright. On its own at the bottom,
             // well away from Channels and AUX at the top, which only move

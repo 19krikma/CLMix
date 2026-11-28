@@ -67,14 +67,14 @@ runs it. This is an anonymous public download, started only by you, and it
 sends nothing about you or your installation. Nothing is ever downloaded or
 installed without you pressing that button.
 
-**Feedback (Android app).** If you choose to send feedback from the app's
+**Feedback (Android and iOS apps).** If you choose to send feedback from the app's
 Feedback screen, the app sends:
 
 - Your feedback message and the category you picked
-- The app's version and platform (e.g. "Android")
+- The app's version and platform (e.g. "Android" or "iOS")
 - An anonymous installation identifier
 - Diagnostic information, only if you tick "Include diagnostics": the app
-  and Android versions, the device's make and model, the screen size, and
+  and operating-system versions, the device's make and model, the screen size, and
   whether the app was connected to your server. The screen shows exactly
   what will be sent before you send it.
 

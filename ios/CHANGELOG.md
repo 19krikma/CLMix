@@ -9,6 +9,20 @@ brand and model.** Release notes are App Store metadata, and both are
 ruled out there — see `ios/APP_STORE_LISTING.md` for which guidelines and
 why. Write entries so they can be pasted straight into What's New.
 
+## 1.19.0
+
+- **Feedback.** A new Feedback button in the side menu sends a bug
+  report, feature request or other feedback straight to the developer.
+  It's anonymous: no name, account or device id is sent, and diagnostics
+  go only if you turn them on, which shows exactly what they are. It
+  works without the mixer server, and with no internet it keeps your
+  feedback and sends it once you're back online.
+- **iPad stays in landscape.** Turning the iPad upright no longer
+  shrinks CLMix into the middle of the screen; it still turns with the
+  iPad from one landscape side to the other.
+- **New iPad login screen**, with the artwork beside a frosted Connect
+  panel.
+
 ## 1.18.1
 
 - **Channel setup fits in landscape.** The sheet with gain, trim and

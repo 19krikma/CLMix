@@ -27,6 +27,7 @@ struct MixerControlView: View {
     @State private var showMenu = false
     @State private var showProfile = false
     @State private var showChat = false
+    @State private var showFeedback = false
     // Which channel's input stage is open, by number rather than by
     // value: the sheet has to read the live channel off the model on
     // every push, not a copy captured when it was opened.
@@ -71,6 +72,7 @@ struct MixerControlView: View {
         .sheet(isPresented: $showMenu) { menuSheet }
         .sheet(isPresented: $showProfile) { ProfileView() }
         .sheet(isPresented: $showChat) { ChatView() }
+        .sheet(isPresented: $showFeedback) { FeedbackView() }
         .sheet(item: $openInput) { open in inputSheet(for: open.id) }
         .sheet(item: $openInsert) { open in insertSheet(for: open.channel, slot: open.slot) }
         .alert(
@@ -606,6 +608,24 @@ struct MixerControlView: View {
                 openChat()
             } label: {
                 Text("Chat")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .foregroundStyle(Color.clmixOnMuteInactive)
+            .background(Color.clmixMuteInactive)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+
+            // Anonymous feedback to the developer - see FeedbackView.
+            // Needs no mixer server, so it is open to every account.
+            Button {
+                dismissMenu()
+                openInput = nil
+                openInsert = nil
+                showFeedback = true
+            } label: {
+                Text("Feedback")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
             }

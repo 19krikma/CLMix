@@ -70,6 +70,8 @@ struct CLMixApp: App {
             .onAppear { AppDelegate.holdLandscapeIfLargeScreen(reason: "appeared") }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { AppDelegate.holdLandscapeIfLargeScreen(reason: "active") }
+                // Sends any feedback still waiting - see FeedbackQueue.
+                if phase == .active { Task { await FeedbackQueue.shared.start() } }
             }
         }
     }
