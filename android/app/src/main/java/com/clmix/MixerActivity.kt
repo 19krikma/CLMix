@@ -433,6 +433,12 @@ class MixerActivity : AppCompatActivity(), MixerClientListener {
 
         binding.logoutButton.setOnClickListener { logout() }
 
+        binding.feedbackButton.setOnClickListener {
+            closeMenu()
+            dismissPanSheet()
+            startActivity(Intent(this, FeedbackActivity::class.java))
+        }
+
         profileHeader = ProfileHeader(binding.profileHeader) {
             closeMenu()
             dismissPanSheet()

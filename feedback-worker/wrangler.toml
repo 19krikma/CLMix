@@ -1,0 +1,27 @@
+# clmix-feedback - see README.md for setup.
+name = "clmix"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+# Keep variables set in the dashboard: a deploy would otherwise remove
+# any that aren't listed in this file.
+keep_vars = true
+
+# Per-install and per-address rate limits, and the ids already filed.
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "FeedbackLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FeedbackLimiter"]
+
+# Served on https://clmix.<your-subdomain>.workers.dev by default.
+# To use your own domain instead (it must be on Cloudflare), uncomment:
+# routes = [
+#   { pattern = "feedback.example.com", custom_domain = true }
+# ]
+
+# Secrets, set with `npx wrangler secret put <NAME>` - never in this file:
+#   GITHUB_TOKEN       fine-grained PAT, Issues: read & write on one repo
+#   GITHUB_OWNER       e.g. 19krikma
+#   GITHUB_REPOSITORY  e.g. CLMix

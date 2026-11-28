@@ -3,6 +3,15 @@
 Versions here are the phone app's own (`android/version.properties`), which
 moves independently of the desktop app's `version.py`.
 
+## 2.24.0
+
+- **Feedback.** A new Feedback button in the side menu sends a bug
+  report, feature request or other feedback straight to the developer.
+  It's anonymous: no name, account or device id is sent, and diagnostics
+  go only if you tick the box, which shows exactly what they are. It
+  works without the mixer server, and with no internet it keeps your
+  feedback and sends it once you're back online.
+
 ## 2.23.1
 
 - **Channel setup fits in landscape.** The sheet with gain, trim and

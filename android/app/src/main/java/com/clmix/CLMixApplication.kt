@@ -15,5 +15,6 @@ class CLMixApplication : Application() {
         registerActivityLifecycleCallbacks(SosAlerts)
         Sos.init(this)
         Chat.init(this)
+        Feedback.init(this)
     }
 }

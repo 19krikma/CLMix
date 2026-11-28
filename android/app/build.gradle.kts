@@ -36,6 +36,13 @@ android {
         targetSdk = 36
         versionCode = verMajor * 10000 + verMinor * 100 + verPatch
         versionName = "$verMajor.$verMinor.$verPatch"
+
+        // Where the Feedback screen posts to: the clmix-feedback Worker
+        // (feedback-worker/ at the repo root). Set clmix.feedbackUrl in
+        // gradle.properties. Left empty, feedback is kept on the phone
+        // and sent by the first build that has it.
+        val feedbackUrl = (project.findProperty("clmix.feedbackUrl") as String?).orEmpty()
+        buildConfigField("String", "FEEDBACK_URL", "\"$feedbackUrl\"")
     }
 
     signingConfigs {
@@ -65,6 +72,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -96,6 +104,8 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.drawerlayout:drawerlayout:1.2.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Sends queued feedback once there is internet - see Feedback.kt.
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     // Keystore-backed encryption at rest for the persisted session token.
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

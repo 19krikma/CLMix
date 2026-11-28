@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **App:** CLMix
-**Effective date:** September 11, 2026
+**Effective date:** November 27, 2026
 
 CLMix ("the app", "we", "our") is a remote-control client for a digital
 audio mixing console. This policy explains what information CLMix
@@ -12,8 +12,9 @@ desktop clients.
 
 CLMix has no backend server operated by the developer. Each installation
 connects only to a mixer control server that you (or your organization) run
-yourselves, over your own local network. We do not operate any server that
-receives, stores, or processes your data.
+yourselves, over your own local network. The one exception is feedback you
+choose to send from the app (see "Feedback" below), which goes to a small
+service the developer runs for that purpose only.
 
 ## Information We Access or Collect
 
@@ -66,6 +67,32 @@ runs it. This is an anonymous public download, started only by you, and it
 sends nothing about you or your installation. Nothing is ever downloaded or
 installed without you pressing that button.
 
+**Feedback (Android app).** If you choose to send feedback from the app's
+Feedback screen, the app sends:
+
+- Your feedback message and the category you picked
+- The app's version and platform (e.g. "Android")
+- An anonymous installation identifier
+- Diagnostic information, only if you tick "Include diagnostics": the app
+  and Android versions, the device's make and model, the screen size, and
+  whether the app was connected to your server. The screen shows exactly
+  what will be sent before you send it.
+
+The anonymous installation identifier is a random number made when the app
+is first opened. It is not derived from your device, account, or any other
+identifier, is sent only with feedback, and is used only to group reports
+from the same installation and to limit how many can be sent in a day.
+Your name, username, password and mixer data are never included.
+
+If you are offline, the feedback is kept on your device and sent
+automatically once you are back online. It is sent over HTTPS to a
+Cloudflare Worker run by the developer, which files it as an issue in the
+CLMix project on GitHub, where it may be publicly visible. To limit abuse,
+the service keeps a count of recent submissions per installation identifier
+and per IP address (stored only as a one-way hash), for 24 hours, and the
+submission's random id for 30 days, so that a resend is not filed twice. It
+does not store your message itself; GitHub does, as the issue.
+
 ## What We Do Not Collect
 
 CLMix does not access, collect, or share:
@@ -78,14 +105,17 @@ CLMix does not access, collect, or share:
 - Messages, browsing history, or installed-app lists
 - Device identifiers (e.g. the iOS advertising identifier (IDFA) or
   identifier for vendor (IDFV), or the Android advertising ID or Android ID)
-- Crash logs, diagnostics, or analytics of any kind
+- Crash logs or analytics of any kind, or diagnostics other than those you
+  choose to include with feedback
 
 ## Third Parties
 
 CLMix does not use any analytics, advertising, or crash-reporting SDKs, and
-does not share data with any third party. The Android and iOS apps make no
-outside network requests whatsoever - they talk only to your own mixer
-control server on your local network. On the Windows desktop app, the only
+does not sell or share data for advertising. The Android and iOS apps talk
+only to your own mixer control server on your local network, except that
+feedback you choose to send goes to the developer's Cloudflare Worker and
+on to GitHub, as described above. Cloudflare and GitHub process it under
+their own privacy policies. On the Windows desktop app, the only
 outside requests are the anonymous GitHub version check and, if you ask for
 it, the update download described above.
 
@@ -107,6 +137,9 @@ it, the update download described above.
 - An administrator can delete a remote-access account at any time from the
   desktop app's Access management screen.
 - Desktop activity logs are automatically deleted after 30 days.
+- Feedback waiting to be sent is removed from your device once it has been
+  sent, or when the app is uninstalled. To have a feedback issue removed
+  from GitHub, contact us with its text or installation identifier.
 
 ## Children's Privacy
 

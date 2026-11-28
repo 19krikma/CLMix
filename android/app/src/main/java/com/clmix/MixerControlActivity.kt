@@ -211,6 +211,13 @@ class MixerControlActivity : AppCompatActivity(), MixerClientListener {
 
         binding.logoutButton.setOnClickListener { logout() }
 
+        binding.feedbackButton.setOnClickListener {
+            closeMenu()
+            dismissPanSheet()
+            dismissInputSheet()
+            startActivity(Intent(this, FeedbackActivity::class.java))
+        }
+
         // Chat, from the menu or - with the phone on its side - the sidebar.
         binding.chatButton.setOnClickListener { openChat() }
         binding.sidebarChatButton.setOnClickListener { openChat() }

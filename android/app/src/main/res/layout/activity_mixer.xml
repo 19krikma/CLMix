@@ -665,6 +665,20 @@
 
         </LinearLayout>
 
+        <!-- Anonymous feedback to the developer - see FeedbackActivity.
+             Needs no mixer server, so it is open to every account. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/feedback_button"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="14dp"
+            android:layout_marginTop="10dp"
+            android:text="Feedback"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/mute_inactive"
+            android:textColor="@color/on_mute_inactive" />
+
         <!-- Log Out ends the session outright. On its own at the bottom,
              well away from Channels and AUX at the top, which only move
              between screens. -->
