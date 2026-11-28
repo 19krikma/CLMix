@@ -75,62 +75,14 @@ struct ConnectView: View {
 
     var body: some View {
         GeometryReader { outerGeo in
-            // The artwork fills the screen rather than heading it, so
-            // what this reserves is not room for a picture above the
-            // form but the strip of picture the form deliberately stays
-            // off: the hanging lights across the top. The same number
-            // goes to the background, which starts its frost just above
-            // it - see LoginBackgroundView.
-            let contentTopPadding = outerGeo.size.height
-                * LoginBackgroundView.contentTopFraction
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    discoveredBox
-                        .padding(.bottom, 18)
-
-                    demoBox
-                        .padding(.bottom, 18)
-
-                    // Sits immediately above the credentials it refers to,
-                    // rather than below the button - mirrors Android's
-                    // message_label moving there in ConnectActivity.
-                    if !model.statusMessage.isEmpty {
-                        Text(model.statusMessage)
-                            .font(.system(size: 14))
-                            .foregroundStyle(model.statusIsError ? Color.clmixMuteActive : Color.secondary)
-                            .padding(.bottom, 12)
-                    }
-
-                    credentialField(
-                        "Username", text: $username, isSecure: false, field: .username
-                    )
-                    .padding(.bottom, 14)
-                    credentialField(
-                        "Password", text: $password, isSecure: true, field: .password
-                    )
-                    .padding(.bottom, 24)
-
-                    loginButton
-                }
-                .padding(.horizontal, 28)
-                .padding(.top, contentTopPadding)
-                .padding(.bottom, 28)
-                .frame(maxWidth: .infinity)
-            }
-            // Behind the ScrollView rather than behind its content, so
-            // the frosted band stays put while the form scrolls through
-            // it - it marks where the controls are on screen, not where
-            // they are in the scrolling content.
-            .background {
-                LoginBackgroundView(bandTop: contentTopPadding)
-                    .ignoresSafeArea()
-            }
-            // Over the form rather than in it, so it keeps its corner
-            // whatever the form is doing above it.
-            .overlay(alignment: .bottomTrailing) {
-                permissionsButton
-                    .padding(20)
+            // An iPad is landscape at all times (AppDelegate), and there
+            // the form moves to a panel down the right while the artwork
+            // has the rest of the screen - see sideLayout. The upright
+            // check is only a guard for the moment before the turn.
+            if LargeScreen.isActive && outerGeo.size.width > outerGeo.size.height {
+                sideLayout(size: outerGeo.size)
+            } else {
+                phoneLayout(size: outerGeo.size)
             }
         }
         // The artwork runs to the very top of the screen, under the
@@ -168,6 +120,124 @@ struct ConnectView: View {
                 scanning = false
                 if model.discoveredServers.isEmpty { scanCameBackEmpty = true }
             }
+        }
+    }
+
+    /// The form itself, the same on every layout - only where it sits and
+    /// what is behind it change.
+    private var formContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            discoveredBox
+                .padding(.bottom, 18)
+
+            demoBox
+                .padding(.bottom, 18)
+
+            // Sits immediately above the credentials it refers to,
+            // rather than below the button - mirrors Android's
+            // message_label moving there in ConnectActivity.
+            if !model.statusMessage.isEmpty {
+                Text(model.statusMessage)
+                    .font(.system(size: 14))
+                    .foregroundStyle(model.statusIsError ? Color.clmixMuteActive : Color.secondary)
+                    .padding(.bottom, 12)
+            }
+
+            credentialField(
+                "Username", text: $username, isSecure: false, field: .username
+            )
+            .padding(.bottom, 14)
+            credentialField(
+                "Password", text: $password, isSecure: true, field: .password
+            )
+            .padding(.bottom, 24)
+
+            loginButton
+        }
+    }
+
+    private func phoneLayout(size: CGSize) -> some View {
+        // The artwork fills the screen rather than heading it, so
+        // what this reserves is not room for a picture above the
+        // form but the strip of picture the form deliberately stays
+        // off: the hanging lights across the top. The same number
+        // goes to the background, which starts its frost just above
+        // it - see LoginBackgroundView.
+        let contentTopPadding = size.height * LoginBackgroundView.contentTopFraction
+
+        return ScrollView {
+            formContent
+                .padding(.horizontal, 28)
+                .padding(.top, contentTopPadding)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity)
+        }
+        // Behind the ScrollView rather than behind its content, so
+        // the frosted band stays put while the form scrolls through
+        // it - it marks where the controls are on screen, not where
+        // they are in the scrolling content.
+        .background {
+            LoginBackgroundView(bandTop: contentTopPadding)
+                .ignoresSafeArea()
+        }
+        // Over the form rather than in it, so it keeps its corner
+        // whatever the form is doing above it.
+        .overlay(alignment: .bottomTrailing) {
+            permissionsButton
+                .padding(20)
+        }
+    }
+
+    /// Width of the iPad's form panel: about a third of the screen, held
+    /// between a large phone's width and a little more, so the fields
+    /// never stretch into bars and the artwork keeps the larger share.
+    static func sidePanelWidth(for size: CGSize) -> CGFloat {
+        min(max(size.width * 0.34, 400), 480)
+    }
+
+    /// An iPad on its side: the artwork - lights and logo - across the
+    /// left of the screen, the form in a frosted panel down the right,
+    /// centred top to bottom. Putting the form over the middle of the
+    /// picture the way the phone does would leave it a narrow strip in a
+    /// wide screen with the logo hidden behind it.
+    private func sideLayout(size: CGSize) -> some View {
+        let panelWidth = Self.sidePanelWidth(for: size)
+
+        return HStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Connect")
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundStyle(Color.clmixOnSurface)
+                        Text("Pick your CLMix desktop and sign in.")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Color.clmixOnSurfaceVariant)
+                    }
+                    .padding(.bottom, 28)
+
+                    formContent
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 48)
+                .frame(maxWidth: .infinity, minHeight: size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(width: panelWidth)
+            .background {
+                LoginSidePanelBackground()
+                    .ignoresSafeArea()
+            }
+        }
+        .background {
+            LoginWideBackgroundView(panelWidth: panelWidth)
+                .ignoresSafeArea()
+        }
+        .overlay(alignment: .bottomTrailing) {
+            permissionsButton
+                .padding(24)
         }
     }
 

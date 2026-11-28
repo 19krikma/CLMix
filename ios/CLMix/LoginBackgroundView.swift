@@ -201,3 +201,111 @@ struct LoginBackgroundView: View {
         return t * t * (3 - 2 * t)
     }
 }
+
+/// The connect screen's wallpaper on an iPad on its side, behind
+/// ConnectView's side layout: the artwork across the left of the screen,
+/// framed on the lights and the logo, running out under the form panel
+/// as a blurred, darkened copy of itself - so the whole screen is
+/// picture, with no bars and no hard edge.
+///
+/// The artwork is cut for a phone held upright. Filled across the whole
+/// of a landscape screen it would be cropped to a strip a third of its
+/// height, with the logo blown up past the edges; filled across the
+/// part left of the panel instead, it keeps the logo whole and most of
+/// the lights above it.
+struct LoginWideBackgroundView: View {
+    /// The form panel's width, at the right of the screen.
+    let panelWidth: CGFloat
+
+    private static let imageName = "clmix_login_background_dark"
+
+    /// The artwork's size as cut, read off the asset so a replacement
+    /// image cannot leave it behind; the fallback is the current one's.
+    private static let artSize: CGSize = {
+        if let size = UIImage(named: imageName)?.size, size.width > 0, size.height > 0 {
+            return size
+        }
+        return CGSize(width: 852, height: 1846)
+    }()
+
+    /// Where in the artwork, top to bottom, the crop is centred: just
+    /// above the logo, so the lights above it get the room the floor
+    /// below it gives up.
+    private static let focusY: CGFloat = 0.45
+
+    /// How far the sharp artwork reaches in under the panel, and how
+    /// wide its fade into the blurred copy is. The fade straddles the
+    /// panel's edge, so neither the picture nor the panel has a seam.
+    private static let underlap: CGFloat = 40
+    private static let feather: CGFloat = 100
+
+    /// The copy under the panel is there to carry the picture's colour
+    /// across, not to be looked at.
+    private static let blurRadius: CGFloat = 50
+    private static let blurDarkening: CGFloat = 0.5
+
+    var body: some View {
+        GeometryReader { geo in
+            let artWidth = max(geo.size.width - panelWidth + Self.underlap, 1)
+
+            ZStack(alignment: .topLeading) {
+                Image(Self.imageName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                    .blur(radius: Self.blurRadius, opaque: true)
+                    .overlay(Color.black.opacity(Self.blurDarkening))
+
+                focusedArt(width: artWidth, height: geo.size.height)
+                    .mask {
+                        let fadeStart = max(0, 1 - Self.feather / artWidth)
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black, location: fadeStart),
+                                .init(color: .clear, location: 1),
+                            ],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    }
+            }
+        }
+        .background(Color.black)
+    }
+
+    /// The artwork filling `width` x `height`, cropped about `focusY`
+    /// rather than about its middle - SwiftUI's own alignments only
+    /// offer top, centre and bottom.
+    private func focusedArt(width: CGFloat, height: CGFloat) -> some View {
+        let art = Self.artSize
+        let scale = max(width / art.width, height / art.height)
+        let drawn = CGSize(width: art.width * scale, height: art.height * scale)
+        let y = min(0, max(height - drawn.height, height / 2 - drawn.height * Self.focusY))
+        let x = (width - drawn.width) / 2
+
+        return Image(Self.imageName)
+            .resizable()
+            .frame(width: drawn.width, height: drawn.height)
+            .offset(x: x, y: y)
+            .frame(width: width, height: height, alignment: .topLeading)
+            .clipped()
+    }
+}
+
+/// The iPad form panel's backing: dark frosted glass over the wallpaper,
+/// with a hairline down its left edge so the panel reads as a surface
+/// rather than as a darker patch of the picture.
+struct LoginSidePanelBackground: View {
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            Color.black.opacity(0.45)
+        }
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.clmixLoginOutline.opacity(0.5))
+                .frame(width: 1)
+        }
+    }
+}

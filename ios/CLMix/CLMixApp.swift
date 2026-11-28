@@ -4,6 +4,7 @@ import SwiftUI
 struct CLMixApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     private var isChannelScreen: Bool {
         switch model.screen {
@@ -64,6 +65,12 @@ struct CLMixApp: App {
             // which is what carries it to the status bar's clock and icons
             // and to every sheet.
             .preferredColorScheme(.dark)
+            // An iPad is always on its side - see
+            // AppDelegate.holdLandscapeIfLargeScreen.
+            .onAppear { AppDelegate.holdLandscapeIfLargeScreen(reason: "appeared") }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { AppDelegate.holdLandscapeIfLargeScreen(reason: "active") }
+            }
         }
     }
 }
